@@ -1,0 +1,57 @@
+name: Release Desktop Agent
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build-and-release:
+    name: Build & Publish Windows Agent
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: "npm"
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Compile TypeScript agent
+        run: npm run build:agent:tsc
+
+      - name: Package Windows executable
+        run: npx @yao-pkg/pkg dist/agent/index.js --target node22-win-x64 --output dist/PrintSaathiAgent.exe --compress GZip
+
+      - name: Create release and upload asset
+        uses: softprops/action-gh-release@v2
+        with:
+          name: "PrintSaathi Desktop Agent ${{ github.ref_name }}"
+          body: |
+            ## PrintSaathi Windows Desktop Agent ${{ github.ref_name }}
+
+            ### Installation
+            1. Download `PrintSaathiAgent.exe` below
+            2. Also download `Install-PrintSaathiAgent.ps1`
+            3. Place both files in the same folder, right-click the `.ps1` → **Run with PowerShell**
+            4. Follow the on-screen prompts to pair with your shop
+
+            ### What's included
+            - Silent background Windows Service (auto-starts at boot)
+            - System tray icon for quick access to your Shop Dashboard
+            - Automatic printer discovery and print job handling
+          files: |
+            dist/PrintSaathiAgent.exe
+            scripts/Install-PrintSaathiAgent.ps1
+          draft: false
+          prerelease: false

@@ -1,0 +1,108 @@
+# Desktop Agent — Downloadable Packaging & Distribution
+
+## Background
+
+The agent code in `src/agent/` is already fully built. It:
+- Discovers Windows printers via PowerShell / `Win32_Printer` (CIM)
+- Polls the server for paid print jobs every 5 seconds
+- Downloads the PDF, slices page ranges with `pdf-lib`, and submits to the Windows Print Spooler via `PrintTo` verb
+- Serves a local web dashboard at `http://127.0.0.1:4321`
+- Persists config at `%LOCALAPPDATA%\PrintSaathiAgent\config.json`
+
+**The gap:** Shop owners currently need Node.js + npm installed to run it. We need a true **standalone Windows `.exe`** they can just double-click.
+
+---
+
+## Proposed Changes
+
+### 1 — Package the Agent as a Standalone Windows `.exe`
+
+Use [`pkg`](https://github.com/vercel/pkg) to bundle the TypeScript-compiled agent into a self-contained Windows executable (no Node.js required on the shop owner's machine).
+
+> [!IMPORTANT]
+> `pkg` requires a compiled JS entry point. We'll add a small build step:
+> `tsc --project tsconfig.agent.json` → compiles only `src/agent/` to `dist/agent/`
+> then `pkg dist/agent/index.js` → produces `PrintSaathiAgent.exe`
+
+#### [NEW] `tsconfig.agent.json`
+A separate TypeScript config that compiles only `src/agent/` to `dist/agent/`, targeting CommonJS (required by pkg).
+
+#### [NEW] `agent.pkg.json`
+`pkg` configuration specifying:
+- Entry: `dist/agent/index.js`
+- Target: `node20-win-x64`
+- Output: `dist/PrintSaathiAgent.exe`
+- Assets: include `pdf-lib` wasm assets if any
+
+#### [MODIFY] [`package.json`](file:///c:\Users\user\Downloads\PrintSaathi\package.json)
+Add new scripts:
+```json
+"build:agent":   "tsc --project tsconfig.agent.json && pkg dist/agent/index.js --config agent.pkg.json --output dist/PrintSaathiAgent.exe --target node20-win-x64",
+"agent":         "tsx src/agent/index.ts"   ← already fixed
+```
+
+---
+
+### 2 — Serve the Agent Download from Next.js
+
+#### [NEW] `src/app/api/agent/download/route.ts`
+A Next.js route that serves `dist/PrintSaathiAgent.exe` as a binary download with the correct `Content-Disposition` header. Falls back to a redirect to GitHub Releases if the binary isn't built locally.
+
+---
+
+### 3 — Update the `/download` Page
+
+#### [MODIFY] [`src/app/download/page.tsx`](file:///c:\Users\user\Downloads\PrintSaathi\src\app\download\page.tsx)
+Replace the current "run `npm run agent`" instructions with a proper **Download .exe** button and updated installation steps:
+
+| Old Step | New Step |
+|---|---|
+| Run `npm run agent` | Download `PrintSaathiAgent.exe` |
+| Enter pairing code via CLI | Double-click exe → browser dashboard opens |
+| — | Enter pairing code in the dashboard UI |
+
+---
+
+### 4 — PowerShell Installer Script (Optional but Recommended)
+
+#### [NEW] `dist/Install-PrintSaathiAgent.ps1`
+A one-click PowerShell installer that:
+1. Copies `PrintSaathiAgent.exe` to `%LOCALAPPDATA%\PrintSaathiAgent\`
+2. Creates a Desktop shortcut
+3. Registers the agent as a Windows Startup item (via registry `HKCU\SOFTWARE\Microsoft\Windows\CurrentVersion\Run`)
+
+> [!NOTE]
+> This makes the agent auto-start with Windows so shop owners don't need to remember to run it manually.
+
+---
+
+## Open Questions
+
+> [!IMPORTANT]
+> **Where will the `.exe` be hosted for download?**
+>
+> - **Option A (Recommended):** GitHub Releases — build the exe via a GitHub Actions workflow on each tag push. The download API route redirects to the latest release URL.
+> - **Option B:** Serve directly from the Next.js server (`/api/agent/download`). Simple but adds ~50 MB to the server. Fine for small-scale deployment.
+> - **Option C:** A cloud storage bucket (Supabase Storage or S3).
+
+> [!IMPORTANT]
+> **Should the agent run as a background Windows Service or as a tray app?**
+>
+> - **Option A (Current):** Console window + browser dashboard at port 4321. Shop owner opens it manually.
+> - **Option B:** System tray icon (requires Electron or a separate tray library). Heavier but more user-friendly.
+> - **Option C:** Windows Service via NSSM (Non-Sucking Service Manager) — runs silently in background, survives reboots.
+
+---
+
+## Verification Plan
+
+### Automated
+- `npm run build:agent` should produce `dist/PrintSaathiAgent.exe` without errors
+- Run `.\dist\PrintSaathiAgent.exe` — dashboard should open at `http://127.0.0.1:4321`
+- Printer list should appear in the dashboard
+
+### Manual
+- Open `/download` page and verify the Download button works
+- Download and run the exe on a shop Windows machine
+- Generate a pairing code in Shop Portal → pair the agent
+- Submit a test print job and verify it processes

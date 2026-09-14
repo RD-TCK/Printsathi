@@ -1,0 +1,57 @@
+{
+  "name": "printsaathi",
+  "version": "1.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "concurrently -n \"web,agent\" -c \"cyan,magenta\" \"next dev\" \"tsx src/agent/index.ts\"",
+    "dev:web": "next dev",
+    "dev:agent": "tsx src/agent/index.ts",
+    "build": "next build",
+    "start": "next start",
+    "lint": "eslint .",
+    "typecheck": "tsc --noEmit",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "test": "vitest run",
+    "agent": "tsx src/agent/index.ts",
+    "build:agent:tsc": "tsc --project tsconfig.agent.json",
+    "build:agent": "npm run build:agent:tsc && pkg dist/agent/index.js --target node22-win-x64 --output dist/PrintSaathiAgent.exe --compress GZip"
+  },
+  "pkg": {
+    "assets": [
+      "node_modules/pdf-lib/**/*"
+    ],
+    "scripts": []
+  },
+  "dependencies": {
+    "@supabase/ssr": "^0.12.7",
+    "@supabase/supabase-js": "^2.116.0",
+    "clsx": "^2.1.1",
+    "lucide-react": "^1.43.0",
+    "next": "16.3.4",
+    "pdf-lib": "^1.17.1",
+    "qrcode": "^1.5.4",
+    "razorpay": "^2.9.8",
+    "react": "19.2.8",
+    "react-dom": "19.2.8",
+    "tailwind-merge": "^3.6.0",
+    "zod": "^4.5.4"
+  },
+  "devDependencies": {
+    "@tailwindcss/postcss": "^4",
+    "@types/node": "^20",
+    "@types/qrcode": "^1.5.6",
+    "@types/react": "^19",
+    "@types/react-dom": "^19",
+    "@yao-pkg/pkg": "^6.22.0",
+    "concurrently": "^10.0.5",
+    "eslint": "^9",
+    "eslint-config-next": "16.3.4",
+    "eslint-config-prettier": "^10.1.8",
+    "prettier": "^3.9.6",
+    "tailwindcss": "^4",
+    "tsx": "^4.23.13",
+    "typescript": "^5",
+    "vitest": "^2.1.9"
+  }
+}

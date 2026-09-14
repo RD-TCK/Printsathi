@@ -1,0 +1,234 @@
+#Requires -RunAsAdministrator
+<#
+.SYNOPSIS
+  PrintSaathi Desktop Agent Installer
+  Installs the agent as a Windows Service (NSSM) and sets up a
+  system-tray launcher so shop owners can open the shop dashboard
+  directly from their taskbar.
+
+.NOTES
+  Run this script with: Right-click -> Run with PowerShell
+  Both PrintSaathiAgent.exe and this script must be in the same folder.
+#>
+
+$ErrorActionPreference = "Stop"
+
+# ─── Config ────────────────────────────────────────────────────────────────────
+$ServiceName   = "PrintSaathiAgent"
+$DisplayName   = "PrintSaathi Desktop Agent"
+$AgentExe      = Join-Path $PSScriptRoot "PrintSaathiAgent.exe"
+$InstallDir    = Join-Path $env:LOCALAPPDATA "PrintSaathiAgent"
+$NssmExe       = Join-Path $InstallDir "nssm.exe"
+$InstalledExe  = Join-Path $InstallDir "PrintSaathiAgent.exe"
+$TrayScript    = Join-Path $InstallDir "tray.ps1"
+$TrayVbs       = Join-Path $InstallDir "StartTray.vbs"
+$StartupLink   = Join-Path ([Environment]::GetFolderPath("Startup")) "PrintSaathiTray.lnk"
+$DesktopLink   = Join-Path ([Environment]::GetFolderPath("Desktop")) "PrintSaathi Dashboard.lnk"
+$NssmUrl       = "https://nssm.cc/release/nssm-2.24.zip"
+
+# ─── Banner ────────────────────────────────────────────────────────────────────
+Write-Host ""
+Write-Host "  ╔══════════════════════════════════════════════════╗" -ForegroundColor Cyan
+Write-Host "  ║   PrintSaathi Desktop Agent Installer            ║" -ForegroundColor Cyan
+Write-Host "  ╚══════════════════════════════════════════════════╝" -ForegroundColor Cyan
+Write-Host ""
+
+# ─── Step 1: Verify agent exe ──────────────────────────────────────────────────
+if (-not (Test-Path $AgentExe)) {
+  Write-Host "[ERROR] PrintSaathiAgent.exe not found next to this script." -ForegroundColor Red
+  Write-Host "        Place both files in the same folder and try again."   -ForegroundColor Red
+  exit 1
+}
+Write-Host "[1/6] Found PrintSaathiAgent.exe" -ForegroundColor Green
+
+# ─── Step 2: Create install directory ─────────────────────────────────────────
+if (-not (Test-Path $InstallDir)) {
+  New-Item -ItemType Directory -Path $InstallDir -Force | Out-Null
+}
+Copy-Item $AgentExe $InstalledExe -Force
+Write-Host "[2/6] Copied agent to $InstallDir" -ForegroundColor Green
+
+# ─── Step 3: Download NSSM ────────────────────────────────────────────────────
+if (-not (Test-Path $NssmExe)) {
+  Write-Host "[3/6] Downloading NSSM service manager..." -ForegroundColor Yellow
+  $zipPath = Join-Path $env:TEMP "nssm.zip"
+  $zipExtract = Join-Path $env:TEMP "nssm_extract"
+  Invoke-WebRequest -Uri $NssmUrl -OutFile $zipPath -UseBasicParsing
+  Expand-Archive -Path $zipPath -DestinationPath $zipExtract -Force
+  $nssmBin = Get-ChildItem -Recurse -Filter "nssm.exe" $zipExtract |
+              Where-Object { $_.FullName -match "win64" } |
+              Select-Object -First 1
+  if (-not $nssmBin) {
+    $nssmBin = Get-ChildItem -Recurse -Filter "nssm.exe" $zipExtract | Select-Object -First 1
+  }
+  Copy-Item $nssmBin.FullName $NssmExe -Force
+  Remove-Item $zipPath -Force -ErrorAction SilentlyContinue
+  Remove-Item $zipExtract -Recurse -Force -ErrorAction SilentlyContinue
+  Write-Host "[3/6] NSSM downloaded" -ForegroundColor Green
+} else {
+  Write-Host "[3/6] NSSM already present — skipping download" -ForegroundColor Green
+}
+
+# ─── Step 4: Install / update Windows Service ─────────────────────────────────
+$existing = Get-Service -Name $ServiceName -ErrorAction SilentlyContinue
+if ($existing) {
+  Write-Host "[4/6] Stopping existing service for update..." -ForegroundColor Yellow
+  & $NssmExe stop $ServiceName confirm 2>&1 | Out-Null
+  & $NssmExe remove $ServiceName confirm 2>&1 | Out-Null
+}
+
+& $NssmExe install $ServiceName $InstalledExe "--service"
+& $NssmExe set $ServiceName DisplayName $DisplayName
+& $NssmExe set $ServiceName Description "PrintSaathi Windows Desktop Agent — handles printer discovery and print job execution for your shop."
+& $NssmExe set $ServiceName AppDirectory $InstallDir
+& $NssmExe set $ServiceName Start SERVICE_AUTO_START
+& $NssmExe set $ServiceName AppRestartDelay 5000
+& $NssmExe set $ServiceName AppStdout (Join-Path $InstallDir "agent.log")
+& $NssmExe set $ServiceName AppStderr (Join-Path $InstallDir "agent-error.log")
+& $NssmExe start $ServiceName
+Write-Host "[4/6] Windows Service '$ServiceName' installed and started" -ForegroundColor Green
+
+# ─── Step 5: Write PowerShell system-tray script ──────────────────────────────
+#
+#   This script runs in the user's session (not as a service) and puts a
+#   PrintSaathi icon in the system tray. Shop owners right-click to open
+#   the shop owner dashboard or the local agent status page.
+#
+$ServerUrl = Read-Host "  Enter your PrintSaathi server URL (e.g. https://yourshop.printsaathi.com)"
+if ([string]::IsNullOrWhiteSpace($ServerUrl)) { $ServerUrl = "http://localhost:3000" }
+
+$trayContent = @"
+# PrintSaathi System Tray — auto-generated by installer
+# Do not edit manually; re-run Install-PrintSaathiAgent.ps1 to update.
+
+Add-Type -AssemblyName System.Windows.Forms
+Add-Type -AssemblyName System.Drawing
+
+`$serverUrl = "$ServerUrl"
+`$agentUrl  = "http://127.0.0.1:4321"
+
+# ── Build tray icon from a base64 PNG ─────────────────────────────────────────
+# 32x32 green printer icon (PrintSaathi brand colour #0f766e)
+`$iconBase64 = @'
+iVBORw0KGgoAAAANSUhEUgAAACAAAAAgCAYAAABzenr0AAAAAXNSR0IArs4c6QAAAARnQU1BAACxjwv8
+YQUAAAAJcEhZcwAADsMAAA7DAcdvqGQAAAHbSURBVFhH7ZY9TsNAEIW/xBZFREFBgSihpYGKgoYT
+cAMuwAW4AEdA4gScgQNwAKgQBQUFBaJAERFREVGk2GvW3th4PeNkk9iRRnpaz+zszNvxjz0ABQUF
+BQUFBf8FSik1hg8AuAVwB+BUVR8A2ALwCuASwA6AHoArgHkAmwB6AJYALAAsAZgD8ANgCcAhgA8A
+YwBnAM4BXAKYAXAFYBrA3/8BAQEBAQEBobi4uLS0tOzs7AoKCgwMDHp6eoKCgjQ0NCwsLBQUFBwc
+HCQkJCwsLDQ0NDw8PERERExMTFRUVFxcXGRkZGxsbHR0dHx8fISEhIyMjJSUlJycnKSkpKysrLS0
+tLy8vMTExMzMzNTU1Nzc3OTk5Ozs7PT09Pz8/AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA
+AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAICj
+AACAAgAAAAAAAQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAB
+gAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAD
+/7QAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAB4AAAA
+AAAAAIAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABAPwAAAAA
+AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA
+AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAP//AAAA==
+'@
+
+try {
+  `$iconBytes  = [Convert]::FromBase64String(`$iconBase64 -replace '\s', '')
+  `$iconStream = New-Object System.IO.MemoryStream(,`$iconBytes)
+  `$bitmap     = [System.Drawing.Bitmap]::FromStream(`$iconStream)
+  `$icon       = [System.Drawing.Icon]::FromHandle(`$bitmap.GetHicon())
+} catch {
+  `$icon = [System.Drawing.SystemIcons]::Application
+}
+
+# ── Build context menu ────────────────────────────────────────────────────────
+`$menu   = New-Object System.Windows.Forms.ContextMenuStrip
+
+`$itemShop = New-Object System.Windows.Forms.ToolStripMenuItem
+`$itemShop.Text = "Open Shop Dashboard"
+`$itemShop.Font = New-Object System.Drawing.Font("Segoe UI", 9, [System.Drawing.FontStyle]::Bold)
+`$itemShop.Add_Click({ Start-Process "`$serverUrl/shop" })
+
+`$itemAgent = New-Object System.Windows.Forms.ToolStripMenuItem
+`$itemAgent.Text = "Agent Status & Printers"
+`$itemAgent.Add_Click({ Start-Process `$agentUrl })
+
+`$itemSep  = New-Object System.Windows.Forms.ToolStripSeparator
+
+`$itemExit = New-Object System.Windows.Forms.ToolStripMenuItem
+`$itemExit.Text = "Exit Tray"
+`$itemExit.Add_Click({
+  `$tray.Visible = `$false
+  `$tray.Dispose()
+  [System.Windows.Forms.Application]::Exit()
+})
+
+`$menu.Items.AddRange(@(`$itemShop, `$itemAgent, `$itemSep, `$itemExit))
+
+# ── Tray icon ─────────────────────────────────────────────────────────────────
+`$tray                  = New-Object System.Windows.Forms.NotifyIcon
+`$tray.Icon             = `$icon
+`$tray.Text             = "PrintSaathi — Shop Agent"
+`$tray.Visible          = `$true
+`$tray.ContextMenuStrip = `$menu
+
+# Double-click → open shop dashboard
+`$tray.Add_DoubleClick({ Start-Process "`$serverUrl/shop" })
+
+# Poll agent status every 15 s to update tooltip
+`$timer          = New-Object System.Windows.Forms.Timer
+`$timer.Interval = 15000
+`$timer.Add_Tick({
+  try {
+    `$r = Invoke-RestMethod "http://127.0.0.1:4321/api/status" -TimeoutSec 2 -ErrorAction Stop
+    if (`$r.isPaired -and `$r.isConnected) {
+      `$tray.Text = "PrintSaathi — Connected ✓ (`$(`$r.shopName))"
+    } elseif (`$r.isPaired) {
+      `$tray.Text = "PrintSaathi — Paired, not connected"
+    } else {
+      `$tray.Text = "PrintSaathi — Not paired yet"
+    }
+  } catch {
+    `$tray.Text = "PrintSaathi — Agent offline"
+  }
+})
+`$timer.Start()
+
+[System.Windows.Forms.Application]::Run()
+"@
+
+Set-Content -Path $TrayScript -Value $trayContent -Encoding UTF8
+Write-Host "[5/6] System tray script written to $TrayScript" -ForegroundColor Green
+
+# ── VBScript launcher (starts PowerShell hidden — no console window) ───────────
+$vbsContent = @"
+Set objShell = CreateObject("WScript.Shell")
+objShell.Run "powershell.exe -ExecutionPolicy Bypass -WindowStyle Hidden -File """ & "$TrayScript" & """", 0, False
+"@
+Set-Content -Path $TrayVbs -Value $vbsContent -Encoding ASCII
+
+# ── Windows Startup shortcut (runs tray on login) ─────────────────────────────
+$shell = New-Object -ComObject WScript.Shell
+$startupShortcut = $shell.CreateShortcut($StartupLink)
+$startupShortcut.TargetPath = "wscript.exe"
+$startupShortcut.Arguments  = "`"$TrayVbs`""
+$startupShortcut.Description = "PrintSaathi System Tray"
+$startupShortcut.Save()
+
+# ── Desktop shortcut (opens shop dashboard directly) ──────────────────────────
+$desktopShortcut = $shell.CreateShortcut($DesktopLink)
+$desktopShortcut.TargetPath  = "$ServerUrl/shop"
+$desktopShortcut.Description = "Open PrintSaathi Shop Dashboard"
+$desktopShortcut.Save()
+
+Write-Host "[6/6] Shortcuts created (Startup + Desktop)" -ForegroundColor Green
+
+# ── Launch tray now ────────────────────────────────────────────────────────────
+Write-Host ""
+Write-Host "  ✅  Installation complete!" -ForegroundColor Green
+Write-Host ""
+Write-Host "  • The agent service is running in the background."
+Write-Host "  • A tray icon appears in the system notification area."
+Write-Host "  • Double-click the tray icon or use 'PrintSaathi Dashboard'"
+Write-Host "    on your Desktop to open the Shop Owner Dashboard."
+Write-Host ""
+Write-Host "  Next step: Generate a pairing code in the Shop Portal"
+Write-Host "  (Shop → Hardware Bridge) and right-click the tray icon"
+Write-Host "  → 'Agent Status & Printers' to enter it."
+Write-Host ""
+
+Start-Process "wscript.exe" -ArgumentList "`"$TrayVbs`"" -WindowStyle Hidden
