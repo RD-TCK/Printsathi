@@ -563,13 +563,7 @@ export class AgentWebServer {
         const connDiv = document.getElementById('connectionDetails');
         if (!status.isPaired) {
           connDiv.innerHTML = \`
-            <div style="display:flex; border-bottom:1px solid #e2e8f0; margin-bottom:14px;">
-              <button id="tabBtnSignin" class="tab-btn \${activeAuthTab === 'signin' ? 'active' : ''}" onclick="switchAuthTab('signin')">🔑 Sign In (Account)</button>
-              <button id="tabBtnPair" class="tab-btn \${activeAuthTab === 'pair' ? 'active' : ''}" onclick="switchAuthTab('pair')">🔢 Pairing Code</button>
-            </div>
-
-            <!-- Tab 1: Direct Account Sign In -->
-            <div id="signinFormContainer" style="display:\${activeAuthTab === 'signin' ? 'block' : 'none'}">
+            <div id="signinFormContainer">
               <p style="font-size:12px; color:var(--text-muted); margin-bottom:12px;">
                 Sign in with your <b>PrintSaathi Shop Owner account</b>. The agent will instantly link with your shop and detect your hardware printers automatically.
               </p>
@@ -581,23 +575,6 @@ export class AgentWebServer {
                 <input type="hidden" id="loginAgentNameInput" value="\${status.agentName || 'Shop Windows PC'}" />
                 <button type="submit" id="loginBtn" class="btn" style="padding:11px; font-weight:700;">Sign In &amp; Connect Shop</button>
               </form>
-            </div>
-
-            <!-- Tab 2: Pairing Code Option -->
-            <div id="pairFormContainer" style="display:\${activeAuthTab === 'pair' ? 'block' : 'none'}">
-              <p style="font-size:12px; color:var(--text-muted); margin-bottom:12px;">
-                Enter the 6-character code from your <b>Shop Dashboard &rarr; Printer Settings</b>.
-              </p>
-              <form onsubmit="pairAgent(event)">
-                <label style="font-size:12px; font-weight:700; color:var(--text-main); display:block; margin-bottom:4px;">Pairing Code</label>
-                <div style="display:flex; gap:8px; margin-bottom:10px;">
-                  <input type="text" id="pairingCodeInput" class="input-field" placeholder="e.g. XY98Z2" style="margin:0; font-family:monospace; font-size:15px; font-weight:700; letter-spacing:2px; text-transform:uppercase;" required />
-                  <button type="button" class="btn btn-secondary" style="width:auto; padding:0 12px; font-size:12px;" onclick="pasteCode()">📋 Paste</button>
-                </div>
-                <input type="hidden" id="agentNameInput" value="\${status.agentName || 'Shop Windows PC'}" />
-                <button type="submit" id="pairBtn" class="btn" style="padding:11px; font-weight:700;">Connect with Pairing Code</button>
-              </form>
-            </div>
           \`;
         } else {
           connDiv.innerHTML = \`

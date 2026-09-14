@@ -42,6 +42,26 @@ export async function POST(request: Request) {
       { status: 409 },
     );
   }
+
+  const [{ data: agents }, { data: printers }] = await Promise.all([
+    client
+      .from("desktop_agents")
+      .select("last_heartbeat_at")
+      .eq("shop_id", shop.id)
+      .eq("is_revoked", false)
+      .order("last_heartbeat_at", { ascending: false })
+      .limit(1),
+    client.from("printers").select("is_online, status, capabilities, last_seen_at").eq("shop_id", shop.id),
+  ]);
+  const latestAgent = agents?.[0];
+  const agentIsOnline = Boolean(
+    latestAgent?.last_heartbeat_at && Date.now() - new Date(latestAgent.last_heartbeat_at).getTime() < 120000,
+  );
+  const colorPrinterIsOnline = (printers ?? []).some((printer) => {
+    const printerIsFresh = printer.last_seen_at && Date.now() - new Date(printer.last_seen_at).getTime() < 120000;
+    const isOnline = (agentIsOnline || printerIsFresh) && (printer.is_online || printer.status === "online" || printer.status === "printing");
+    return isOnline && Boolean((printer.capabilities as { colorSupport?: boolean } | null)?.colorSupport);
+  });
   const { data: documents } = await client
     .from("documents")
     .select("id, order_id, page_count")
@@ -75,6 +95,12 @@ export async function POST(request: Request) {
     const rangeError = validateRanges(configuration.ranges, document.page_count);
     if (rangeError) return NextResponse.json({ error: rangeError }, { status: 400 });
     allRanges.push(...configuration.ranges);
+  }
+  if (allRanges.some((range) => range.colorMode === "color") && !colorPrinterIsOnline) {
+    return NextResponse.json(
+      { error: "No color printer is currently connected at this shop. Please select Black & White printing." },
+      { status: 409 },
+    );
   }
   try {
     const pricing = calculatePricing(

@@ -109,11 +109,22 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "This shop has not configured printing prices yet." }, { status: 409 });
   const allRanges = parsed.data.configurations.flatMap((configuration) => configuration.ranges);
   const requestsColor = allRanges.some((r) => r.colorMode === "color");
-  if (requestsColor && onlinePrinters.length > 0) {
-    const hasColorPrinter = onlinePrinters.some((p) => Boolean((p.capabilities as any)?.colorSupport));
-    if (!hasColorPrinter) {
+  const hasColorPrinter = onlinePrinters.some((p) => Boolean((p.capabilities as any)?.colorSupport));
+  if (requestsColor && !hasColorPrinter) {
+    return NextResponse.json(
+      { error: "No color printer is currently connected at this shop. Please select Black & White printing." },
+      { status: 409 },
+    );
+  }
+
+  if (selectedPrinterId) {
+    const selectedPrinter = onlinePrinters.find((printer) => printer.id === selectedPrinterId);
+    if (!selectedPrinter) {
+      return NextResponse.json({ error: "The selected printer is not currently connected." }, { status: 409 });
+    }
+    if (requestsColor && !Boolean((selectedPrinter.capabilities as any)?.colorSupport)) {
       return NextResponse.json(
-        { error: "No color printer is currently online at this shop. Please select Black & White printing." },
+        { error: "The selected printer does not support color printing." },
         { status: 409 },
       );
     }
@@ -157,7 +168,6 @@ export async function POST(request: Request) {
         ).total.toFixed(2),
       ),
       idempotency_key: crypto.randomUUID(),
-      ...(selectedPrinterId ? { printer_id: selectedPrinterId } : {}),
     });
     if (jobError) return NextResponse.json({ error: "Could not save print configuration." }, { status: 500 });
     const { error: pagesError } = await client.from("print_job_pages").insert(

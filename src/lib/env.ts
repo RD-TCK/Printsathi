@@ -54,6 +54,6 @@ export function getRazorpayServerEnv() {
 export function getAgentDownloadUrl(): string {
   return (
     process.env.AGENT_DOWNLOAD_URL ||
-    "https://github.com/Shreasth30/PrintSaathi/releases/latest/download/PrintSaathiAgent.exe"
+    "https://github.com/RD-TCK/Printsathi/releases/latest/download/PrintSaathiAgent.exe"
   );
 }

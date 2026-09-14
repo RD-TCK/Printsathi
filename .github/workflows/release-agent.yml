@@ -30,8 +30,8 @@ jobs:
       - name: Compile TypeScript agent
         run: npm run build:agent:tsc
 
-      - name: Package Windows executable
-        run: npx @yao-pkg/pkg dist/agent/index.js --target node22-win-x64 --output dist/PrintSaathiAgent.exe --compress GZip
+      - name: Package native Windows desktop installer
+        run: npm run build:desktop
 
       - name: Create release and upload asset
         uses: softprops/action-gh-release@v2
@@ -42,16 +42,15 @@ jobs:
 
             ### Installation
             1. Download `PrintSaathiAgent.exe` below
-            2. Also download `Install-PrintSaathiAgent.ps1`
-            3. Place both files in the same folder, right-click the `.ps1` → **Run with PowerShell**
-            4. Follow the on-screen prompts to pair with your shop
+            2. Run the installer and launch PrintSaathi from the Start menu
+            3. Sign in with your PrintSaathi shop-owner account in the desktop app
+            4. Leave the app running in the Windows notification area for automatic printing
 
             ### What's included
-            - Silent background Windows Service (auto-starts at boot)
-            - System tray icon for quick access to your Shop Dashboard
+            - Native Windows desktop window and system tray app
+            - Background agent remains active after the window is closed
             - Automatic printer discovery and print job handling
           files: |
             dist/PrintSaathiAgent.exe
-            scripts/Install-PrintSaathiAgent.ps1
           draft: false
           prerelease: false

@@ -766,7 +766,9 @@ function ConfigureAndPayStep({
                 onChange={(event) => updateRange(index, "colorMode", event.target.value)}
               >
                 <option value="black_and_white">📄 Black &amp; White</option>
-                <option value="color">🎨 Full Color</option>
+                <option value="color" disabled={shop.color_printer_status !== "ready"}>
+                  🎨 Full Color {shop.color_printer_status !== "ready" ? "(Unavailable)" : ""}
+                </option>
               </Select>
               <Select
                 label="Paper Size"
