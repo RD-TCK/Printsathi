@@ -31,6 +31,8 @@ jobs:
         run: npm run build:agent:tsc
 
       - name: Package native Windows desktop installer
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: npm run build:desktop
 
       - name: Create release and upload asset
@@ -51,6 +53,6 @@ jobs:
             - Background agent remains active after the window is closed
             - Automatic printer discovery and print job handling
           files: |
-            dist/PrintSaathiAgent.exe
+            dist/*.exe
           draft: false
           prerelease: false
