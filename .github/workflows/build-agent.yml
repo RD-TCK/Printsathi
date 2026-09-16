@@ -27,6 +27,8 @@ jobs:
         run: npm run build:agent:tsc
 
       - name: Package native Windows desktop app
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: npm run build:desktop
 
       - name: Upload Desktop Agent Installer
