@@ -1,8 +1,11 @@
 const fs = require("node:fs");
 const path = require("node:path");
 const source = path.join(path.dirname(require.resolve("pdf-to-printer")), "SumatraPDF-3.4.6-32.exe");
-const destination = path.join(__dirname, "../dist/agent/renderer-data.json");
-fs.mkdirSync(path.dirname(destination), { recursive: true });
-// Explicit JSON require works even when pkg asset globs fail on parentheses in workspace paths.
-fs.writeFileSync(destination, JSON.stringify({ base64: fs.readFileSync(source).toString("base64") }));
+const destinationJson = path.join(__dirname, "../dist/agent/renderer-data.json");
+const destinationExe = path.join(__dirname, "../dist/agent/SumatraPDF.exe");
+fs.mkdirSync(path.dirname(destinationJson), { recursive: true });
+fs.writeFileSync(destinationJson, JSON.stringify({ base64: fs.readFileSync(source).toString("base64") }));
+if (fs.existsSync(source)) {
+  fs.copyFileSync(source, destinationExe);
+}
 console.log("Embedded PDF renderer module generated.");
