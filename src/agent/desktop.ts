@@ -13,10 +13,23 @@ async function startDesktopAgent() {
   await app.whenReady();
   app.setAppUserModelId("com.printsaathi.agent");
 
-  await agentDaemon.start();
-  webServer = new AgentWebServer(4321);
-  const port = await webServer.start();
-  dashboardUrl = `http://127.0.0.1:${port}`;
+  try {
+    await agentDaemon.start();
+    webServer = new AgentWebServer(4321);
+    const port = await webServer.start();
+    dashboardUrl = `http://127.0.0.1:${port}`;
+  } catch (error) {
+    if (!(error instanceof Error) || !error.message.includes("already running")) throw error;
+    for (let port = 4321; port <= 4330; port += 1) {
+      try {
+        const url = `http://127.0.0.1:${port}`;
+        const response = await fetch(`${url}/api/status`, { signal: AbortSignal.timeout(1000) });
+        const status = await response.json();
+        if (typeof status.isPaired === "boolean" && Array.isArray(status.printers)) { dashboardUrl = url; break; }
+      } catch { /* Try the next dashboard port. */ }
+    }
+    if (!dashboardUrl) throw error;
+  }
 
   createTray();
   createWindow();

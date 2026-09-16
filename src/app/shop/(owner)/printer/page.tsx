@@ -1,3 +1,6 @@
+import { WebAutoPrintStation } from "@/components/web-auto-print";
+import { PrinterStatusRefresh } from "@/components/printer-status-refresh";
+import { availablePrinters, isPhysical } from "@/lib/printer-availability";
 import Link from "next/link";
 import { Check, Download, KeyRound, Monitor, Printer, ShieldAlert, Trash2 } from "lucide-react";
 import { getShopContext, formatStatus, canManageShop, isHeartbeatFresh } from "@/lib/shop-portal";
@@ -69,10 +72,12 @@ export default async function PrinterPage({ searchParams }: PrinterPageProps) {
   ]);
 
   const activeAgents: AgentRecord[] = agents ?? [];
-  const printerList: PrinterRecord[] = printers ?? [];
+  const available = new Set(availablePrinters(printers || [], activeAgents).map(p => p.id));
+  const printerList: PrinterRecord[] = (printers || []).filter(isPhysical).map(p => ({ ...p, is_online: available.has(p.id), status: available.has(p.id) ? p.status : "offline" }));
 
   return (
     <div className="space-y-8">
+      <PrinterStatusRefresh />
       <ShopPageHeader
         eyebrow="Hardware bridge"
         title="Printer connection &amp; Windows Agent"
@@ -89,9 +94,7 @@ export default async function PrinterPage({ searchParams }: PrinterPageProps) {
         }
       />
 
-      <Alert tone="success" title="⚡ Web Printing Active — Desktop Agent is Optional">
-        Your shop can receive and print customer orders 100% via the web! Installing the Windows Desktop Agent is optional and only needed if you want headless background spooling without keeping a web browser tab open.
-      </Alert>
+      <WebAutoPrintStation shopName={context.shop.name} />
 
       {params.error ? (
         <Alert tone="error" title="Action failed">
@@ -136,7 +139,7 @@ export default async function PrinterPage({ searchParams }: PrinterPageProps) {
           </div>
           <h2 className="mt-5 text-xl font-semibold text-brand-950">Windows Desktop Agent (Optional)</h2>
           <p className="mt-2 max-w-xl text-sm leading-6 text-muted">
-            You do <b>not</b> need to install software to print. You can print directly from the <Link href="/shop/jobs" className="font-semibold text-brand-700 underline">Web Auto-Print Station</Link>. If you prefer silent background spooling without keeping a browser tab open, generate a pairing code below.
+            Install and run the Windows agent on the computer connected to your printer for automatic printing. Generate a pairing code below, then monitor paid jobs in <Link href="/shop/jobs" className="font-semibold text-brand-700 underline">Jobs</Link>. Keep the agent running so customers’ documents print without opening a browser print dialog.
           </p>
           {canManage ? (
             <form action={generateAgentPairingCode} className="mt-6">
@@ -165,7 +168,7 @@ export default async function PrinterPage({ searchParams }: PrinterPageProps) {
 
           <div className="grid gap-5">
             {activeAgents.map((agent) => {
-              const isFresh = isHeartbeatFresh(agent.last_heartbeat_at) && agent.status === "online";
+              const isFresh = isHeartbeatFresh(agent.last_heartbeat_at, 30000) && agent.status === "online";
               const hostname = (agent.machine_info?.hostname as string) || "Windows Machine";
               const osPlatform = (agent.machine_info?.platform as string) || "Windows";
 
@@ -215,7 +218,7 @@ export default async function PrinterPage({ searchParams }: PrinterPageProps) {
                     <div>
                       <span className="text-muted">Heartbeat Health:</span>{" "}
                       <span className={isFresh ? "text-emerald-700 font-semibold" : "text-amber-700 font-semibold"}>
-                        {isFresh ? "Healthy (<90s)" : "Stale / Offline"}
+                        {isFresh ? "Healthy (<30s)" : "Stale / Offline"}
                       </span>
                     </div>
                   </div>

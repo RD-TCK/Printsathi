@@ -83,7 +83,7 @@ export default async function PricingPage({
       </div>
 
       {/* Real-time Pricing Simulator */}
-      <PricingSimulator rules={(rules || []) as any} />
+      <PricingSimulator rules={rules || []} />
 
       <div className="grid gap-6 xl:grid-cols-[.85fr_1.15fr]">
         <Card>

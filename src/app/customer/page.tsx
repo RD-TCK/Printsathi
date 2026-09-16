@@ -136,7 +136,7 @@ export default async function MyOrdersPage() {
             Scan a QR code at any PrintSathi shop to upload your documents and print instantly.
           </p>
           <Link
-            href="/"
+            href="/shops"
             className="mt-6 inline-flex items-center gap-2 rounded-xl bg-emerald-600 px-5 py-2.5 text-sm font-semibold text-white shadow-sm hover:bg-emerald-700 transition-colors"
           >
             <Printer className="size-4" />
@@ -152,13 +152,12 @@ export default async function MyOrdersPage() {
             const anyFailed = jobs.some((j) => j.status === "failed");
             const paymentStatus = (payment as { status?: string } | null)?.status;
             const status = statusMeta(order.status, paymentStatus, anyFailed);
-            const StatusIcon = status.icon;
             const docs = jobs.flatMap((j) => Array.isArray(j.documents) ? j.documents : j.documents ? [j.documents] : []);
 
             return (
               <Link
                 key={order.id}
-                href={`/my/orders/${order.public_id || order.id}`}
+                href={`/customer/orders/${order.public_id || order.id}`}
                 className="group block rounded-2xl border border-slate-200 bg-white p-5 shadow-sm transition hover:border-emerald-300 hover:shadow-md"
               >
                 <div className="flex flex-wrap items-start justify-between gap-3">
@@ -251,7 +250,7 @@ export default async function MyOrdersPage() {
             </div>
           </div>
           <Link
-            href="/"
+            href="/shops"
             className="shrink-0 inline-flex items-center gap-2 rounded-xl bg-emerald-600 px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-emerald-700 transition-colors"
           >
             <Printer className="size-4" />

@@ -1,29 +1,53 @@
 import fs from "node:fs";
 import path from "node:path";
 import os from "node:os";
-import { exec } from "node:child_process";
+import { execFile } from "node:child_process";
+import { promisify } from "node:util";
+import { createHash } from "node:crypto";
+import { discoverWindowsPrinters, isPhysicalPrinter } from "./printer-discovery";
 import { PDFDocument } from "pdf-lib";
 import type { ClaimedJob } from "./types";
 import { logger } from "./logger";
 
-const execAsync = (cmd: string, options?: { timeout?: number }): Promise<{ stdout: string; stderr: string }> => {
-  return new Promise((resolve, reject) => {
-    exec(cmd, options, (error, stdout, stderr) => {
-      if (error) {
-        reject(error);
-      } else {
-        resolve({ stdout: stdout.toString(), stderr: stderr.toString() });
-      }
-    });
-  });
-};
+const execFileAsync = promisify(execFile);
+
+function rendererPath(): string {
+  const bundled = path
+    .join(path.dirname(require.resolve("pdf-to-printer")), "SumatraPDF-3.4.6-32.exe")
+    .replace(/app\.asar([\\/])/, "app.asar.unpacked$1");
+  // pkg assets live in a virtual filesystem and must be extracted before execution.
+  if ((process as NodeJS.Process & { pkg?: unknown }).pkg) {
+    const directory = fs.mkdtempSync(path.join(os.tmpdir(), "printsaathi-renderer-"));
+    const executable = path.join(directory, "SumatraPDF.exe");
+    // Static require is required for pkg to include the renderer payload.
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    fs.writeFileSync(executable, Buffer.from(require("./renderer-data.json").base64, "base64"));
+    return executable;
+  }
+  return bundled;
+}
+
+export function checkPrintBackend(): { bytes: number; sha256: string } {
+  const executable = rendererPath();
+  try {
+    const bytes = fs.readFileSync(executable);
+    if (bytes.length < 1024 || bytes.toString("ascii", 0, 2) !== "MZ") {
+      throw new Error("Bundled PDF renderer is not a valid Windows executable.");
+    }
+    return { bytes: bytes.length, sha256: createHash("sha256").update(bytes).digest("hex") };
+  } finally {
+    if ((process as NodeJS.Process & { pkg?: unknown }).pkg) {
+      fs.unlinkSync(executable);
+      fs.rmdirSync(path.dirname(executable));
+    }
+  }
+}
 
 export interface PrintExecutionResult {
   success: boolean;
   status: "PRINT_SUBMITTED" | "PRINT_FAILED";
   printerName: string;
-  pagesPrinted: number;
-  spoolJobId?: string;
+  pagesSubmitted: number;
   errorMessage?: string;
 }
 
@@ -39,20 +63,45 @@ export async function prepareAndPrintDocument(
 
   let finalPdfPath = sourcePdfPath;
   let tempExtractedPath: string | null = null;
+  let extractedRenderer: string | null = null;
 
   try {
+    if (!isWindows) throw new Error("Physical printing requires Windows; no job was submitted.");
+    const printer = (await discoverWindowsPrinters()).find((p) => p.name === targetPrinterName);
+    if (!printer || !isPhysicalPrinter(printer) || !["online", "printing"].includes(printer.status)) {
+      throw new Error(
+        `Printer "${targetPrinterName}" is unavailable, offline, or virtual. Check its Windows print queue.`,
+      );
+    }
+    if (activeConfigs?.some(config => config.colorMode !== activeConfigs[0].colorMode || config.paperSize !== activeConfigs[0].paperSize)) {
+      throw new Error("Mixed paper/color settings must be submitted as separate print groups.");
+    }
+    const sourcePdf = await PDFDocument.load(fs.readFileSync(sourcePdfPath));
+    for (const config of activeConfigs || []) {
+      if (
+        !Number.isInteger(config.startPage) ||
+        !Number.isInteger(config.endPage) ||
+        config.startPage < 1 ||
+        config.endPage < config.startPage ||
+        config.endPage > sourcePdf.getPageCount()
+      ) {
+        throw new Error("Invalid print page range; no pages were submitted.");
+      }
+    }
     // 1. Process page ranges if necessary
     const isSubset =
       activeConfigs &&
       activeConfigs.length > 0 &&
-      !(activeConfigs.length === 1 && activeConfigs[0].startPage === 1 && activeConfigs[0].endPage === job.totalPages);
+      !(
+        activeConfigs.length === 1 &&
+        activeConfigs[0].startPage === 1 &&
+        activeConfigs[0].endPage === sourcePdf.getPageCount()
+      );
 
-    let effectivePagesCount = job.totalPages;
+    let effectivePagesCount = sourcePdf.getPageCount();
 
     if (isSubset) {
       logger.info(`Extracting configured page ranges for Job #${job.id.slice(0, 8)}...`);
-      const sourceBytes = fs.readFileSync(sourcePdfPath);
-      const sourcePdf = await PDFDocument.load(sourceBytes);
       const outputPdf = await PDFDocument.create();
 
       let calculatedPages = 0;
@@ -81,44 +130,31 @@ export async function prepareAndPrintDocument(
       finalPdfPath = tempExtractedPath;
     }
 
-    // 2. Submit to Windows Print Subsystem
-    if (isWindows) {
-      const sanitizedPrinterName = targetPrinterName.replace(/"/g, '`"');
-      const sanitizedPdfPath = finalPdfPath.replace(/"/g, '`"');
-
-      // Execute Windows PrintTo verb via PowerShell
-      const printCommand = `powershell.exe -NoProfile -NonInteractive -Command "$p = Start-Process -FilePath '${sanitizedPdfPath}' -Verb PrintTo -ArgumentList '${sanitizedPrinterName}' -PassThru; Start-Sleep -Milliseconds 800; if ($p -and !$p.HasExited) { Stop-Process -Id $p.Id -Force -ErrorAction SilentlyContinue }"`;
-
-      logger.info(`Invoking Windows Print Spooler on printer "${targetPrinterName}"...`);
-
-      try {
-        await execAsync(printCommand, { timeout: 25000 });
-      } catch (cmdErr) {
-        logger.warn("PrintTo verb command exited, checking spooler queue status...", {
-          error: cmdErr instanceof Error ? cmdErr.message : String(cmdErr),
-        });
+    const settings = ["fit", "simplex"];
+    const config = activeConfigs?.[0];
+    if (config) {
+      settings.push(config.colorMode === "color" ? "color" : "monochrome");
+      if (config.paperSize) {
+        settings.push(`paper=${config.paperSize.toUpperCase()}`);
       }
-
-      logger.info(`Print job for Job #${job.id.slice(0, 8)} submitted to Windows print queue "${targetPrinterName}".`);
-
-      return {
-        success: true,
-        status: "PRINT_SUBMITTED",
-        printerName: targetPrinterName,
-        pagesPrinted: effectivePagesCount,
-        spoolJobId: `spool_${Date.now()}_${job.id.slice(0, 8)}`,
-      };
-    } else {
-      // Development / Non-Windows fallback
-      logger.info(`[Dev/Non-Windows] Document submitted to simulated print spooler for "${targetPrinterName}".`);
-      return {
-        success: true,
-        status: "PRINT_SUBMITTED",
-        printerName: targetPrinterName,
-        pagesPrinted: effectivePagesCount,
-        spoolJobId: `sim_spool_${Date.now()}`,
-      };
     }
+    const executable = rendererPath();
+    if ((process as NodeJS.Process & { pkg?: unknown }).pkg) extractedRenderer = executable;
+    logger.info(`Rendering PDF and submitting to Windows printer "${targetPrinterName}"...`);
+    // Wait for the renderer to finish spooling before removing the source PDF.
+    // A successful renderer exit is submission, not proof of physical output.
+    await execFileAsync(
+      executable,
+      ["-print-to", targetPrinterName, "-silent", "-print-settings", settings.join(","), finalPdfPath],
+      { timeout: 120000, windowsHide: true },
+    );
+    logger.info(`Job #${job.id.slice(0, 8)} submitted to "${targetPrinterName}"; physical completion is unconfirmed.`);
+    return {
+      success: true,
+      status: "PRINT_SUBMITTED",
+      printerName: targetPrinterName,
+      pagesSubmitted: effectivePagesCount,
+    };
   } catch (error) {
     const errorMsg = error instanceof Error ? error.message : "Print execution error";
     logger.error(`Print execution failed for Job #${job.id.slice(0, 8)}: ${errorMsg}`);
@@ -126,10 +162,18 @@ export async function prepareAndPrintDocument(
       success: false,
       status: "PRINT_FAILED",
       printerName: targetPrinterName,
-      pagesPrinted: 0,
+      pagesSubmitted: 0,
       errorMessage: errorMsg,
     };
   } finally {
+    if (extractedRenderer) {
+      try {
+        fs.unlinkSync(extractedRenderer);
+        fs.rmdirSync(path.dirname(extractedRenderer));
+      } catch {
+        /* Best-effort renderer cleanup. */
+      }
+    }
     // Clean up sliced temporary PDF
     if (tempExtractedPath && fs.existsSync(tempExtractedPath)) {
       try {

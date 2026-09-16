@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { availablePrinters, supportsPrint } from "@/lib/printer-availability";
 import { z } from "zod";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import { configurationSchema, validateRanges } from "@/lib/customer-print";
@@ -10,7 +11,7 @@ const configureSchema = z.object({
   shopIdentifier: z.string().min(1),
   accessToken: z.string().min(20),
   configurations: z.array(configurationSchema).min(1).max(10),
-  selectedPrinterId: z.string().uuid().optional(),
+
 });
 
 export async function POST(request: Request) {
@@ -52,31 +53,13 @@ export async function POST(request: Request) {
       .eq("shop_id", shop.id)
       .eq("is_revoked", false)
       .order("last_heartbeat_at", { ascending: false })
-      .limit(1),
-    client.from("printers").select("id, name, is_online, status, capabilities").eq("shop_id", shop.id),
+      ,
+    client.from("printers").select("id, name, driver_name, desktop_agent_id, last_seen_at, is_online, status, capabilities").eq("shop_id", shop.id),
   ]);
 
-  const activeAgent = agents?.[0];
-  const isAgentOnline =
-    activeAgent &&
-    activeAgent.last_heartbeat_at &&
-    Date.now() - new Date(activeAgent.last_heartbeat_at).getTime() < 120000;
+  const onlinePrinters = availablePrinters(printers || [], agents || []);
+  if (!onlinePrinters.length) return NextResponse.json({ error: "No physical printer is connected. Wait for the shop to reconnect its printer before paying." }, { status: 409 });
 
-  const onlinePrinters = (printers ?? []).filter(
-    (p) => isAgentOnline && (p.is_online || p.status === "online" || p.status === "printing"),
-  );
-
-  // Validate selected printer if one was specified
-  const selectedPrinterId = parsed.data.selectedPrinterId;
-  if (selectedPrinterId) {
-    const printerExists = (printers ?? []).some((p) => p.id === selectedPrinterId);
-    if (!printerExists) {
-      return NextResponse.json(
-        { error: "Selected printer not found at this shop." },
-        { status: 404 },
-      );
-    }
-  }
   const orderId = parsed.data.configurations[0].orderId;
   const { data: tokenOrder } = await client
     .from("orders")
@@ -108,8 +91,11 @@ export async function POST(request: Request) {
   if (!rules?.length)
     return NextResponse.json({ error: "This shop has not configured printing prices yet." }, { status: 409 });
   const allRanges = parsed.data.configurations.flatMap((configuration) => configuration.ranges);
+  const destinations = onlinePrinters;
+  if (allRanges.some((r) => !destinations.some((p) => supportsPrint(p, r.colorMode, r.paperSize))))
+    return NextResponse.json({ error: "No connected printer supports the selected color and paper size." }, { status: 409 });
   const requestsColor = allRanges.some((r) => r.colorMode === "color");
-  const hasColorPrinter = onlinePrinters.some((p) => Boolean((p.capabilities as any)?.colorSupport));
+  const hasColorPrinter = onlinePrinters.some((p) => Boolean(p.capabilities?.colorSupport));
   if (requestsColor && !hasColorPrinter) {
     return NextResponse.json(
       { error: "No color printer is currently connected at this shop. Please select Black & White printing." },
@@ -117,18 +103,6 @@ export async function POST(request: Request) {
     );
   }
 
-  if (selectedPrinterId) {
-    const selectedPrinter = onlinePrinters.find((printer) => printer.id === selectedPrinterId);
-    if (!selectedPrinter) {
-      return NextResponse.json({ error: "The selected printer is not currently connected." }, { status: 409 });
-    }
-    if (requestsColor && !Boolean((selectedPrinter.capabilities as any)?.colorSupport)) {
-      return NextResponse.json(
-        { error: "The selected printer does not support color printing." },
-        { status: 409 },
-      );
-    }
-  }
   let pricing;
   try {
     pricing = calculatePricing(
@@ -141,7 +115,17 @@ export async function POST(request: Request) {
       { status: 409 },
     );
   }
-  await client.from("print_jobs").delete().eq("order_id", orderId);
+  if (new Set(parsed.data.configurations.map((c) => c.documentId)).size !== parsed.data.configurations.length)
+    return NextResponse.json({ error: "A document cannot be configured more than once." }, { status: 400 });
+  for (const configuration of parsed.data.configurations) {
+    const document = documentMap.get(configuration.documentId);
+    if (configuration.orderId !== orderId || !document || validateRanges(configuration.ranges, document.page_count))
+      return NextResponse.json({ error: "Invalid document or page ranges." }, { status: 400 });
+  }
+  const { data: activePayment } = await client.from("payments").select("id").eq("order_id", orderId).in("status", ["created", "pending", "verified"]).limit(1);
+  if (activePayment?.length) return NextResponse.json({ error: "Checkout has already started. Create a new order to change print settings." }, { status: 409 });
+  const { error: deleteError } = await client.from("print_jobs").delete().eq("order_id", orderId);
+  if (deleteError) return NextResponse.json({ error: "Could not replace draft jobs." }, { status: 500 });
   for (const configuration of parsed.data.configurations) {
     const document = documentMap.get(configuration.documentId);
     if (!document || document.order_id !== orderId)

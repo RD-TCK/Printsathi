@@ -1,3 +1,5 @@
+import { createSupabaseAdminClient } from "@/lib/supabase/admin";
+import { availablePrinters, isPhysical } from "@/lib/printer-availability";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 
 export type OnlinePrinterInfo = {
@@ -52,37 +54,29 @@ export async function getPublicShop(
   let overallPrinterStatus: "ready" | "offline" | "not_connected" = "not_connected";
   const onlinePrinters: OnlinePrinterInfo[] = [];
 
-  const { data: shopRecord } = await client.from("shops").select("id").eq("public_id", publicIdentifier).maybeSingle();
+  const inventoryClient = createSupabaseAdminClient() || client;
+  const { data: shopRecord } = await inventoryClient.from("shops").select("id").eq("public_id", publicIdentifier).maybeSingle();
 
   if (shopRecord) {
     const [{ data: agents }, { data: printers }] = await Promise.all([
-      client
+      inventoryClient
         .from("desktop_agents")
         .select("id, status, last_heartbeat_at")
         .eq("shop_id", shopRecord.id)
         .eq("is_revoked", false)
         .order("last_heartbeat_at", { ascending: false })
-        .limit(1),
-      client
+        ,
+      inventoryClient
         .from("printers")
-        .select("id, name, status, is_online, is_default, capabilities, last_seen_at")
+        .select("id, name, driver_name, desktop_agent_id, status, is_online, is_default, capabilities, last_seen_at")
         .eq("shop_id", shopRecord.id),
     ]);
 
-    const latestAgent = agents?.[0];
-    const isAgentActive =
-      latestAgent &&
-      latestAgent.last_heartbeat_at &&
-      Date.now() - new Date(latestAgent.last_heartbeat_at).getTime() < 120000; // within 2 minutes
-
-    const printerList = printers ?? [];
+    const printerList = (printers ?? []).filter(isPhysical);
+    const available = new Set(availablePrinters(printerList, agents || []).map((p) => p.id));
     if (printerList.length > 0) {
       for (const p of printerList) {
-        const isPrinterFresh = p.last_seen_at && Date.now() - new Date(p.last_seen_at).getTime() < 120000;
-        const isOnline = Boolean(
-          (isAgentActive || isPrinterFresh) &&
-            (p.is_online || p.status === "online" || p.status === "printing"),
-        );
+        const isOnline = available.has(p.id);
         const caps = (p.capabilities ?? {}) as { colorSupport?: boolean; paperSizes?: string[] };
         const isColor = Boolean(caps.colorSupport);
         const paperSizes = Array.isArray(caps.paperSizes) ? caps.paperSizes : ["A4"];

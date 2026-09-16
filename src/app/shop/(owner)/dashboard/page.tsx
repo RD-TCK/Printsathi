@@ -56,27 +56,27 @@ export default async function ShopDashboardPage() {
   ]);
   const jobRows = jobs.data ?? [];
   const paidJobRows = jobRows.filter((job) =>
-    ["paid", "queued", "claimed", "printing", "completed"].includes(job.status),
+    ["paid", "queued", "claimed", "printing", "print_submitted", "completed"].includes(job.status),
   );
-  const pending = jobRows.filter((job) => ["queued", "claimed", "printing", "paid"].includes(job.status)).length;
+  const pending = jobRows.filter((job) => ["queued", "claimed", "printing", "print_submitted", "paid"].includes(job.status)).length;
   const completed = jobRows.filter((job) => job.status === "completed").length;
   const failed = jobRows.filter((job) => job.status === "failed").length;
   const revenue = paidJobRows.reduce((sum, job) => sum + Number(job.total_amount || 0), 0);
   const totalPages = (pages.data ?? []).reduce((sum, page) => sum + page.end_page - page.start_page + 1, 0);
   const agentConnected = agent.data?.status === "online" && isHeartbeatFresh(agent.data?.last_heartbeat_at);
-  const printerReady = ["online", "printing"].includes(printer.data?.status ?? "");
+  const printerReady = agentConnected && isHeartbeatFresh(printer.data?.last_seen_at, 30000) && ["online", "printing"].includes(printer.data?.status ?? "") && !/onenote|pdf|xps|fax/i.test(printer.data?.name || "");
   const subscriptionValid =
     subscription.data?.status === "trial"
       ? Boolean(subscription.data.trial_end && new Date(subscription.data.trial_end) > new Date())
       : subscription.data?.status === "active";
   const shopOpen = context.shop.is_active && Boolean(settings.data?.accepting_orders) && subscriptionValid;
-  const operational = shopOpen;
+  const operational = shopOpen && agentConnected && printerReady;
   return (
     <div className="space-y-8">
       <ShopPageHeader
         eyebrow="Live Operations"
         title={`Welcome back, ${context.profile.full_name || "shop owner"}.`}
-        description="Auto-printing is live. Customer documents print automatically as soon as payment is confirmed."
+        description="Manage paid orders, connected printers, and automatic printing from your Windows agent."
         action={
           <Button asChild variant="secondary">
             <Link href="/shop/qr">
@@ -109,8 +109,8 @@ export default async function ShopDashboardPage() {
           valid, and accepting orders is enabled.
         </Alert>
       ) : (
-        <Alert tone="success" title="⚡ Web Auto-Print Station Active">
-          Your shop is ready for instant web-based printing! No desktop agent download is required. Open the Web Station to process customer orders hands-free.
+        <Alert tone={operational ? "success" : "warning"} title={operational ? "Printer connected" : "Connect the Windows agent and printer"}>
+          Automatic printing requires the paired Windows agent, a connected physical printer, and verified payment. Live connection and payment setup appear above.
         </Alert>
       )}
       <div className="grid gap-6 xl:grid-cols-[1.1fr_.9fr]">
@@ -118,7 +118,7 @@ export default async function ShopDashboardPage() {
           <CardHeader>
             <h2 className="font-semibold text-brand-950">System status</h2>
             <p className="mt-1 text-sm text-muted">
-              Shop active, subscription, web station, and optional desktop agent status.
+              Shop access and subscription settings. Live hardware status appears above.
             </p>
           </CardHeader>
           <CardContent>
@@ -144,50 +144,31 @@ export default async function ShopDashboardPage() {
               detail={settings.data?.accepting_orders ? "Customers can create orders" : "Customer ordering is paused"}
               tone={settings.data?.accepting_orders ? "success" : "warning"}
             />
-            <StatusRow
-              label="Web Auto-Print Station"
-              value="ACTIVE (100% WEB)"
-              detail="Zero setup required — prints directly from any browser tab"
-              tone="success"
-            />
-            <StatusRow
-              label="Desktop Agent (Optional)"
-              value={
-                agent.data ? (agentConnected ? formatStatus(agent.data.status) : "OFFLINE / STALE") : "NOT INSTALLED (OPTIONAL)"
-              }
-              detail={
-                agent.data?.last_heartbeat_at
-                  ? `Last heartbeat ${new Date(agent.data.last_heartbeat_at).toLocaleString()} · ${agent.data.name}`
-                  : "Optional Windows service for background spooling"
-              }
-              tone={agentConnected ? "success" : "neutral"}
-            />
           </CardContent>
         </Card>
         <Card>
           <CardHeader>
             <h2 className="font-semibold text-brand-950">Printing readiness</h2>
             <p className="mt-1 text-sm text-muted">
-              Everything is online. Paid customer jobs will be received live in the browser.
+              Keep the Windows agent running on the computer connected to the printer.
             </p>
           </CardHeader>
           <CardContent>
-            <Badge tone="success">READY FOR PRINTING (100% WEB)</Badge>
+            <Badge tone="neutral">AUTOMATIC WINDOWS PRINTING</Badge>
             <p className="mt-4 text-sm leading-6 text-muted">
-              PrintSaathi runs directly in your web browser. You do <b>not</b> need to install any desktop software.
-              Paid customer orders print hands-free via the Web Station or with 1-click manual controls.
+              Install the printer driver, confirm a Windows test page prints, then pair the agent with the code on the Printer page. Submitted jobs require confirmation after the pages come out.
             </p>
             <div className="mt-5 flex flex-wrap gap-3">
               <Button asChild variant="primary">
                 <Link href="/shop/jobs">
                   <Printer className="size-4" />
-                  Open Web Auto-Print Station
+                  View print jobs
                 </Link>
               </Button>
               <Button asChild variant="secondary">
                 <Link href="/download">
                   <Download className="size-4" />
-                  Download Desktop Agent (Optional)
+                  Download Windows agent
                 </Link>
               </Button>
             </div>

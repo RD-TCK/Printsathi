@@ -26,6 +26,9 @@ jobs:
       - name: Build Windows Agent
         run: npm run build:agent
 
+      - name: Verify bundled PDF renderer
+        run: .\dist\PrintSaathiAgent.exe --check-print-backend
+
       - name: Upload Agent EXE
         uses: actions/upload-artifact@v4
         with:

@@ -6,7 +6,6 @@ import {
   CreditCard,
   FileUp,
   FileText,
-  Image as ImageIcon,
   LoaderCircle,
   Plus,
   Printer,
@@ -18,7 +17,7 @@ import {
 } from "lucide-react";
 import type { PublicShop } from "@/lib/shops/public-lookup";
 import { countModes, type PrintRange, validateRanges } from "@/lib/customer-print";
-import { convertAnyFileToPdf } from "@/lib/document-converter";
+
 import { Alert } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -32,7 +31,7 @@ type Props = { shop: PublicShop; identifier: string };
 
 const steps = ["1. Upload Document", "2. Configure & Pay"];
 
-async function safeFetchJson<T = any>(
+async function safeFetchJson<T = unknown>(
   response: Response,
 ): Promise<{ ok: boolean; status: number; data?: T; error?: string }> {
   try {
@@ -75,7 +74,24 @@ async function safeFetchJson<T = any>(
   }
 }
 
-export function CustomerPrintFlow({ shop, identifier }: Props) {
+export function CustomerPrintFlow({ shop: initialShop, identifier }: Props) {
+  const [shop, setShop] = useState(initialShop);
+  useEffect(() => {
+    const controller = new AbortController();
+    const refresh = async () => {
+      try {
+        const response = await fetch(`/api/public/shops/${encodeURIComponent(identifier)}/status`, { cache: "no-store", signal: controller.signal });
+        if (!response.ok) throw new Error("Status unavailable");
+        const data = await response.json();
+        if (!controller.signal.aborted) setShop(data.shop);
+      } catch {
+        if (!controller.signal.aborted) setShop(previous => ({ ...previous, printer_status: "offline", bw_printer_status: "offline", color_printer_status: "offline", online_printers: [] }));
+      }
+    };
+    void refresh();
+    const timer = setInterval(() => { void refresh(); }, 5000);
+    return () => { controller.abort(); clearInterval(timer); };
+  }, [identifier]);
   const [step, setStep] = useState(0); // 0 = Upload, 1 = Configure & Pay, 2 = Payment Verified
   const [documents, setDocuments] = useState<CustomerDocument[]>([]);
   const [activeDocument, setActiveDocument] = useState(0);
@@ -85,7 +101,6 @@ export function CustomerPrintFlow({ shop, identifier }: Props) {
   const [busy, setBusy] = useState(false);
   const [uploadStatus, setUploadStatus] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [selectedPrinterId, setSelectedPrinterId] = useState<string | null>(null);
 
   const current = documents[activeDocument];
   const allValid =
@@ -143,23 +158,11 @@ export function CustomerPrintFlow({ shop, identifier }: Props) {
     }
     setBusy(true);
     try {
-      const convertedFiles: File[] = [];
-      const analyzed: number[] = [];
-      const originalNames: string[] = [];
-
-      for (let i = 0; i < files.length; i++) {
-        const file = files[i];
-        setUploadStatus(`Processing ${file.name} (${i + 1}/${files.length})...`);
-        const res = await convertAnyFileToPdf(file);
-        convertedFiles.push(res.file);
-        analyzed.push(res.pageCount);
-        originalNames.push(res.originalName);
-      }
-
-      setUploadStatus("Uploading documents securely...");
+      if (files.length > 10 || files.some((file) => file.size > 25 * 1024 * 1024)) throw new Error("Choose up to 10 files, each under 25 MB.");
+      setUploadStatus("Uploading and analysing your documents...");
       const form = new FormData();
       form.append("shopIdentifier", identifier);
-      convertedFiles.forEach((file) => form.append("files", file));
+      files.forEach((file) => form.append("files", file));
       const response = await fetch("/api/customer/upload", { method: "POST", body: form });
       const uploadRes = await safeFetchJson<{
         orderId: string;
@@ -173,11 +176,11 @@ export function CustomerPrintFlow({ shop, identifier }: Props) {
       }
       const result = uploadRes.data;
 
-      const parsedDocs: CustomerDocument[] = result.documents.map((document: CustomerDocument, index: number) => ({
+      const parsedDocs: CustomerDocument[] = result.documents.map((document: CustomerDocument) => ({
         ...document,
-        filename: originalNames[index] || document.filename,
-        pageCount: analyzed[index],
-        ranges: [{ startPage: 1, endPage: analyzed[index], colorMode: "black_and_white", paperSize: "a4" }],
+        filename: document.filename,
+        pageCount: document.pageCount,
+        ranges: [{ startPage: 1, endPage: document.pageCount, colorMode: "black_and_white", paperSize: "a4" }],
       }));
 
       setDocuments(parsedDocs);
@@ -262,7 +265,6 @@ export function CustomerPrintFlow({ shop, identifier }: Props) {
     setAccessToken(null);
     setEstimate(null);
     setError(null);
-    setSelectedPrinterId(null);
   }
 
   async function handleProceedToPay() {
@@ -299,7 +301,6 @@ export function CustomerPrintFlow({ shop, identifier }: Props) {
           totalPages: result.totalPages,
           colorPages: result.colorPages,
           blackAndWhitePages: result.blackAndWhitePages,
-          selectedPrinterId: selectedPrinterId || undefined,
         }),
       });
       const configData = await safeFetchJson<{ orderId: string; status: string }>(configRes);
@@ -343,8 +344,6 @@ export function CustomerPrintFlow({ shop, identifier }: Props) {
           allValid={allValid}
           busy={busy}
           estimate={estimate}
-          selectedPrinterId={selectedPrinterId}
-          onPrinterSelect={setSelectedPrinterId}
           onProceedToPay={handleProceedToPay}
           onBackToUpload={() => setStep(0)}
         />
@@ -432,7 +431,7 @@ function UploadStep({
             className="sr-only"
             name="files"
             type="file"
-            accept="application/pdf,.pdf,image/png,image/jpeg,image/webp,image/*,.png,.jpg,.jpeg,.webp,text/plain,.txt,.docx,.doc"
+            accept=".pdf,.png,.jpg,.jpeg,.webp,.gif,.tif,.tiff,.doc,.docx,.odt,.rtf,.ppt,.pptx,.odp,.xls,.xlsx,.ods,.txt,.csv,.md"
             multiple
             onChange={(e) => {
               const newFiles = Array.from(e.target.files ?? []);
@@ -521,7 +520,7 @@ function UploadStep({
         ) : (
           <div className="rounded-lg bg-amber-50 px-3 py-2 text-[11px] text-amber-900 border border-amber-200 flex items-center gap-2">
             <Printer className="size-3.5 text-amber-600 shrink-0" />
-            <span>Printer offline: documents will be queued for printing upon connection.</span>
+            <span>Printer offline: reconnect a physical printer before checkout.</span>
           </div>
         )}
       </div>
@@ -542,8 +541,6 @@ function ConfigureAndPayStep({
   allValid,
   busy,
   estimate,
-  selectedPrinterId,
-  onPrinterSelect,
   onProceedToPay,
   onBackToUpload,
 }: {
@@ -559,8 +556,6 @@ function ConfigureAndPayStep({
   allValid: boolean;
   busy: boolean;
   estimate: Estimate | null;
-  selectedPrinterId: string | null;
-  onPrinterSelect: (id: string | null) => void;
   onProceedToPay: () => void;
   onBackToUpload: () => void;
 }) {
@@ -582,69 +577,11 @@ function ConfigureAndPayStep({
 
   return (
     <div className="space-y-6">
-      {/* Printer Selection Panel */}
-      {shop.online_printers && shop.online_printers.length > 0 ? (
-        <div className="rounded-xl border border-emerald-200 bg-emerald-50/60 p-4 shadow-sm">
-          <div className="flex items-center gap-2 mb-3">
-            <span className="size-2.5 rounded-full bg-emerald-500 animate-pulse" />
-            <span className="text-sm font-bold text-emerald-900">Select Your Printer</span>
-            <span className="text-xs text-emerald-700">— Live printers ready at this shop</span>
-          </div>
-          <div className="flex flex-wrap gap-2">
-            {availablePrinters.length > 0 ? (
-              availablePrinters.map((p) => {
-                const isSelected = selectedPrinterId === p.id;
-                return (
-                  <button
-                    key={p.id}
-                    type="button"
-                    onClick={() => onPrinterSelect(isSelected ? null : p.id)}
-                    className={cn(
-                      "inline-flex items-center gap-2 rounded-xl border px-4 py-2.5 text-sm font-semibold transition-all",
-                      isSelected
-                        ? "border-emerald-500 bg-emerald-600 text-white shadow-md shadow-emerald-900/15"
-                        : "border-emerald-300 bg-white text-emerald-900 hover:bg-emerald-50 hover:border-emerald-400",
-                    )}
-                  >
-                    <Printer className={cn("size-4", isSelected ? "text-white" : "text-emerald-600")} />
-                    {p.name}
-                    <span
-                      className={cn(
-                        "rounded-md px-1.5 py-0.5 text-[10px] font-bold",
-                        isSelected ? "bg-emerald-500 text-white" : "bg-emerald-100 text-emerald-900",
-                      )}
-                    >
-                      {p.isColor ? "🎨 Color" : "📄 B&W"}
-                    </span>
-                    {isSelected && <CheckCircle2 className="size-4 text-white" />}
-                  </button>
-                );
-              })
-            ) : (
-              <span className="text-xs text-amber-800 font-medium">
-                No {requestsColorMode ? "color" : ""} printers currently available for your selection.
-              </span>
-            )}
-            {availablePrinters.length > 1 && selectedPrinterId && (
-              <button
-                type="button"
-                onClick={() => onPrinterSelect(null)}
-                className="rounded-xl border border-dashed border-gray-300 px-3 py-2 text-xs font-semibold text-muted hover:bg-slate-50 transition-all"
-              >
-                Auto-select
-              </button>
-            )}
-          </div>
-          {selectedPrinterId && (
-            <p className="mt-2 text-xs text-emerald-800 font-medium">
-              ✓ Your job will be sent to: <b>{availablePrinters.find((p) => p.id === selectedPrinterId)?.name}</b>
-            </p>
-          )}
-          {!selectedPrinterId && availablePrinters.length > 0 && (
-            <p className="mt-2 text-xs text-muted">
-              No printer selected — system will auto-route to the best available printer.
-            </p>
-          )}
+      {shop.online_printers?.length ? (
+        <div className="rounded-xl border border-emerald-200 bg-emerald-50 p-4">
+          <h3 className="font-semibold text-emerald-900">Automatic printer selection</h3>
+          <p className="mt-1 text-sm text-emerald-800">Your pages are routed to a connected printer that supports the selected paper size and color mode.</p>
+          <div className="mt-3 flex flex-wrap gap-2">{availablePrinters.map(p => <span key={p.id} className="rounded-lg bg-white px-3 py-2 text-xs">{p.name} ? {p.isColor ? "Color + B&W" : "B&W"}</span>)}</div>
         </div>
       ) : (
         <div className="rounded-xl border border-amber-200 bg-amber-50/80 p-4 text-sm text-amber-900 shadow-sm">
@@ -653,7 +590,7 @@ function ConfigureAndPayStep({
             <div>
               <p className="font-bold">⚠️ No printers are currently online</p>
               <p className="mt-0.5 text-xs leading-5 text-amber-800">
-                Your order will be queued and printed automatically once the shop owner brings their printer online.
+                Reconnect a supported printer before payment. Paid orders wait for the agent if connectivity is lost later.
               </p>
             </div>
           </div>
@@ -849,7 +786,7 @@ function ConfigureAndPayStep({
         <div className="mt-6">
           <Button
             className="w-full py-4 text-base font-bold shadow-xl shadow-brand-900/15"
-            disabled={!allValid || colorPrinterUnavailable}
+            disabled={!allValid || !estimate || printerOffline || colorPrinterUnavailable}
             loading={busy}
             onClick={onProceedToPay}
           >
@@ -954,6 +891,8 @@ function PaymentStep({
   >("idle");
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [isTestMode, setIsTestMode] = useState(false);
+  const [mockAvailable, setMockAvailable] = useState(true);
+  const [razorpayAvailable, setRazorpayAvailable] = useState<boolean | null>(null);
   const [verifiedDetails, setVerifiedDetails] = useState<{
     paymentId?: string;
     publicOrderId?: string;
@@ -961,161 +900,213 @@ function PaymentStep({
     currency?: string;
   } | null>(null);
 
-  const initiatePayment = useCallback(async () => {
-    setErrorMessage(null);
-    setPaymentStatus("creating_order");
+  const [jobStatuses, setJobStatuses] = useState<Array<{ id: string; status: string; failureReason?: string }>>([]);
+  useEffect(() => {
+    const controller = new AbortController();
+    const refresh = async () => {
+      try {
+        const response = await fetch(`/api/payment/status?orderId=${encodeURIComponent(orderId)}&accessToken=${encodeURIComponent(accessToken || "")}`, { cache: "no-store", signal: controller.signal });
+        if (!response.ok) return;
+        const data = await response.json();
+        if (controller.signal.aborted) return;
+        setJobStatuses(data.printJobs || []);
+        if (data.payment?.isVerified) {
+          setPaymentStatus("verified"); setErrorMessage(null);
+          setVerifiedDetails({ publicOrderId: data.order.publicId, paymentId: data.payment.providerPaymentId });
+        }
+      } catch { /* Poll again without changing confirmed payment state. */ }
+    };
+    const timer = setInterval(() => { void refresh(); }, 5000);
+    return () => { controller.abort(); clearInterval(timer); };
+  }, [orderId, accessToken]);
 
-    try {
-      // 1. Create server-side Razorpay Order or Test Mode Order
-      const response = await fetch("/api/payment/create-order", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          orderId,
-          shopIdentifier: identifier,
-          accessToken,
-        }),
-      });
+  const initiatePayment = useCallback(
+    async (mode: "razorpay" | "mock" = "razorpay") => {
+      setErrorMessage(null);
+      setPaymentStatus(mode === "mock" ? "verifying" : "creating_order");
 
-      const createRes = await safeFetchJson<any>(response);
-      const orderData = createRes.data || {};
-      if (!createRes.ok) {
-        if (orderData.alreadyPaid) {
+      try {
+        // 1. Create server-side Razorpay Order or Mock Order
+        const response = await fetch("/api/payment/create-order", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            orderId,
+            shopIdentifier: identifier,
+            accessToken,
+            paymentMode: mode,
+          }),
+        });
+
+        const createRes = await safeFetchJson<{
+          alreadyPaid?: boolean;
+          publicOrderId?: string;
+          amount?: number;
+          amountRupees?: number;
+          currency?: string;
+          keyId?: string;
+          razorpayOrderId?: string;
+          isTestMode?: boolean;
+          mock?: boolean;
+          verified?: boolean;
+          paymentId?: string;
+          error?: string;
+        }>(response);
+
+        const orderData = createRes.data;
+        if (!orderData) throw new Error(createRes.error || "Empty payment response");
+
+        if (!createRes.ok) {
+          if (orderData.alreadyPaid) {
+            setPaymentStatus("verified");
+            setVerifiedDetails({
+              publicOrderId: orderData.publicOrderId || orderId.slice(0, 8),
+              amount: estimate.total,
+              currency: "INR",
+            });
+            return;
+          }
+          throw new Error(createRes.error || orderData.error || "Failed to initiate payment order.");
+        }
+
+        if (orderData.mock || orderData.verified || orderData.alreadyPaid) {
           setPaymentStatus("verified");
           setVerifiedDetails({
             publicOrderId: orderData.publicOrderId || orderId.slice(0, 8),
-            amount: estimate.total,
-            currency: "INR",
+            paymentId: orderData.paymentId || `mock_payment_${orderId.slice(0, 8)}`,
+            amount: orderData.amountRupees || orderData.amount || estimate.total,
+            currency: orderData.currency || "INR",
           });
           return;
         }
-        throw new Error(createRes.error || orderData.error || "Failed to initiate payment order.");
-      }
 
-      if (orderData.alreadyPaid) {
-        setPaymentStatus("verified");
-        setVerifiedDetails({
-          publicOrderId: orderData.publicOrderId || orderId.slice(0, 8),
-          amount: orderData.amount || estimate.total,
-          currency: "INR",
-        });
-        return;
-      }
+        setIsTestMode(Boolean(orderData.isTestMode));
 
-      setIsTestMode(Boolean(orderData.isTestMode));
-
-      // 2. Load Razorpay Checkout SDK
-      const scriptLoaded = await loadRazorpayScript();
-      if (!scriptLoaded || !orderData.keyId) {
-        // Fallback for test mode if script can't be loaded or no keyId
-        setPaymentStatus("verified");
-        setVerifiedDetails({
-          publicOrderId: orderData.publicOrderId || orderId.slice(0, 8),
-          amount: estimate.total,
-          currency: "INR",
-        });
-        return;
-      }
-
-      const RazorpayConstructor = (
-        window as unknown as {
-          Razorpay: new (options: RazorpayCheckoutOptions) => {
-            open: () => void;
-            on: (event: string, handler: (data: RazorpayCheckoutFailure) => void) => void;
-          };
+        // 2. Load Razorpay Checkout SDK
+        const scriptLoaded = await loadRazorpayScript();
+        if (!scriptLoaded || !orderData.keyId || typeof orderData.amount !== "number" || !orderData.razorpayOrderId) {
+          throw new Error("Secure checkout could not load. Check your connection and retry. No payment has been verified.");
         }
-      ).Razorpay;
 
-      if (!RazorpayConstructor) {
-        setPaymentStatus("verified");
-        setVerifiedDetails({
-          publicOrderId: orderData.publicOrderId || orderId.slice(0, 8),
-          amount: estimate.total,
-          currency: "INR",
-        });
-        return;
-      }
-
-      // 3. Open Razorpay Checkout modal
-      const options: RazorpayCheckoutOptions = {
-        key: orderData.keyId,
-        amount: orderData.amount,
-        currency: orderData.currency || "INR",
-        name: shop.name,
-        description: `Print Order #${orderData.publicOrderId || orderId.slice(0, 8)}`,
-        order_id: orderData.razorpayOrderId,
-        theme: {
-          color: "#0f766e",
-        },
-        handler: async (paymentResponse: RazorpayCheckoutResponse) => {
-          setPaymentStatus("verifying");
-          try {
-            const verifyRes = await fetch("/api/payment/verify", {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({
-                orderId,
-                razorpayOrderId: paymentResponse.razorpay_order_id,
-                razorpayPaymentId: paymentResponse.razorpay_payment_id,
-                razorpaySignature: paymentResponse.razorpay_signature,
-                accessToken,
-              }),
-            });
-
-            const verifyResData = await safeFetchJson<any>(verifyRes);
-            const verifyData = verifyResData.data || {};
-            if (!verifyResData.ok || !verifyData.verified) {
-              throw new Error(verifyResData.error || verifyData.error || "Payment signature verification failed.");
-            }
-
-            setPaymentStatus("verified");
-            setVerifiedDetails({
-              paymentId: verifyData.paymentId,
-              publicOrderId: verifyData.publicOrderId,
-              amount: verifyData.amount,
-              currency: verifyData.currency,
-            });
-          } catch (verifyError) {
-            setPaymentStatus("failed");
-            let msg = verifyError instanceof Error ? verifyError.message : "Payment verification failed.";
-            if (msg.includes("Unexpected end of JSON input")) {
-              msg = "Payment verification response error. Please try again.";
-            }
-            setErrorMessage(msg);
+        const RazorpayConstructor = (
+          window as unknown as {
+            Razorpay: new (options: RazorpayCheckoutOptions) => {
+              open: () => void;
+              on: (event: string, handler: (data: RazorpayCheckoutFailure) => void) => void;
+            };
           }
-        },
-        modal: {
-          ondismiss: () => {
-            setPaymentStatus("failed");
-            setErrorMessage("Payment was cancelled. Click retry when ready.");
+        ).Razorpay;
+
+        if (!RazorpayConstructor) throw new Error("Secure checkout is unavailable. Please retry.");
+
+        // 3. Open Razorpay Checkout modal
+        const options: RazorpayCheckoutOptions = {
+          key: orderData.keyId,
+          amount: orderData.amount,
+          currency: orderData.currency || "INR",
+          name: shop.name,
+          description: `Print Order #${orderData.publicOrderId || orderId.slice(0, 8)}`,
+          order_id: orderData.razorpayOrderId,
+          theme: {
+            color: "#0f766e",
           },
-        },
-      };
+          handler: async (paymentResponse: RazorpayCheckoutResponse) => {
+            setPaymentStatus("verifying");
+            try {
+              const verifyRes = await fetch("/api/payment/verify", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                  orderId,
+                  razorpayOrderId: paymentResponse.razorpay_order_id,
+                  razorpayPaymentId: paymentResponse.razorpay_payment_id,
+                  razorpaySignature: paymentResponse.razorpay_signature,
+                  accessToken,
+                }),
+              });
 
-      const rzpInstance = new RazorpayConstructor(options);
+              const verifyResData = await safeFetchJson<{
+                verified?: boolean;
+                error?: string;
+                paymentId?: string;
+                publicOrderId?: string;
+                amount?: number;
+                currency?: string;
+              }>(verifyRes);
+              const verifyData = verifyResData.data || {};
+              if (!verifyResData.ok || !verifyData.verified) {
+                throw new Error(verifyResData.error || verifyData.error || "Payment signature verification failed.");
+              }
 
-      rzpInstance.on("payment.failed", (response: RazorpayCheckoutFailure) => {
+              setPaymentStatus("verified");
+              setVerifiedDetails({
+                paymentId: verifyData.paymentId,
+                publicOrderId: verifyData.publicOrderId,
+                amount: verifyData.amount,
+                currency: verifyData.currency,
+              });
+            } catch (verifyError) {
+              setPaymentStatus("failed");
+              let msg = verifyError instanceof Error ? verifyError.message : "Payment verification failed.";
+              if (msg.includes("Unexpected end of JSON input")) {
+                msg = "Payment verification response error. Please try again.";
+              }
+              setErrorMessage(msg);
+            }
+          },
+          modal: {
+            ondismiss: () => {
+              setPaymentStatus("failed");
+              setErrorMessage("Payment was cancelled. Click retry when ready.");
+            },
+          },
+        };
+
+        const rzpInstance = new RazorpayConstructor(options);
+
+        rzpInstance.on("payment.failed", (response: RazorpayCheckoutFailure) => {
+          setPaymentStatus("failed");
+          setErrorMessage(response.error?.description || "Payment failed. Please try again.");
+        });
+
+        setPaymentStatus("checkout_open");
+        rzpInstance.open();
+      } catch (err) {
         setPaymentStatus("failed");
-        setErrorMessage(response.error?.description || "Payment failed. Please try again.");
-      });
-
-      setPaymentStatus("checkout_open");
-      rzpInstance.open();
-    } catch (err) {
-      setPaymentStatus("failed");
-      let msg = err instanceof Error ? err.message : "Could not initiate payment.";
-      if (msg.includes("Unexpected end of JSON input")) {
-        msg = "Payment service communication error. Please try again.";
+        let msg = err instanceof Error ? err.message : "Could not initiate payment.";
+        if (msg.includes("Unexpected end of JSON input")) {
+          msg = "Payment service communication error. Please try again.";
+        }
+        setErrorMessage(msg);
       }
-      setErrorMessage(msg);
-    }
-  }, [orderId, identifier, accessToken, estimate.total, shop.name]);
+    },
+    [orderId, identifier, accessToken, estimate.total, shop.name]
+  );
 
   useEffect(() => {
-    initiatePayment();
+    let isMounted = true;
+    fetch("/api/payment/config")
+      .then((res) => res.json())
+      .then((data: { mockEnabled?: boolean; razorpayEnabled?: boolean }) => {
+        if (!isMounted) return;
+        setMockAvailable(Boolean(data.mockEnabled));
+        setRazorpayAvailable(Boolean(data.razorpayEnabled));
+        if (data.razorpayEnabled) {
+          void initiatePayment("razorpay");
+        }
+      })
+      .catch(() => {
+        if (!isMounted) return;
+        setMockAvailable(true);
+        setRazorpayAvailable(false);
+      });
+    return () => {
+      isMounted = false;
+    };
   }, [initiatePayment]);
 
   if (paymentStatus === "verified") {
+    const isMock = verifiedDetails?.paymentId?.startsWith("mock_");
     return (
       <Card className="border-emerald-200 bg-emerald-50/40 p-6 sm:p-8 shadow-xl">
         <div className="flex size-16 items-center justify-center rounded-2xl bg-emerald-100 text-emerald-700 shadow-inner">
@@ -1123,10 +1114,13 @@ function PaymentStep({
         </div>
         <div className="mt-5 flex flex-wrap items-center justify-between gap-2">
           <h2 className="text-2xl font-extrabold text-brand-950">Payment Confirmed &amp; Queued!</h2>
-          <Badge tone="success">SENT TO PRINTER COUNTER</Badge>
+          <div className="flex items-center gap-2">
+            {isMock ? <Badge tone="warning">TEST MOCK PAYMENT</Badge> : null}
+            <Badge tone="success">PAYMENT VERIFIED</Badge>
+          </div>
         </div>
         <p className="mt-2 text-sm leading-6 text-muted">
-          Your payment of <b className="text-brand-950">₹{estimate.total.toFixed(2)}</b> was received. Your print job is now automatically printing at <b className="text-brand-950">{shop.name}</b>.
+          Your payment of <b className="text-brand-950">₹{estimate.total.toFixed(2)}</b> was received. Your print job is queued for automatic printing at <b className="text-brand-950">{shop.name}</b>.
         </p>
 
         <div className="mt-6 divide-y divide-emerald-100 rounded-2xl border border-emerald-200 bg-white p-5 shadow-sm">
@@ -1151,11 +1145,12 @@ function PaymentStep({
           <div className="flex items-center justify-between py-2 text-xs">
             <span className="text-muted">Auto-Print Status</span>
             <span className="inline-flex items-center gap-1.5 font-bold text-emerald-700">
-              <Printer className="size-3.5" /> Printing Automatically
+              <Printer className="size-3.5" /> Waiting for the Windows agent
             </span>
           </div>
         </div>
 
+        <div className="mt-4 space-y-2">{jobStatuses.map(job => <p key={job.id} className="rounded-lg border border-emerald-200 bg-white p-3 text-sm">Job #{job.id.slice(0, 8)}: <b>{job.status === "print_submitted" ? "Submitted to Windows; paper output unconfirmed" : job.status === "completed" ? "Printed (confirmed)" : job.status.replaceAll("_", " ")}</b>{job.failureReason && <span className="block text-red-700">{job.failureReason}</span>}</p>)}</div>
         <div className="mt-6 flex flex-wrap items-center gap-3">
           <Button variant="primary" onClick={onReset}>
             <RotateCcw className="size-4" />
@@ -1166,6 +1161,8 @@ function PaymentStep({
     );
   }
 
+  const isRazorpayUnset = razorpayAvailable === false || (errorMessage && errorMessage.includes("Razorpay keys"));
+
   return (
     <Card className="p-6 sm:p-8">
       <div className="flex size-14 items-center justify-center rounded-2xl bg-brand-100 text-brand-700 shadow-inner">
@@ -1173,13 +1170,27 @@ function PaymentStep({
       </div>
       <div className="mt-4 flex flex-wrap items-center justify-between gap-2">
         <h2 className="text-xl font-bold text-brand-950">Complete Payment</h2>
-        {isTestMode ? <Badge tone="warning">TEST MODE</Badge> : null}
+        {isRazorpayUnset || isTestMode ? <Badge tone="warning">TEST MODE</Badge> : null}
       </div>
 
-      {errorMessage ? (
+      {errorMessage && !isRazorpayUnset ? (
         <Alert className="mt-4" tone="error">
           {errorMessage}
         </Alert>
+      ) : null}
+
+      {isRazorpayUnset ? (
+        <div className="mt-4 rounded-xl border border-amber-200 bg-amber-50/80 p-4 text-sm text-amber-900 leading-relaxed shadow-sm">
+          <div className="flex items-start gap-2.5">
+            <Sparkles className="size-5 shrink-0 text-amber-600 mt-0.5" />
+            <div>
+              <p className="font-bold text-amber-950">Test Mode Active</p>
+              <p className="mt-1 text-xs text-amber-800">
+                Razorpay keys are not configured for live transactions. You can use the mock payment option below to simulate a successful payment and queue this job immediately.
+              </p>
+            </div>
+          </div>
+        </div>
       ) : null}
 
       <div className="mt-6 rounded-2xl border border-line bg-brand-50/50 p-5">
@@ -1200,33 +1211,54 @@ function PaymentStep({
       </div>
 
       <div className="mt-6 flex flex-col gap-3">
-        <Button
-          className="w-full text-base py-3.5 font-bold shadow-lg"
-          loading={paymentStatus === "creating_order" || paymentStatus === "verifying"}
-          onClick={initiatePayment}
-        >
-          {paymentStatus === "verifying" ? (
-            <>
-              <LoaderCircle className="size-5 animate-spin" />
-              Verifying Payment...
-            </>
-          ) : paymentStatus === "creating_order" ? (
-            <>
-              <LoaderCircle className="size-5 animate-spin" />
-              Initiating Payment...
-            </>
-          ) : paymentStatus === "failed" ? (
-            <>
-              <RotateCcw className="size-5" />
-              Retry Payment (₹{estimate.total.toFixed(2)})
-            </>
-          ) : (
-            <>
-              <CreditCard className="size-5" />
-              Pay ₹{estimate.total.toFixed(2)}
-            </>
-          )}
-        </Button>
+        {/* Mock Payment Button */}
+        {mockAvailable ? (
+          <Button
+            variant="primary"
+            className="w-full text-base py-3.5 font-bold shadow-lg bg-emerald-600 hover:bg-emerald-700 text-white"
+            loading={paymentStatus === "verifying"}
+            onClick={() => void initiatePayment("mock")}
+          >
+            {paymentStatus === "verifying" ? (
+              <>
+                <LoaderCircle className="size-5 animate-spin" />
+                Processing Mock Payment...
+              </>
+            ) : (
+              <>
+                <Sparkles className="size-5" />
+                Pay with Mock Payment (₹{estimate.total.toFixed(2)})
+              </>
+            )}
+          </Button>
+        ) : null}
+
+        {/* Real Razorpay Checkout Button if configured */}
+        {razorpayAvailable ? (
+          <Button
+            variant="secondary"
+            className="w-full text-base py-3.5 font-semibold"
+            loading={paymentStatus === "creating_order"}
+            onClick={() => void initiatePayment("razorpay")}
+          >
+            {paymentStatus === "creating_order" ? (
+              <>
+                <LoaderCircle className="size-5 animate-spin" />
+                Initiating Razorpay...
+              </>
+            ) : paymentStatus === "failed" ? (
+              <>
+                <RotateCcw className="size-5" />
+                Retry Razorpay (₹{estimate.total.toFixed(2)})
+              </>
+            ) : (
+              <>
+                <CreditCard className="size-5" />
+                Pay with Razorpay (₹{estimate.total.toFixed(2)})
+              </>
+            )}
+          </Button>
+        ) : null}
       </div>
     </Card>
   );

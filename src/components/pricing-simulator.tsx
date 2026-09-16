@@ -1,9 +1,8 @@
 "use client";
 
 import { useState } from "react";
-import { Calculator, Sparkles, Zap, Layers } from "lucide-react";
+import { Calculator } from "lucide-react";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
-import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 

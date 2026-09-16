@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import { authenticateAgent } from "@/lib/agent/auth";
+import { paymentCanPrint } from "@/lib/mock-payments";
 
 const claimSchema = z.object({
   leaseSeconds: z.number().int().min(30).max(3600).default(300),
@@ -44,18 +45,37 @@ export async function POST(request: Request) {
     return NextResponse.json({ success: true, job: null });
   }
 
+  const { data: verifiedPayment } = await adminClient.from("payments").select("id, provider, status, provider_payment_id, metadata")
+    .eq("order_id", claimed.order_id).eq("status", "verified")
+    .not("provider_payment_id", "is", null).limit(1);
+  if (!verifiedPayment?.some(paymentCanPrint)) {
+    await adminClient.rpc("fail_print_job", { p_job_id: claimed.job_id, p_agent_id: auth.agent.id,
+      p_reason: "Payment is not eligible for printing. Mock payments require the server testing setting.", p_is_retryable: false });
+    return NextResponse.json({ success: true, job: null });
+  }
+
   // 2. Fetch page ranges / configurations for this job
-  const { data: pages } = await adminClient
+  const { data: pages, error: pagesError } = await adminClient
     .from("print_job_pages")
     .select("start_page, end_page, color_mode, paper_size")
     .eq("print_job_id", claimed.job_id)
     .order("start_page", { ascending: true });
+
+  if (pagesError || !pages?.length) {
+    await adminClient.rpc("fail_print_job", {
+      p_job_id: claimed.job_id, p_agent_id: auth.agent.id,
+      p_reason: "Print settings could not be loaded. No document was sent to the printer.",
+      p_is_retryable: Boolean(pagesError),
+    });
+    return NextResponse.json({ error: "Could not load the customer's print settings." }, { status: 503 });
+  }
 
   // 3. Fetch default printer for this shop
   const { data: defaultPrinter } = await adminClient
     .from("printers")
     .select("name, system_identifier")
     .eq("shop_id", auth.shop.id)
+    .eq("desktop_agent_id", auth.agent.id)
     .eq("is_default", true)
     .maybeSingle();
 

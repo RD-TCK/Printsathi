@@ -5,7 +5,7 @@ import { logger } from "./logger";
 
 const execAsync = (cmd: string, options?: { timeout?: number }): Promise<{ stdout: string; stderr: string }> => {
   return new Promise((resolve, reject) => {
-    exec(cmd, options, (error, stdout, stderr) => {
+    exec(cmd, { ...options, windowsHide: true }, (error, stdout, stderr) => {
       if (error) {
         reject(error);
       } else {
@@ -24,14 +24,12 @@ export async function discoverWindowsPrinters(): Promise<DiscoveredPrinter[]> {
   }
 
   try {
-    // Query Win32_Printer
-    const psPrintersCmd = `powershell.exe -NoProfile -NonInteractive -Command "Get-CimInstance Win32_Printer | Select-Object Name, Default, PrinterStatus, DriverName, PortName, WorkOffline, Local | ConvertTo-Json -Compress"`;
-    // Query Win32_PrinterConfiguration to reliably detect Color mode (1 = Monochrome/BW, 2 = Color)
-    const psConfigCmd = `powershell.exe -NoProfile -NonInteractive -Command "Get-CimInstance Win32_PrinterConfiguration | Select-Object Name, Color | ConvertTo-Json -Compress"`;
-
+    // An installed queue is not evidence that USB hardware is still attached.
+    const psPrintersCmd = `powershell.exe -NoProfile -NonInteractive -Command "$ErrorActionPreference='Stop'; [Console]::OutputEncoding=[System.Text.UTF8Encoding]::new(); $devices=@(Get-PnpDevice -PresentOnly -ErrorAction Stop | Where-Object { $_.InstanceId -like 'USBPRINT*' -and $_.Status -eq 'OK' } | Select-Object -ExpandProperty InstanceId); Get-CimInstance Win32_Printer | Select-Object Name,Default,PrinterStatus,DriverName,PortName,WorkOffline,DetectedErrorState,PNPDeviceID,PrinterPaperNames,@{Name='UsbPresent';Expression={ $port=$_.PortName; $device=$_.PNPDeviceID; if ($port -match '^USB\\d+') { @($devices | Where-Object { ($device -and $_ -eq $device) -or $_ -like ('*&'+$port) -or $_ -like ('*'+$port) }).Count -gt 0 } else { $true } }} | ConvertTo-Json -Compress"`;
+    const psConfigCmd = `powershell.exe -NoProfile -NonInteractive -Command "Get-CimInstance Win32_PrinterConfiguration | Select-Object Name,Color | ConvertTo-Json -Compress"`;
     const [{ stdout: printerOut }, { stdout: configOut }] = await Promise.all([
-      execAsync(psPrintersCmd, { timeout: 10000 }).catch(() => ({ stdout: "", stderr: "" })),
-      execAsync(psConfigCmd, { timeout: 10000 }).catch(() => ({ stdout: "", stderr: "" })),
+      execAsync(psPrintersCmd, { timeout: 8000 }),
+      execAsync(psConfigCmd, { timeout: 8000 }).catch(() => ({ stdout: "", stderr: "" })),
     ]);
 
     const trimmed = printerOut.trim();
@@ -72,13 +70,15 @@ export async function discoverWindowsPrinters(): Promise<DiscoveredPrinter[]> {
       .map((item) => {
         const name = String(item.Name).trim();
         const isDefault = Boolean(item.Default);
-        const isOffline = Boolean(item.WorkOffline) || Number(item.PrinterStatus) === 7;
+        const isOffline = Boolean(item.WorkOffline) || Number(item.PrinterStatus) === 7 || item.UsbPresent === false;
         const driverName = item.DriverName ? String(item.DriverName) : undefined;
         const systemId = name.toLowerCase().replace(/[^a-z0-9]/g, "_");
 
         let status: DiscoveredPrinter["status"] = "online";
         if (isOffline) {
           status = "offline";
+        } else if (Number(item.PrinterStatus) === 6 || [4, 6, 7, 8, 9, 10, 11].includes(Number(item.DetectedErrorState))) {
+          status = "error";
         } else if (Number(item.PrinterStatus) === 4) {
           status = "printing";
         }
@@ -106,10 +106,11 @@ export async function discoverWindowsPrinters(): Promise<DiscoveredPrinter[]> {
           status,
           isDefault,
           driverName,
+          portName: item.PortName ? String(item.PortName) : undefined,
           capabilities: {
             colorSupport,
-            duplexSupport: true,
-            paperSizes: ["A4", "A3", "Letter", "Legal"],
+            duplexSupport: false,
+            paperSizes: Array.isArray(item.PrinterPaperNames) && item.PrinterPaperNames.length ? item.PrinterPaperNames : ["A4", "Letter"],
           },
         };
       });
@@ -134,32 +135,15 @@ export async function discoverWindowsPrinters(): Promise<DiscoveredPrinter[]> {
 }
 
 function getFallbackPrinters(): DiscoveredPrinter[] {
-  return [
-    {
-      name: "Microsoft Print to PDF",
-      systemIdentifier: "microsoft_print_to_pdf",
-      status: "online",
-      isDefault: true,
-      driverName: "Microsoft Print To PDF Driver",
-      capabilities: {
-        colorSupport: true,
-        duplexSupport: true,
-        paperSizes: ["A4", "Letter", "Legal", "A3"],
-      },
-    },
-    {
-      name: "Shop Thermal / Document Printer",
-      systemIdentifier: "shop_thermal_document_printer",
-      status: "online",
-      isDefault: false,
-      driverName: "Generic / Text Only",
-      capabilities: {
-        colorSupport: false,
-        duplexSupport: false,
-        paperSizes: ["A4", "Letter"],
-      },
-    },
-  ];
+  return [];
+}
+
+export function isPhysicalPrinter(printer: DiscoveredPrinter): boolean {
+  return (
+    !/onenote|print to pdf|xps|fax|pdfcreator|cutepdf|bullzip|dopdf/i.test(
+      `${printer.name} ${printer.driverName || ""}`,
+    ) && !/^(nul:|portprompt:|file:)$/i.test(printer.portName || "")
+  );
 }
 
 /**
@@ -177,7 +161,12 @@ export function findBestPrinterForJob(
     preferredName?: string | null;
   },
 ): DiscoveredPrinter | null {
-  const onlinePrinters = printers.filter((p) => p.status === "online" || p.status === "printing");
+  const onlinePrinters = printers.filter(
+    (p) => isPhysicalPrinter(p) && (p.status === "online" || p.status === "printing"),
+  );
+  const compatiblePrinters = onlinePrinters.filter((p) => !options.paperSize ||
+    p.capabilities?.paperSizes?.some((size) => size.toLowerCase().includes(options.paperSize!.toLowerCase())));
+  onlinePrinters.splice(0, onlinePrinters.length, ...compatiblePrinters);
   if (onlinePrinters.length === 0) {
     // If no printer is explicitly online, return null or fallback
     return null;
@@ -228,6 +217,7 @@ export function findDefaultPrinter(
   printers: DiscoveredPrinter[],
   preferredName?: string | null,
 ): DiscoveredPrinter | null {
+  printers = printers.filter((p) => isPhysicalPrinter(p) && (p.status === "online" || p.status === "printing"));
   if (preferredName) {
     const matched = printers.find((p) => p.name.toLowerCase() === preferredName.toLowerCase());
     if (matched && matched.status === "online") return matched;

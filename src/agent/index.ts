@@ -2,9 +2,14 @@ import { exec } from "node:child_process";
 import { agentDaemon } from "./daemon";
 import { AgentWebServer } from "./ui";
 import { logger } from "./logger";
+import { checkPrintBackend } from "./print-executor";
 
 export async function main() {
   const args = process.argv.slice(2);
+  if (args.includes("--check-print-backend")) {
+    console.log(JSON.stringify(checkPrintBackend()));
+    return;
+  }
   let pairingCode: string | null = null;
   let port = 4321;
   let serviceMode = false; // run headless as a Windows Service (no web UI)
@@ -25,7 +30,25 @@ export async function main() {
   logger.info(`Starting PrintSaathi Windows Desktop Agent${serviceMode ? " [Service Mode]" : ""}...`);
 
   // Start background daemon (printer discovery, job polling, heartbeat)
-  await agentDaemon.start();
+  try {
+    await agentDaemon.start();
+  } catch (error) {
+    // A second click should reopen the running app, not flash an error and quit.
+    if (error instanceof Error && error.message.includes("already running")) {
+      for (let existingPort = 4321; existingPort <= 4330; existingPort += 1) {
+        try {
+          const url = `http://127.0.0.1:${existingPort}`;
+          const response = await fetch(`${url}/api/status`, { signal: AbortSignal.timeout(1000) });
+          const status = await response.json();
+          if (typeof status.isPaired !== "boolean" || !Array.isArray(status.printers)) continue;
+          logger.info(`Agent already running. Dashboard: ${url}`);
+          if (!serviceMode && !args.includes("--no-open")) exec(`start "" "${url}"`);
+          return;
+        } catch { /* Check the next local dashboard port. */ }
+      }
+    }
+    throw error;
+  }
 
   // If pairing code provided via CLI
   if (pairingCode) {
@@ -47,7 +70,9 @@ export async function main() {
 
     // Automatically open the graphical interface in the default browser
     try {
-      if (process.platform === "win32") {
+      if (args.includes("--no-open")) {
+        // Used for managed startup and executable smoke tests.
+      } else if (process.platform === "win32") {
         exec(`start "" "${dashboardUrl}"`);
       } else if (process.platform === "darwin") {
         exec(`open "${dashboardUrl}"`);

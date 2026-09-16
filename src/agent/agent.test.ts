@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { generateAgentToken, generatePairingCode, hashAgentToken } from "@/lib/agent/auth";
 import { isConfigPaired } from "@/agent/config";
-import { findDefaultPrinter } from "@/agent/printer-discovery";
+import { findDefaultPrinter, findBestPrinterForJob } from "@/agent/printer-discovery";
 import type { AgentConfig, DiscoveredPrinter } from "@/agent/types";
 
 describe("Phase 8: Windows Desktop Agent Subsystem", () => {
@@ -87,6 +87,22 @@ describe("Phase 8: Windows Desktop Agent Subsystem", () => {
         driverName: "Canon Inkjet Driver",
       },
     ];
+
+    it("never auto-routes physical jobs to virtual or offline printers", () => {
+      const virtual: DiscoveredPrinter = {
+        name: "Microsoft Print to PDF",
+        systemIdentifier: "pdf",
+        status: "online",
+        isDefault: true,
+        capabilities: { colorSupport: true },
+      };
+      const mono = mockPrinters[0];
+      expect(findDefaultPrinter([virtual, mono])?.name).toBe(mono.name);
+      expect(findDefaultPrinter([virtual])).toBeNull();
+      expect(findDefaultPrinter([mockPrinters[2]])).toBeNull();
+      expect(findBestPrinterForJob([virtual, mono], { colorMode: "color" })).toBeNull();
+      expect(findBestPrinterForJob([virtual, mono], { colorMode: "black_and_white" })?.name).toBe(mono.name);
+    });
 
     it("prefers explicitly selected printer if online", () => {
       const selected = findDefaultPrinter(mockPrinters, "HP LaserJet Pro MFP M428fdw");

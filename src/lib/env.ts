@@ -8,9 +8,9 @@ const publicSchema = z.object({
 });
 
 export const publicEnv = publicSchema.parse({
-  NEXT_PUBLIC_SUPABASE_URL: process.env.NEXT_PUBLIC_SUPABASE_URL,
-  NEXT_PUBLIC_SUPABASE_ANON_KEY: process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY,
-  NEXT_PUBLIC_APP_URL: process.env.NEXT_PUBLIC_APP_URL,
+  NEXT_PUBLIC_SUPABASE_URL: process.env.NEXT_PUBLIC_SUPABASE_URL || undefined,
+  NEXT_PUBLIC_SUPABASE_ANON_KEY: process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || undefined,
+  NEXT_PUBLIC_APP_URL: process.env.NEXT_PUBLIC_APP_URL || undefined,
   NEXT_PUBLIC_RAZORPAY_KEY_ID: process.env.NEXT_PUBLIC_RAZORPAY_KEY_ID || process.env.RAZORPAY_KEY_ID,
 });
 
@@ -29,7 +29,7 @@ export function getRazorpayServerEnv() {
   const keySecret = process.env.RAZORPAY_KEY_SECRET;
   const webhookSecret = process.env.RAZORPAY_WEBHOOK_SECRET;
 
-  if (!keyId || !keySecret) {
+  if (!keyId || !keySecret || !/^rzp_(test|live)_[a-zA-Z0-9]+$/.test(keyId) || /your_|placeholder/i.test(keySecret)) {
     return null;
   }
 
@@ -54,6 +54,6 @@ export function getRazorpayServerEnv() {
 export function getAgentDownloadUrl(): string {
   return (
     process.env.AGENT_DOWNLOAD_URL ||
-    "https://github.com/RD-TCK/Printsathi/releases/latest/download/PrintSaathiAgent.exe"
+    ""
   );
 }

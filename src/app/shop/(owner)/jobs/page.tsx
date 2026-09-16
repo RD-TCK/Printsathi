@@ -51,8 +51,8 @@ export default async function ShopJobsPage() {
     <div className="space-y-8">
       <ShopPageHeader
         eyebrow="Operations"
-        title="Print jobs & Web Station"
-        description="Monitor active and queued print jobs. Verified customer orders print automatically hands-free via the Web Station or can be printed manually with 1-click."
+        title="Print jobs"
+        description="Monitor paid jobs picked up by the Windows agent. Confirm completion only after checking the printed pages."
       />
 
       {/* Zero-Touch Web Auto-Print Station */}
@@ -92,7 +92,7 @@ export default async function ShopJobsPage() {
               }
 
               const docName = doc?.original_filename || `Document #${job.document_id?.slice(0, 6) || "1"}`;
-              const pageCount = (doc as any)?.page_count ?? job.total_pages;
+              const pageCount = (doc as { page_count?: number } | null)?.page_count ?? job.total_pages;
 
               return [
                 <span className="font-mono text-xs" key="job">

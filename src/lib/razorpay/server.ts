@@ -13,6 +13,7 @@ export function fromPaise(paise: number): number {
 
 let razorpayInstance: Razorpay | null = null;
 let lastKeyId: string | null = null;
+let lastKeySecret: string | null = null;
 
 export function getRazorpayClient(): {
   client: Razorpay;
@@ -24,12 +25,13 @@ export function getRazorpayClient(): {
   const env = getRazorpayServerEnv();
   if (!env) return null;
 
-  if (!razorpayInstance || lastKeyId !== env.keyId) {
+  if (!razorpayInstance || lastKeyId !== env.keyId || lastKeySecret !== env.keySecret) {
     razorpayInstance = new Razorpay({
       key_id: env.keyId,
       key_secret: env.keySecret,
     });
     lastKeyId = env.keyId;
+    lastKeySecret = env.keySecret;
   }
 
   return {

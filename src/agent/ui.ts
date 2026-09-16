@@ -20,7 +20,7 @@ export class AgentWebServer {
         if (err.code === "EADDRINUSE") {
           logger.warn(`Port ${this.port} is in use, trying port ${this.port + 1}...`);
           this.port += 1;
-          this.server?.listen(this.port);
+          this.server?.listen(this.port, "127.0.0.1");
         } else {
           reject(err);
         }
@@ -44,7 +44,12 @@ export class AgentWebServer {
     const url = new URL(req.url || "/", `http://127.0.0.1:${this.port}`);
 
     // CORS headers for local loopback
-    res.setHeader("Access-Control-Allow-Origin", "*");
+    const origin = req.headers.origin;
+    const allowed = [`http://127.0.0.1:${this.port}`, `http://localhost:${this.port}`];
+    if (origin && !allowed.includes(origin)) {
+      res.writeHead(403); res.end("Origin not allowed"); return;
+    }
+    if (origin) res.setHeader("Access-Control-Allow-Origin", origin);
     res.setHeader("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
     res.setHeader("Access-Control-Allow-Headers", "Content-Type");
 
@@ -73,6 +78,7 @@ export class AgentWebServer {
       }
 
       try {
+        if (body?.serverUrl) agentDaemon.setServerUrl(String(body.serverUrl));
         const result = await agentDaemon.login(email, password, name);
         res.writeHead(200, { "Content-Type": "application/json" });
         res.end(JSON.stringify(result));
@@ -85,7 +91,10 @@ export class AgentWebServer {
 
     if (url.pathname === "/api/pair" && req.method === "POST") {
       const body = await this.readJsonBody(req);
-      const code = String(body?.pairingCode || "").trim().toUpperCase().replace(/\s+/g, "");
+      const code = String(body?.pairingCode || "")
+        .trim()
+        .toUpperCase()
+        .replace(/\s+/g, "");
       const name = body?.agentName ? String(body.agentName) : undefined;
 
       if (!code) {
@@ -95,6 +104,7 @@ export class AgentWebServer {
       }
 
       try {
+        if (body?.serverUrl) agentDaemon.setServerUrl(String(body.serverUrl));
         const result = await agentDaemon.pair(code, name);
         res.writeHead(200, { "Content-Type": "application/json" });
         res.end(JSON.stringify(result));
@@ -393,15 +403,15 @@ export class AgentWebServer {
             <div class="stat-value" id="statProcessed">0</div>
           </div>
           <div class="stat-box">
-            <div class="stat-label">Completed</div>
-            <div class="stat-value" id="statCompleted">0</div>
+            <div class="stat-label">Submitted</div>
+            <div class="stat-value" id="statSubmitted">0</div>
           </div>
           <div class="stat-box">
             <div class="stat-label">Failed</div>
             <div class="stat-value" id="statFailed">0</div>
           </div>
           <div class="stat-box">
-            <div class="stat-label">Pages Printed</div>
+            <div class="stat-label">Pages Submitted</div>
             <div class="stat-value" id="statPages">0</div>
           </div>
         </div>
@@ -419,7 +429,8 @@ export class AgentWebServer {
   </div>
 
   <script>
-    let activeAuthTab = 'signin';
+    let activeAuthTab = 'pair';
+    function escapeHtml(value) { return String(value == null ? '' : value).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]); }
     let lastRenderedPairedState = null;
 
     async function fetchStatus() {
@@ -466,7 +477,7 @@ export class AgentWebServer {
         const res = await fetch('/api/login', {
           method: 'POST',
           headers: {'Content-Type': 'application/json'},
-          body: JSON.stringify({ email, password, agentName: name })
+          body: JSON.stringify({ email, password, agentName: name, serverUrl: document.getElementById('serverUrlInput').value })
         });
         const data = await res.json();
         if (res.ok) {
@@ -510,7 +521,7 @@ export class AgentWebServer {
         const res = await fetch('/api/pair', {
           method: 'POST',
           headers: {'Content-Type': 'application/json'},
-          body: JSON.stringify({ pairingCode: code, agentName: name })
+          body: JSON.stringify({ pairingCode: code, agentName: name, serverUrl: document.getElementById('serverUrlInput').value })
         });
         const data = await res.json();
         if (res.ok) {
@@ -544,6 +555,8 @@ export class AgentWebServer {
         return;
       }
 
+      status.printers = status.printers.filter(p => !/onenote|print to pdf|xps|fax|pdfcreator|cutepdf/i.test(p.name + ' ' + (p.driverName || '')) && !/^(nul:|portprompt:|file:)$/i.test(p.portName || ''));
+      const printerReady = status.printers.some(p => ['online', 'printing'].includes(p.status));
       // Badge
       const badge = document.getElementById('statusBadge');
       if (!status.isPaired) {
@@ -551,7 +564,8 @@ export class AgentWebServer {
         badge.innerText = 'SIGN IN REQUIRED';
       } else if (status.isConnected) {
         badge.className = 'badge badge-online';
-        badge.innerText = 'CONNECTED & READY';
+        badge.innerText = printerReady ? 'CONNECTED ? PRINTER READY' : 'CONNECTED ? PRINTER OFFLINE';
+        badge.className = printerReady ? 'badge badge-online' : 'badge badge-offline';
       } else {
         badge.className = 'badge badge-offline';
         badge.innerText = 'CONNECTING...';
@@ -563,7 +577,27 @@ export class AgentWebServer {
         const connDiv = document.getElementById('connectionDetails');
         if (!status.isPaired) {
           connDiv.innerHTML = \`
-            <div id="signinFormContainer">
+            <label for="serverUrlInput" style="font-size:12px;font-weight:600;">PrintSaathi website address</label>
+            <input type="url" id="serverUrlInput" class="input-field" placeholder="http://localhost:3001" />
+            <p style="font-size:12px;margin-bottom:14px;">Use the same address and port as your shop dashboard. A printer detected below is local hardware; pair this agent to register it with your shop.</p>
+            <div style="display:flex; gap:8px; margin-bottom:14px;">
+              <button type="button" id="tabBtnPair" class="tab-btn active" onclick="switchAuthTab('pair')">Pairing Key</button>
+              <button type="button" id="tabBtnSignin" class="tab-btn" onclick="switchAuthTab('signin')">Email Sign In</button>
+            </div>
+            <div id="pairFormContainer">
+              <p style="font-size:12px; color:var(--text-muted); margin-bottom:12px;">
+                Copy an unused pairing key from your shop-owner dashboard under <b>Printers</b>, then enter it here.
+              </p>
+              <form onsubmit="pairAgent(event)">
+                <label for="pairingCodeInput" style="font-size:12px; font-weight:600;">Pairing Key</label>
+                <input type="text" id="pairingCodeInput" class="input-field" placeholder="PS-1234-ABCD" autocomplete="off" spellcheck="false" required />
+                <button type="button" class="btn" style="margin-bottom:12px;" onclick="pasteCode()">Paste Pairing Key</button>
+                <label for="agentNameInput" style="font-size:12px; font-weight:600;">Agent Name</label>
+                <input type="text" id="agentNameInput" class="input-field" maxlength="100" required />
+                <button type="submit" id="pairBtn" class="btn">Connect with Pairing Code</button>
+              </form>
+            </div>
+            <div id="signinFormContainer" style="display:none;">
               <p style="font-size:12px; color:var(--text-muted); margin-bottom:12px;">
                 Sign in with your <b>PrintSaathi Shop Owner account</b>. The agent will instantly link with your shop and detect your hardware printers automatically.
               </p>
@@ -575,7 +609,11 @@ export class AgentWebServer {
                 <input type="hidden" id="loginAgentNameInput" value="\${status.agentName || 'Shop Windows PC'}" />
                 <button type="submit" id="loginBtn" class="btn" style="padding:11px; font-weight:700;">Sign In &amp; Connect Shop</button>
               </form>
+            </div>
           \`;
+          document.getElementById('agentNameInput').value = status.agentName || 'Shop Windows PC';
+          document.getElementById('serverUrlInput').value = status.serverUrl;
+          switchAuthTab(activeAuthTab);
         } else {
           connDiv.innerHTML = \`
             <div style="background:#ecfdf5; border:1px solid #a7f3d0; border-radius:10px; padding:12px; margin-bottom:14px;">
@@ -587,7 +625,7 @@ export class AgentWebServer {
             </div>
             <div class="row"><span class="row-label">Shop Name</span><span class="row-value">\${status.shopName || 'Connected'}</span></div>
             <div class="row"><span class="row-label">Machine</span><span class="row-value" style="font-size:12px;">\${status.agentName || 'Windows PC'}</span></div>
-            <div class="row"><span class="row-label">Server</span><span class="row-value" style="font-size:12px;">\${status.serverUrl}</span></div>
+            <div class="row"><span class="row-label">Server</span><span class="row-value" style="font-size:12px;">\${escapeHtml(status.serverUrl)}</span></div>
             <div class="row"><span class="row-label">Heartbeat</span><span class="row-value" style="font-size:12px;">\${status.lastHeartbeat ? new Date(status.lastHeartbeat).toLocaleTimeString() : 'Active'}</span></div>
             <button class="btn btn-danger" onclick="unpairAgent()">Sign Out / Disconnect</button>
           \`;
@@ -602,7 +640,7 @@ export class AgentWebServer {
       } else {
         pList.innerHTML = \`
           <div style="font-size:11px; color:var(--primary); background:#f0fdf4; border:1px solid #bbf7d0; padding:7px 10px; border-radius:6px; margin-bottom:10px;">
-            ⚡ <b>Smart Auto-Routing:</b> Paid orders print automatically to your default printer without human intervention.
+            ⚡ <b>Smart Auto-Routing:</b> Paid orders wait for a connected printer supporting their paper and color settings.
           </div>
         \` + status.printers.map(p => {
           const isColor = Boolean(p.capabilities && p.capabilities.colorSupport);
@@ -610,16 +648,16 @@ export class AgentWebServer {
           <div class="printer-item">
             <div>
               <div style="display:flex; align-items:center; gap:6px;">
-                <span style="font-size:13px; font-weight:700;">\${p.name}</span>
+                <span style="font-size:13px; font-weight:700;">\${escapeHtml(p.name)}</span>
                 <span class="badge \${isColor ? 'badge-online' : ''}" style="font-size:9px; \${!isColor ? 'background:#e2e8f0; color:#334155;' : ''}">
                   \${isColor ? '🎨 Color' : '📄 B&W'}
                 </span>
                 \${p.isDefault ? '<span class="badge badge-online" style="font-size:9px;">DEFAULT</span>' : ''}
               </div>
-              <div style="font-size:11px; color:var(--text-muted); margin-top:2px;">\${p.driverName || 'Windows Driver'} &middot; \${p.status}</div>
+              <div style="font-size:11px; color:var(--text-muted); margin-top:2px;">\${escapeHtml(p.driverName || 'Windows Driver')} &middot; \${p.status}</div>
             </div>
             <div>
-              <span class="badge badge-online" style="font-size:10px;">READY</span>
+              <span class="badge \${['online', 'printing'].includes(p.status) ? 'badge-online' : 'badge-offline'}" style="font-size:10px;">\${p.status.toUpperCase()}</span>
             </div>
           </div>
         \`;
@@ -628,16 +666,16 @@ export class AgentWebServer {
 
       // Stats & Active Job
       document.getElementById('statProcessed').innerText = status.stats.jobsProcessed;
-      document.getElementById('statCompleted').innerText = status.stats.jobsCompleted;
+      document.getElementById('statSubmitted').innerText = status.stats.jobsSubmitted;
       document.getElementById('statFailed').innerText = status.stats.jobsFailed;
-      document.getElementById('statPages').innerText = status.stats.totalPagesPrinted;
+      document.getElementById('statPages').innerText = status.stats.totalPagesSubmitted;
 
       const jobSec = document.getElementById('activeJobSection');
       if (status.currentJob) {
         jobSec.innerHTML = \`
           <div style="background:#dcfce7; border:1px solid #86efac; border-radius:9px; padding:10px;">
             <div style="font-size:11px; font-weight:700; color:#166534;">PRINTING IN PROGRESS</div>
-            <div style="font-size:13px; font-weight:600; margin-top:2px;">\${status.currentJob.document.originalFilename}</div>
+            <div style="font-size:13px; font-weight:600; margin-top:2px;">\${escapeHtml(status.currentJob.document.originalFilename)}</div>
             <div style="font-size:11px; color:#15803d;">\${status.currentJob.totalPages} pages &middot; Job #\${status.currentJob.id.slice(0,8)}</div>
           </div>
         \`;
@@ -648,7 +686,7 @@ export class AgentWebServer {
       // Logs
       const logsBox = document.getElementById('logsBox');
       logsBox.innerHTML = status.recentLogs.map(l => \`
-        <div><span style="color:#64748b;">[\${new Date(l.timestamp).toLocaleTimeString()}]</span> <span class="log-\${l.level}">[\${l.level}]</span> \${l.message}</div>
+        <div><span style="color:#64748b;">[\${new Date(l.timestamp).toLocaleTimeString()}]</span> <span class="log-\${l.level}">[\${l.level}]</span> \${escapeHtml(l.message)}</div>
       \`).join('');
       logsBox.scrollTop = logsBox.scrollHeight;
     }

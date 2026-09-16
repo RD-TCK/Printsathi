@@ -5,6 +5,7 @@ import { configurationSchema, validateRanges } from "@/lib/customer-print";
 import { calculatePricing, type PricingRule } from "@/lib/pricing-engine";
 import { assertShopCanPrice } from "@/lib/pricing-engine";
 import { hashGuestOrderToken } from "@/lib/guest-order";
+import { availablePrinters } from "@/lib/printer-availability";
 
 const estimateSchema = z.object({
   shopIdentifier: z.string().min(1),
@@ -46,22 +47,15 @@ export async function POST(request: Request) {
   const [{ data: agents }, { data: printers }] = await Promise.all([
     client
       .from("desktop_agents")
-      .select("last_heartbeat_at")
+      .select("id, last_heartbeat_at, is_revoked")
       .eq("shop_id", shop.id)
       .eq("is_revoked", false)
       .order("last_heartbeat_at", { ascending: false })
-      .limit(1),
-    client.from("printers").select("is_online, status, capabilities, last_seen_at").eq("shop_id", shop.id),
+      ,
+    client.from("printers").select("id, name, driver_name, desktop_agent_id, is_online, status, capabilities, last_seen_at").eq("shop_id", shop.id),
   ]);
-  const latestAgent = agents?.[0];
-  const agentIsOnline = Boolean(
-    latestAgent?.last_heartbeat_at && Date.now() - new Date(latestAgent.last_heartbeat_at).getTime() < 120000,
-  );
-  const colorPrinterIsOnline = (printers ?? []).some((printer) => {
-    const printerIsFresh = printer.last_seen_at && Date.now() - new Date(printer.last_seen_at).getTime() < 120000;
-    const isOnline = (agentIsOnline || printerIsFresh) && (printer.is_online || printer.status === "online" || printer.status === "printing");
-    return isOnline && Boolean((printer.capabilities as { colorSupport?: boolean } | null)?.colorSupport);
-  });
+  const colorPrinterIsOnline = availablePrinters(printers ?? [], agents ?? [])
+    .some((printer) => Boolean(printer.capabilities?.colorSupport));
   const { data: documents } = await client
     .from("documents")
     .select("id, order_id, page_count")
@@ -107,7 +101,7 @@ export async function POST(request: Request) {
       allRanges,
       rules.map((rule) => ({ ...rule, price_per_page: Number(rule.price_per_page), is_active: true })) as PricingRule[],
     );
-    return NextResponse.json(pricing);
+    return NextResponse.json({ ...pricing, totalPages: pricing.colorPages + pricing.blackAndWhitePages });
   } catch (pricingError) {
     return NextResponse.json(
       { error: pricingError instanceof Error ? pricingError.message : "Could not calculate pricing." },

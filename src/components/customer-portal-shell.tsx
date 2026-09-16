@@ -21,7 +21,7 @@ import { cn } from "@/lib/utils";
 const nav = [
   { label: "My Orders", href: "/customer", icon: ClipboardList },
   { label: "Track Order", href: "/track", icon: Search },
-  { label: "Print at a Shop", href: "/", icon: Printer },
+  { label: "Print at a Shop", href: "/shops", icon: Printer },
 ] as const;
 
 export function CustomerPortalShell({
@@ -163,7 +163,7 @@ export function CustomerPortalShell({
           </div>
           <div className="ml-auto flex items-center gap-3">
             <Link
-              href="/"
+              href="/shops"
               className="hidden rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-600 hover:bg-slate-50 sm:inline-flex items-center gap-1.5"
             >
               <Printer className="size-3.5 text-emerald-600" />

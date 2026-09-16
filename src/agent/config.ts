@@ -13,7 +13,7 @@ const DEFAULT_CONFIG: AgentConfig = {
   selectedPrinter: null,
   version: "1.0.0",
   pollIntervalMs: 5000,
-  heartbeatIntervalMs: 20000,
+  heartbeatIntervalMs: 10000,
 };
 
 export function getConfigDirectory(): string {
@@ -42,6 +42,7 @@ export function loadConfig(): AgentConfig {
     return {
       ...DEFAULT_CONFIG,
       ...parsed,
+      heartbeatIntervalMs: 10000,
       serverUrl: process.env.PRINTSAATHI_SERVER_URL || parsed.serverUrl || DEFAULT_CONFIG.serverUrl,
     };
   } catch {

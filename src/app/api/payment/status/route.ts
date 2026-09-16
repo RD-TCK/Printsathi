@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { hashGuestOrderToken } from "@/lib/guest-order";
+import { isMockPayment } from "@/lib/mock-payments";
 
 export async function GET(request: Request) {
   const { searchParams } = new URL(request.url);
@@ -59,7 +60,7 @@ export async function GET(request: Request) {
     adminClient
       .from("payments")
       .select(
-        "id, status, provider_order_id, provider_payment_id, payment_method, amount, currency, verified_at, error_code, error_description, created_at",
+        "id, provider, metadata, status, provider_order_id, provider_payment_id, payment_method, amount, currency, verified_at, error_code, error_description, created_at",
       )
       .eq("order_id", order.id)
       .maybeSingle(),
@@ -92,6 +93,7 @@ export async function GET(request: Request) {
           id: payment.id,
           status: payment.status,
           isVerified: isPaymentVerified,
+          isMock: isMockPayment(payment),
           providerOrderId: payment.provider_order_id,
           providerPaymentId: payment.provider_payment_id,
           paymentMethod: payment.payment_method,

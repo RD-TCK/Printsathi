@@ -56,7 +56,8 @@ export async function signIn(formData: FormData) {
       shop_phone: metadata.shop_phone || null,
     });
   }
-  redirect("/shop");
+  const { data: profile } = await client.from("profiles").select("role").eq("id", user?.id ?? "").maybeSingle();
+  redirect(profile?.role === "customer" ? "/customer" : profile?.role === "admin" ? "/admin" : "/shop");
 }
 
 export async function signUpShopOwner(formData: FormData) {

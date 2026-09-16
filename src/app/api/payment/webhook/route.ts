@@ -1,7 +1,10 @@
+import { releasePaidOrder } from "@/lib/release-paid-order";
 import { NextResponse } from "next/server";
+import { createHash } from "node:crypto";
+import { capturedPaymentMatches } from "@/lib/payment-validation";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import { getRazorpayServerEnv } from "@/lib/env";
-import { fromPaise, verifyWebhookSignature } from "@/lib/razorpay/server";
+import { fromPaise, toPaise, verifyWebhookSignature } from "@/lib/razorpay/server";
 
 export async function POST(request: Request) {
   const adminClient = createSupabaseAdminClient();
@@ -49,7 +52,7 @@ export async function POST(request: Request) {
   const eventType = String(payload.event || "");
   const eventId =
     request.headers.get("x-razorpay-event-id") ||
-    String(payload.event_id || payload.id || `evt_${Date.now()}_${Math.random().toString(36).slice(2, 9)}`);
+    createHash("sha256").update(rawBodyText).digest("hex");
 
   // 4. Webhook Idempotency: Check if this event was already processed
   const { data: existingEvent } = await adminClient
@@ -84,7 +87,7 @@ export async function POST(request: Request) {
 
     if (rzpOrderId || orderIdFromNotes) {
       // Find matching payment in our database
-      let paymentQuery = adminClient.from("payments").select("id, order_id, status, amount, currency, metadata");
+      let paymentQuery = adminClient.from("payments").select("id, order_id, status, amount, currency, metadata, provider_order_id");
       if (rzpOrderId) {
         paymentQuery = paymentQuery.eq("provider_order_id", rzpOrderId);
       } else {
@@ -93,13 +96,18 @@ export async function POST(request: Request) {
 
       const { data: payment } = await paymentQuery.maybeSingle();
 
+      if (!payment && ["payment.captured", "order.paid"].includes(eventType)) throw new Error("Payment record is not available yet; retry this event.");
       if (payment) {
         if (eventType === "payment.captured" || eventType === "order.paid") {
+          if (!paymentEntity || !capturedPaymentMatches(paymentEntity, {
+            providerOrderId: payment.provider_order_id,
+            amountPaise: toPaise(Number(payment.amount)), currency: payment.currency,
+          })) throw new Error("Captured payment does not match the stored order, amount, and currency.");
           const verifiedAt = new Date().toISOString();
           const paymentMethod = String(paymentEntity?.method || "razorpay");
 
           if (payment.status !== "verified") {
-            await adminClient
+            const { error: verificationError } = await adminClient
               .from("payments")
               .update({
                 status: "verified",
@@ -116,20 +124,7 @@ export async function POST(request: Request) {
               })
               .eq("id", payment.id);
 
-            // Unlock order and print jobs
-            await Promise.all([
-              adminClient
-                .from("orders")
-                .update({ status: "paid" })
-                .eq("id", payment.order_id)
-                .in("status", ["draft", "awaiting_payment"]),
-              adminClient
-                .from("print_jobs")
-                .update({ status: "paid" })
-                .eq("order_id", payment.order_id)
-                .in("status", ["draft", "awaiting_payment"]),
-            ]);
-
+            if (verificationError) throw new Error(verificationError.message);
             await adminClient.from("payment_transactions").insert({
               payment_id: payment.id,
               order_id: payment.order_id,
@@ -143,6 +138,7 @@ export async function POST(request: Request) {
               raw_payload: payload,
             });
           }
+          await releasePaidOrder(adminClient, payment.order_id);
         } else if (eventType === "payment.failed") {
           const errorCode = String(paymentEntity?.error_code || "PAYMENT_FAILED");
           const errorDesc = String(paymentEntity?.error_description || "Payment failed");
@@ -159,7 +155,7 @@ export async function POST(request: Request) {
                   last_webhook_failure: paymentEntity,
                 },
               })
-              .eq("id", payment.id);
+              .eq("id", payment.id).neq("status", "verified");
 
             await adminClient.from("payment_transactions").insert({
               payment_id: payment.id,

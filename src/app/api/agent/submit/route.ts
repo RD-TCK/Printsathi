@@ -30,10 +30,14 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Database service not configured." }, { status: 503 });
   }
 
-  const { data: success, error } = await adminClient.rpc("submit_print_job", {
-    p_job_id: parsed.data.jobId,
-    p_agent_id: auth.agent.id,
-  });
+  // Reserve dispatch before Windows receives any bytes. Never allow an expired
+  // lease to start printing, even if another agent has not reclaimed it yet.
+  const { data: success, error } = await adminClient.from("print_jobs")
+    .update({ status: "print_submitted", claim_expires_at: null, failure_reason: null })
+    .eq("id", parsed.data.jobId).eq("shop_id", auth.shop.id)
+    .eq("claimed_by_agent_id", auth.agent.id).eq("status", "claimed")
+    .gt("claim_expires_at", new Date().toISOString())
+    .select("id").maybeSingle();
 
   if (error || !success) {
     return NextResponse.json(

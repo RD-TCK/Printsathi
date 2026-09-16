@@ -1,4 +1,5 @@
 import fs from "node:fs";
+import net from "node:net";
 import path from "node:path";
 import os from "node:os";
 import type { AgentConfig, AgentStatusSnapshot, ClaimedJob, DiscoveredPrinter } from "./types";
@@ -9,6 +10,7 @@ import { prepareAndPrintDocument } from "./print-executor";
 import { logger } from "./logger";
 
 export class AgentDaemon {
+  private instanceLock: net.Server | null = null;
   private config: AgentConfig;
   private client: AgentApiClient;
   private isRunning: boolean = false;
@@ -18,14 +20,18 @@ export class AgentDaemon {
   private lastHeartbeatTime: string | null = null;
   private isConnected: boolean = false;
 
+  private discoveryTimer: NodeJS.Timeout | null = null;
+  private discovering = false;
+  private heartbeatBusy = false;
+
   private heartbeatTimer: NodeJS.Timeout | null = null;
   private pollTimer: NodeJS.Timeout | null = null;
 
   private stats = {
     jobsProcessed: 0,
-    jobsCompleted: 0,
+    jobsSubmitted: 0,
     jobsFailed: 0,
-    totalPagesPrinted: 0,
+    totalPagesSubmitted: 0,
   };
 
   constructor() {
@@ -35,6 +41,11 @@ export class AgentDaemon {
 
   async start(): Promise<void> {
     if (this.isRunning) return;
+    await new Promise<void>((resolve, reject) => {
+      const server = net.createServer(socket => socket.end());
+      server.once("error", () => reject(new Error("Another PrintSaathi agent is already running. Close it before starting this agent.")));
+      server.listen(4320, "127.0.0.1", () => { this.instanceLock = server; resolve(); });
+    });
     this.isRunning = true;
     logger.info(`Starting PrintSathi Windows Desktop Agent v${this.config.version}...`);
 
@@ -45,6 +56,7 @@ export class AgentDaemon {
       logger.warn("Initial printer discovery failed:", { err });
     }
 
+    this.discoveryTimer = setInterval(() => { void this.refreshPrinters(); }, 5000);
     // Start background intervals
     this.startHeartbeatLoop();
     this.startJobPollingLoop();
@@ -52,6 +64,9 @@ export class AgentDaemon {
 
   stop(): void {
     this.isRunning = false;
+    this.instanceLock?.close();
+    this.instanceLock = null;
+    if (this.discoveryTimer) clearInterval(this.discoveryTimer);
     if (this.heartbeatTimer) clearInterval(this.heartbeatTimer);
     if (this.pollTimer) clearInterval(this.pollTimer);
     logger.info("PrintSathi Windows Desktop Agent stopped.");
@@ -67,7 +82,7 @@ export class AgentDaemon {
       totalMemoryGb: Math.round(os.totalmem() / 1024 / 1024 / 1024),
     };
 
-    logger.info(`Attempting to pair with code ${pairingCode.toUpperCase()}...`);
+    logger.info("Attempting to pair agent...");
     const result = await this.client.pairWithCode({
       pairingCode: pairingCode.trim().toUpperCase(),
       agentName,
@@ -94,7 +109,11 @@ export class AgentDaemon {
     return { success: true, shopName: result.shopName };
   }
 
-  async login(email: string, password: string, customAgentName?: string): Promise<{ success: boolean; shopName: string }> {
+  async login(
+    email: string,
+    password: string,
+    customAgentName?: string,
+  ): Promise<{ success: boolean; shopName: string }> {
     const agentName = customAgentName || this.config.agentName;
     const machineInfo = {
       hostname: os.hostname(),
@@ -145,9 +164,29 @@ export class AgentDaemon {
     this.currentJob = null;
   }
 
+  setServerUrl(value: string): void {
+    const url = new URL(value.trim());
+    if (!["http:", "https:"].includes(url.protocol) || url.username || url.password || url.search || url.hash)
+      throw new Error("Enter the website address, for example http://localhost:3001.");
+    const serverUrl = url.href.replace(/\/+$/, "");
+    if (serverUrl === this.config.serverUrl) return;
+    if (isConfigPaired(this.config)) throw new Error("Disconnect this agent before changing its server address.");
+    this.config = saveConfig({ serverUrl });
+    this.client.setServerUrl(serverUrl);
+    this.isConnected = false;
+  }
+
   selectPrinter(printerName: string): void {
     this.config = saveConfig({ selectedPrinter: printerName });
     logger.info(`Selected default printer: "${printerName}"`);
+  }
+
+  private async refreshPrinters(): Promise<void> {
+    if (this.discovering) return;
+    this.discovering = true;
+    try { this.discoveredPrinters = await discoverWindowsPrinters(); }
+    catch { this.discoveredPrinters = []; }
+    finally { this.discovering = false; }
   }
 
   private startHeartbeatLoop(): void {
@@ -161,8 +200,10 @@ export class AgentDaemon {
   }
 
   private async sendHeartbeat(): Promise<void> {
+    if (this.heartbeatBusy) return;
+    this.heartbeatBusy = true;
     try {
-      this.discoveredPrinters = await discoverWindowsPrinters();
+      await this.refreshPrinters();
 
       const machineInfo = {
         hostname: os.hostname(),
@@ -191,7 +232,7 @@ export class AgentDaemon {
           error: error instanceof Error ? error.message : String(error),
         });
       }
-    }
+    } finally { this.heartbeatBusy = false; }
   }
 
   private startJobPollingLoop(): void {
@@ -206,6 +247,8 @@ export class AgentDaemon {
   private async pollAndProcessNextJob(): Promise<void> {
     this.isProcessingJob = true;
     try {
+      await this.refreshPrinters();
+      if (!findDefaultPrinter(this.discoveredPrinters, this.config.selectedPrinter)) return;
       const job = await this.client.claimNextJob(300); // 5 minute lease
       if (!job) {
         return;
@@ -237,99 +280,41 @@ export class AgentDaemon {
 
       const tempFilePath = path.join(tempDir, `doc_${job.document.id}_${Date.now()}.pdf`);
 
+      let submissionStarted = false;
       try {
         logger.info(`Downloading document "${job.document.originalFilename}" (${job.document.pageCount} pages)...`);
         await this.client.downloadDocument(job.document.id, job.id, tempFilePath);
 
-        // Partition pages by color mode for multi-printer automatic switching
-        const pagesConfig = job.pagesConfig || [];
-        const colorPages = pagesConfig.filter((p) => p.colorMode === "color");
-        const bwPages = pagesConfig.filter((p) => p.colorMode === "black_and_white");
-
-        const hasMixedModes = colorPages.length > 0 && bwPages.length > 0;
-
-        if (hasMixedModes) {
-          logger.info(
-            `Mixed job detected: ${colorPages.length} color range(s), ${bwPages.length} B&W range(s). Auto-switching between printers...`,
-          );
-
-          const colorPrinter = findBestPrinterForJob(this.discoveredPrinters, {
-            colorMode: "color",
-            preferredName: this.config.selectedPrinter,
-          });
-          const bwPrinter = findBestPrinterForJob(this.discoveredPrinters, {
-            colorMode: "black_and_white",
-            preferredName: this.config.selectedPrinter,
-          });
-
-          if (!colorPrinter && !bwPrinter) {
-            throw new Error("No online printer available on Windows Agent");
-          }
-
-          // Execute color pages on color printer (or fallback to bw printer if user only has one)
-          const targetColorPrinter = colorPrinter || bwPrinter!;
-          logger.info(`Routing ${colorPages.length} color range(s) to "${targetColorPrinter.name}"`);
-          const colorResult = await prepareAndPrintDocument(tempFilePath, job, targetColorPrinter.name, colorPages);
-          if (!colorResult.success) {
-            throw new Error(colorResult.errorMessage || `Failed printing color pages on ${targetColorPrinter.name}`);
-          }
-
-          // Execute B&W pages on B&W printer (or fallback)
-          const targetBwPrinter = bwPrinter || colorPrinter!;
-          logger.info(`Routing ${bwPages.length} B&W range(s) to "${targetBwPrinter.name}"`);
-          const bwResult = await prepareAndPrintDocument(tempFilePath, job, targetBwPrinter.name, bwPages);
-          if (!bwResult.success) {
-            throw new Error(bwResult.errorMessage || `Failed printing B&W pages on ${targetBwPrinter.name}`);
-          }
-
-          logger.info(
-            `Windows Print Spooler accepted both parts of Job #${job.id.slice(0, 8)}; recording submission...`,
-          );
-          await this.client.reportSubmit(job.id);
-          this.stats.jobsCompleted += 1;
-          this.stats.totalPagesPrinted += job.totalPages;
-          await this.client.reportComplete(job.id);
-        } else {
-          // Single mode job (either all Color, all B&W, or unspecified)
-          const isColorJob = colorPages.length > 0;
-          const targetPrinter =
-            findBestPrinterForJob(this.discoveredPrinters, {
-              colorMode: isColorJob ? "color" : "black_and_white",
-              preferredName: this.config.selectedPrinter || job.defaultPrinter,
-            }) || findDefaultPrinter(this.discoveredPrinters, this.config.selectedPrinter || job.defaultPrinter);
-
-          if (!targetPrinter) {
-            logger.error(`No online printer available for Job #${job.id.slice(0, 8)}`);
-            await this.client.reportFailure(job.id, "No online printer available on Windows Agent", true);
-            this.stats.jobsFailed += 1;
-            this.currentJob = null;
-            return;
-          }
-
-          logger.info(`Auto-selected "${targetPrinter.name}" (Color mode: ${isColorJob ? "Color" : "B&W"})`);
-          const printResult = await prepareAndPrintDocument(tempFilePath, job, targetPrinter.name);
-
-          if (printResult.success) {
-            logger.info(`Windows Print Spooler accepted Job #${job.id.slice(0, 8)}; recording submission...`);
-            await this.client.reportSubmit(job.id);
-            this.stats.jobsCompleted += 1;
-            this.stats.totalPagesPrinted += job.totalPages;
-            logger.info(`Job #${job.id.slice(0, 8)} completed (submitted to printer).`);
-            await this.client.reportComplete(job.id);
-          } else {
-            logger.error(`Print execution failed for Job #${job.id.slice(0, 8)}: ${printResult.errorMessage}`);
-            await this.client.reportFailure(
-              job.id,
-              printResult.errorMessage || "Windows print submission failed",
-              true,
-            );
-            this.stats.jobsFailed += 1;
-          }
+        const configs = job.pagesConfig.length ? job.pagesConfig : [{ startPage: 1, endPage: job.document.pageCount, colorMode: "black_and_white" as const, paperSize: "a4" as const }];
+        // Preserve page order and separate every change of paper size or color mode.
+        const groups: ClaimedJob["pagesConfig"][] = [];
+        for (const range of configs) {
+          const previous = groups[groups.length - 1];
+          if (previous && previous[0].colorMode === range.colorMode && previous[0].paperSize === range.paperSize) previous.push(range);
+          else groups.push([range]);
         }
+        const plan = groups.map(ranges => ({ ranges, printer: findBestPrinterForJob(this.discoveredPrinters, {
+          colorMode: ranges[0].colorMode, paperSize: ranges[0].paperSize,
+          preferredName: this.config.selectedPrinter || job.defaultPrinter,
+        }) }));
+        if (plan.some(part => !part.printer)) throw new Error("A connected printer supporting the requested paper size and color mode is required.");
+        // Persist the no-retry boundary BEFORE invoking the renderer. A crash or
+        // lost response after this point requires inspection, never a blind reprint.
+        submissionStarted = true;
+        await this.client.reportSubmit(job.id);
+        let pagesSubmitted = 0;
+        for (const part of plan) {
+          const result = await prepareAndPrintDocument(tempFilePath, job, part.printer!.name, part.ranges);
+          if (!result.success) throw new Error(result.errorMessage || "Windows print submission failed. Check for partial output before retrying.");
+          pagesSubmitted += result.pagesSubmitted;
+        }
+        this.stats.jobsSubmitted += 1;
+        this.stats.totalPagesSubmitted += pagesSubmitted;
+        logger.info(`Job #${job.id.slice(0, 8)} submitted; physical completion is unconfirmed.`);
       } catch (printErr) {
         const errorMsg = printErr instanceof Error ? printErr.message : "Print execution error";
         logger.error(`Print execution failed for Job #${job.id.slice(0, 8)}: ${errorMsg}`);
-        await this.client.reportFailure(job.id, errorMsg, true);
+        await this.client.reportFailure(job.id, errorMsg.slice(0, 500), !submissionStarted);
         this.stats.jobsFailed += 1;
       } finally {
         // Clean up download file

@@ -1,3 +1,4 @@
+import { availablePrinters, supportsPrint } from "@/lib/printer-availability";
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
@@ -6,12 +7,15 @@ import { hashGuestOrderToken } from "@/lib/guest-order";
 import { assertShopCanPrice, calculatePricing, type PricingRule } from "@/lib/pricing-engine";
 import { createRazorpayOrder, getRazorpayClient, toPaise } from "@/lib/razorpay/server";
 import type { PrintRange } from "@/lib/customer-print";
+import { mockPaymentsEnabled, isMockPayment } from "@/lib/mock-payments";
+import { releasePaidOrder } from "@/lib/release-paid-order";
 
 const createPaymentOrderSchema = z.object({
   orderId: z.string().uuid(),
   shopIdentifier: z.string().min(1),
   accessToken: z.string().min(10).optional(),
   idempotencyKey: z.string().optional(),
+  paymentMode: z.enum(["razorpay", "mock"]).default("razorpay"),
 });
 
 export async function POST(request: Request) {
@@ -30,7 +34,9 @@ export async function POST(request: Request) {
     );
   }
 
-  const { orderId, shopIdentifier, accessToken, idempotencyKey } = parsed.data;
+  const { orderId, shopIdentifier, accessToken, idempotencyKey, paymentMode } = parsed.data;
+  if (paymentMode === "mock" && !mockPaymentsEnabled())
+    return NextResponse.json({ error: "Mock payments are disabled on this server." }, { status: 403 });
 
   const adminClient = createSupabaseAdminClient();
   if (!adminClient) {
@@ -107,13 +113,27 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Order access could not be verified." }, { status: 403 });
   }
 
+  if (paymentMode === "mock") {
+    const { data: payment, error } = await adminClient.from("payments")
+      .select("id, provider, status, provider_payment_id, metadata").eq("order_id", order.id).maybeSingle();
+    if (error) return NextResponse.json({ error: "Could not check the existing payment." }, { status: 500 });
+    if (payment && payment.status === "verified") {
+      try { await releasePaidOrder(adminClient, order.id); }
+      catch { return NextResponse.json({ error: "Test payment recorded. Retry to release the print queue." }, { status: 503 }); }
+      return NextResponse.json({ success: true, mock: true, verified: true, publicOrderId: order.public_id,
+        paymentId: payment.provider_payment_id, amountRupees: Number(order.total_amount), currency: order.currency });
+    }
+  }
+
   // 3. Check order status — never re-charge an already paid or completed order
-  if (order.status === "paid" || order.status === "completed" || order.status === "printing") {
+  if (["paid", "completed", "printing", "partially_printed"].includes(order.status)) {
     return NextResponse.json(
       { error: "This order has already been paid for.", status: order.status, alreadyPaid: true },
       { status: 409 },
     );
   }
+  if (order.status !== "awaiting_payment")
+    return NextResponse.json({ error: "Configure this order before starting payment." }, { status: 409 });
 
   // 4. Calculate authoritative price from database records (NEVER trust client price)
   const [{ data: rules }, { data: printJobs }] = await Promise.all([
@@ -152,6 +172,14 @@ export async function POST(request: Request) {
     paperSize: p.paper_size as "a4" | "a3" | "letter" | "legal",
   }));
 
+  const [inventory, agents] = await Promise.all([
+    adminClient.from("printers").select("id,name,driver_name,desktop_agent_id,status,is_online,last_seen_at,capabilities").eq("shop_id", shop.id),
+    adminClient.from("desktop_agents").select("id,last_heartbeat_at,is_revoked").eq("shop_id", shop.id).eq("is_revoked", false),
+  ]);
+  const online = availablePrinters(inventory.data || [], agents.data || []);
+  if (ranges.some(range => !online.some(printer => supportsPrint(printer, range.colorMode, range.paperSize)))) {
+    return NextResponse.json({ error: "The required printer is offline. Reconnect it before payment." }, { status: 409 });
+  }
   let authoritativePricing;
   try {
     authoritativePricing = calculatePricing(
@@ -183,41 +211,27 @@ export async function POST(request: Request) {
       .eq("id", order.id);
   }
 
-  const razorpayConfig = getRazorpayClient();
-  if (!razorpayConfig) {
-    // If Razorpay keys are not set, process in instant test mode for development/demo
-    await adminClient
-      .from("orders")
-      .update({
-        status: "paid",
-        total_amount: authoritativeTotal,
-        updated_at: new Date().toISOString(),
-      })
-      .eq("id", order.id);
-
-    await adminClient
-      .from("print_jobs")
-      .update({ status: "queued" })
-      .eq("order_id", order.id);
-
-    await adminClient.from("payments").insert({
-      order_id: order.id,
-      provider: "test_mode",
-      status: "verified",
-      amount: authoritativeTotal,
-      currency: "INR",
-      verified_at: new Date().toISOString(),
-    });
-
-    return NextResponse.json({
-      success: true,
-      alreadyPaid: true,
-      publicOrderId: order.public_id || order.id.slice(0, 8),
-      amount: authoritativeTotal,
-      currency: "INR",
-      isTestMode: true,
-    });
+  if (paymentMode === "mock") {
+    const paymentId = `mock_payment_${order.id}`;
+    const { error } = await adminClient.from("payments").upsert({
+      id: order.id, order_id: order.id, customer_id: order.customer_id,
+      provider: "mock", provider_order_id: `mock_order_${order.id}`, provider_payment_id: paymentId,
+      status: "verified", amount: authoritativeTotal, currency: "INR", verified_at: new Date().toISOString(),
+      payment_method: "mock", idempotency_key: `mock_${order.id}`,
+      metadata: { source: "printsaathi-test-checkout-v1", money_collected: false },
+    }, { onConflict: "id" });
+    if (error) return NextResponse.json({ error: "Could not record test payment. Retry; no money was charged." }, { status: 409 });
+    await adminClient.from("payment_transactions").insert({ payment_id: order.id, order_id: order.id,
+      provider: "mock", provider_payment_id: paymentId, event_type: "mock_payment_verified", status: "verified",
+      amount: authoritativeTotal, currency: "INR", raw_payload: { money_collected: false } });
+    try { await releasePaidOrder(adminClient, order.id); }
+    catch { return NextResponse.json({ error: "Test payment recorded. Retry to release the print queue." }, { status: 503 }); }
+    return NextResponse.json({ success: true, mock: true, verified: true, publicOrderId: order.public_id,
+      paymentId, amountRupees: authoritativeTotal, currency: "INR" });
   }
+
+  const razorpayConfig = getRazorpayClient();
+  if (!razorpayConfig) return NextResponse.json({ error: "Payments are not configured yet. The shop owner must add Razorpay keys before checkout is available." }, { status: 503 });
 
   // 5. Check existing payment records for idempotency
   const { data: existingPayment } = await adminClient
@@ -236,10 +250,9 @@ export async function POST(request: Request) {
 
     // If there is an active created/pending payment with the exact same amount and provider_order_id, reuse it
     if (
-      (existingPayment.status === "created" || existingPayment.status === "pending") &&
+      (["created", "pending", "failed"].includes(existingPayment.status)) &&
       existingPayment.provider_order_id &&
-      Number(existingPayment.amount) === authoritativeTotal &&
-      (!idempotencyKey || existingPayment.idempotency_key === idempotencyKey)
+      Number(existingPayment.amount) === authoritativeTotal
     ) {
       return NextResponse.json({
         success: true,

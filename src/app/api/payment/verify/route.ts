@@ -1,11 +1,12 @@
+import { releasePaidOrder } from "@/lib/release-paid-order";
 import { NextResponse } from "next/server";
+import { capturedPaymentMatches } from "@/lib/payment-validation";
 import { z } from "zod";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { hashGuestOrderToken } from "@/lib/guest-order";
 import {
   fetchRazorpayPayment,
-  fromPaise,
   getRazorpayClient,
   toPaise,
   verifyPaymentSignature,
@@ -104,13 +105,16 @@ export async function POST(request: Request) {
   }
 
   // Verify order matches payment provider_order_id
-  if (payment.provider_order_id && payment.provider_order_id !== razorpayOrderId) {
+  if (!payment.provider_order_id || payment.provider_order_id !== razorpayOrderId) {
     return NextResponse.json(
       { error: "Razorpay order ID does not match the active payment record for this order." },
       { status: 400 },
     );
   }
 
+  if (payment.status === "verified" && (cancelled || failure)) {
+    return NextResponse.json({ verified: true, success: true, status: order.status, orderId: order.id });
+  }
   // 3. Handle Cancelled or Failed Payment reports from frontend / checkout modal
   if (cancelled || failure) {
     const errorCode = failure?.code || (cancelled ? "PAYMENT_CANCELLED" : "PAYMENT_FAILED");
@@ -136,7 +140,7 @@ export async function POST(request: Request) {
           },
         },
       })
-      .eq("id", payment.id);
+      .eq("id", payment.id).neq("status", "verified");
 
     await adminClient.from("payment_transactions").insert({
       payment_id: payment.id,
@@ -173,6 +177,8 @@ export async function POST(request: Request) {
   // 5. Idempotency Check: Already verified with this payment ID
   if (payment.status === "verified") {
     if (payment.provider_payment_id === razorpayPaymentId) {
+      try { await releasePaidOrder(adminClient, order.id); }
+      catch (error) { return NextResponse.json({ error: error instanceof Error ? error.message : "Queue update failed" }, { status: 503 }); }
       return NextResponse.json({
         success: true,
         verified: true,
@@ -228,40 +234,13 @@ export async function POST(request: Request) {
   let paymentMethod = "razorpay";
   let razorpayPaymentData: Record<string, unknown> = {};
 
-  try {
-    const fetchedPayment = await fetchRazorpayPayment(razorpayPaymentId);
-    if (fetchedPayment) {
-      razorpayPaymentData = fetchedPayment as unknown as Record<string, unknown>;
-      paymentMethod = (fetchedPayment.method as string) || paymentMethod;
-
-      // Verify amount from gateway matches authoritative order amount in paise
-      const expectedPaise = toPaise(Number(payment.amount));
-      const actualPaise = Number(fetchedPayment.amount);
-
-      if (actualPaise < expectedPaise) {
-        // Tampered amount!
-        await adminClient.from("payment_transactions").insert({
-          payment_id: payment.id,
-          order_id: order.id,
-          provider: "razorpay",
-          provider_order_id: razorpayOrderId,
-          provider_payment_id: razorpayPaymentId,
-          event_type: "amount_mismatch",
-          status: "failed",
-          amount: fromPaise(actualPaise),
-          currency: payment.currency,
-          error_code: "AMOUNT_MISMATCH",
-          error_description: `Paid amount ${actualPaise} paise is less than expected ${expectedPaise} paise.`,
-          raw_payload: razorpayPaymentData,
-        });
-
-        return NextResponse.json({ error: "Paid amount does not match authoritative order amount." }, { status: 400 });
-      }
-    }
-  } catch (fetchErr) {
-    // If Razorpay API fetch fails due to network or rate limit, cryptographic HMAC signature is still authoritative
-    console.warn("Could not fetch payment from Razorpay API, proceeding with signature verification:", fetchErr);
+  const fetchedPayment = await fetchRazorpayPayment(razorpayPaymentId);
+  if (!fetchedPayment) return NextResponse.json({ error: "Payment verification is temporarily unavailable. Your order stays unpaid until Razorpay confirms capture. Please check order status shortly." }, { status: 503 });
+  if (!capturedPaymentMatches(fetchedPayment, { providerOrderId: payment.provider_order_id, amountPaise: toPaise(Number(payment.amount)), currency: payment.currency })) {
+    return NextResponse.json({ error: "Payment is not captured or does not match this order. Printing remains locked." }, { status: 409 });
   }
+  razorpayPaymentData = fetchedPayment as unknown as Record<string, unknown>;
+  paymentMethod = String(fetchedPayment.method || "razorpay");
 
   // 8. Update Payment record to VERIFIED
   const verifiedAt = new Date().toISOString();
@@ -281,25 +260,14 @@ export async function POST(request: Request) {
         verified_at: verifiedAt,
       },
     })
-    .eq("id", payment.id);
+    .eq("id", payment.id).neq("status", "verified");
 
   if (updatePaymentError) {
     return NextResponse.json({ error: "Could not update payment status." }, { status: 500 });
   }
 
-  // 9. Update order and print jobs to 'paid' (eligible for printing)
-  await Promise.all([
-    adminClient
-      .from("orders")
-      .update({ status: "paid" })
-      .eq("id", order.id)
-      .in("status", ["draft", "awaiting_payment"]),
-    adminClient
-      .from("print_jobs")
-      .update({ status: "paid" })
-      .eq("order_id", order.id)
-      .in("status", ["draft", "awaiting_payment"]),
-  ]);
+  try { await releasePaidOrder(adminClient, order.id); }
+  catch (error) { return NextResponse.json({ error: error instanceof Error ? error.message : "Queue update failed" }, { status: 503 }); }
 
   // 10. Record transaction log & audit log
   await Promise.all([

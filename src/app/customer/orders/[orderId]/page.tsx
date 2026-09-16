@@ -81,7 +81,7 @@ export default async function OrderDetailPage({ params }: Props) {
       )
     `)
     .eq("customer_id", user.id)   // 🔒 only this customer's orders
-    .or(`public_id.eq.${orderId},id.eq.${orderId}`)
+    .eq(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(orderId) ? "id" : "public_id", orderId)
     .maybeSingle();
 
   if (!order) notFound();
@@ -91,7 +91,8 @@ export default async function OrderDetailPage({ params }: Props) {
   const jobs = Array.isArray(order.print_jobs) ? order.print_jobs : [];
   const isVerified = (payment as { status?: string } | null)?.status === "verified";
   const isFailed = (payment as { status?: string } | null)?.status === "failed";
-  const allPrinted = jobs.every((j) => j.status === "completed");
+  const allPrinted = jobs.length > 0 && jobs.every((j) => j.status === "completed");
+  const allSubmitted = jobs.length > 0 && jobs.every((j) => ["print_submitted", "completed"].includes(j.status));
   const anyFailed = jobs.some((j) => j.status === "failed");
 
   // Timeline steps
@@ -113,8 +114,8 @@ export default async function OrderDetailPage({ params }: Props) {
     },
     {
       label: "Sent to printer",
-      done: isVerified && jobs.length > 0,
-      time: isVerified && jobs.length > 0 ? "Auto-dispatched after payment" : "—",
+      done: isVerified && allSubmitted,
+      time: isVerified && allSubmitted ? "Dispatched by the Windows agent" : "Waiting for the Windows agent",
     },
     {
       label: "Printed & complete",
@@ -134,7 +135,7 @@ export default async function OrderDetailPage({ params }: Props) {
     <div className="space-y-8">
       {/* Back */}
       <Link
-        href="/my"
+        href="/customer"
         className="inline-flex items-center gap-2 text-sm font-medium text-slate-500 hover:text-emerald-700 transition-colors"
       >
         <ArrowLeft className="size-4" />

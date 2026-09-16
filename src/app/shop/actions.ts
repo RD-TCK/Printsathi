@@ -5,6 +5,7 @@ import { redirect } from "next/navigation";
 import { z } from "zod";
 import { canManageShop, getShopContext } from "@/lib/shop-portal";
 import { generatePairingCode } from "@/lib/agent/auth";
+import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 
 const pricingSchema = z.object({
   colorMode: z.enum(["black_and_white", "color"]),
@@ -228,18 +229,23 @@ export async function setDefaultPrinter(formData: FormData) {
     redirect("/shop/printer?error=Invalid+printer+selected");
   }
 
-  // Set all shop printers to is_default = false, then set target printer to is_default = true
-  await context.client.from("printers").update({ is_default: false }).eq("shop_id", context.shop.id);
-
-  const { error } = await context.client
+  // Owner authorization is checked above. Browser RLS intentionally makes
+  // printer state read-only, so use the server client and retain the shop filter.
+  const admin = createSupabaseAdminClient();
+  if (!admin) redirect("/shop/printer?error=Printer+management+is+not+configured");
+  const { data: updated, error } = await admin
     .from("printers")
     .update({ is_default: true })
     .eq("id", printerId.data)
-    .eq("shop_id", context.shop.id);
+    .eq("shop_id", context.shop.id)
+    .select("id").maybeSingle();
 
-  if (error) {
+  if (error || !updated) {
     redirect("/shop/printer?error=Could+not+update+default+printer");
   }
+  const { error: clearError } = await admin.from("printers").update({ is_default: false })
+    .eq("shop_id", context.shop.id).neq("id", updated.id);
+  if (clearError) redirect("/shop/printer?error=Could+not+clear+the+previous+default+printer");
 
   revalidatePath("/shop/printer");
   redirect("/shop/printer?success=Default+printer+updated");
@@ -256,7 +262,9 @@ export async function revokeAgent(formData: FormData) {
     redirect("/shop/printer?error=Invalid+agent+identifier");
   }
 
-  const { error } = await context.client
+  const admin = createSupabaseAdminClient();
+  if (!admin) redirect("/shop/printer?error=Agent+management+is+not+configured");
+  const { data: revoked, error } = await admin
     .from("desktop_agents")
     .update({
       is_revoked: true,
@@ -264,9 +272,10 @@ export async function revokeAgent(formData: FormData) {
       status: "offline",
     })
     .eq("id", agentId.data)
-    .eq("shop_id", context.shop.id);
+    .eq("shop_id", context.shop.id)
+    .select("id").maybeSingle();
 
-  if (error) {
+  if (error || !revoked) {
     redirect("/shop/printer?error=Could+not+revoke+agent");
   }
 

@@ -1,0 +1,9 @@
+{
+  "pkg": {
+    "assets": [
+      "node_modules/pdf-lib/**/*",
+      "node_modules/pdf-to-printer/dist/*.exe"
+    ],
+    "scripts": []
+  }
+}

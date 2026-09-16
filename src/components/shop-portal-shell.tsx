@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { usePathname } from "next/navigation";
 import {
   BarChart3,
   CircleUserRound,
@@ -17,7 +18,7 @@ import {
 } from "lucide-react";
 import { useState, type ReactNode } from "react";
 import { signOut } from "@/app/actions/auth";
-import { Badge } from "@/components/ui/badge";
+
 import { cn } from "@/lib/utils";
 
 const navigation = [
@@ -36,12 +37,15 @@ export function ShopPortalShell({
   shopName,
   userName,
   membershipRole,
+  publicId,
 }: {
   children: ReactNode;
   shopName: string;
   userName: string | null;
   membershipRole: string;
+  publicId: string;
 }) {
+  const pathname = usePathname();
   const [open, setOpen] = useState(false);
   return (
     <div className="min-h-screen bg-canvas">
@@ -66,7 +70,7 @@ export function ShopPortalShell({
         <div className="border-b border-line px-5 py-5">
           <p className="truncate text-sm font-semibold text-brand-950">{shopName}</p>
           <div className="mt-2 flex items-center gap-2">
-            <Badge tone="warning">Agent not installed</Badge>
+            <Link href="/shop/printer" className="text-xs text-brand-700 underline">Printer &amp; agent settings</Link>
           </div>
         </div>
         <nav className="flex-1 space-y-1 overflow-y-auto p-4">
@@ -75,7 +79,8 @@ export function ShopPortalShell({
               key={href}
               href={href}
               onClick={() => setOpen(false)}
-              className="flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium text-muted hover:bg-brand-50 hover:text-brand-800"
+              aria-current={pathname === href ? "page" : undefined}
+              className={cn("flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium hover:bg-brand-50", pathname === href ? "bg-brand-50 text-brand-800" : "text-muted")}
             >
               <Icon className="size-4" />
               {label}
@@ -118,7 +123,7 @@ export function ShopPortalShell({
             <Menu className="size-5" />
           </button>
           <div className="hidden text-sm text-muted lg:block">Shop control plane</div>
-          <Link className="text-sm font-semibold text-brand-700" href="/">
+          <Link className="text-sm font-semibold text-brand-700" href={`/shop/${publicId}`}>
             View public site
           </Link>
         </header>

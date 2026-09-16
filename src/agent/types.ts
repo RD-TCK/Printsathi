@@ -17,6 +17,7 @@ export interface DiscoveredPrinter {
   status: "online" | "offline" | "printing" | "error" | "no_printer";
   isDefault: boolean;
   driverName?: string;
+  portName?: string;
   capabilities?: {
     colorSupport?: boolean;
     duplexSupport?: boolean;
@@ -75,9 +76,9 @@ export interface AgentStatusSnapshot {
   currentJob: ClaimedJob | null;
   stats: {
     jobsProcessed: number;
-    jobsCompleted: number;
+    jobsSubmitted: number;
     jobsFailed: number;
-    totalPagesPrinted: number;
+    totalPagesSubmitted: number;
   };
   recentLogs: LogEntry[];
 }

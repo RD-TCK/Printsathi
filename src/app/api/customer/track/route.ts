@@ -13,7 +13,7 @@ export async function GET(request: Request) {
   const { searchParams } = new URL(request.url);
   const id = searchParams.get("id")?.trim();
 
-  if (!id) {
+  if (!id || !/^[a-zA-Z0-9-]{6,80}$/.test(id)) {
     return NextResponse.json({ error: "Missing order id." }, { status: 400 });
   }
 
@@ -40,7 +40,7 @@ export async function GET(request: Request) {
         documents ( original_filename )
       )
     `)
-    .or(`public_id.eq.${id},id.eq.${id}`)
+    .eq(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id) ? "id" : "public_id", id)
     .maybeSingle();
 
   if (!order) {

@@ -10,6 +10,7 @@ export default async function ShopOwnerLayout({ children }: { children: ReactNod
       {context ? (
         <ShopPortalShell
           shopName={context.shop.name}
+          publicId={context.shop.public_id}
           userName={context.profile.full_name}
           membershipRole={context.membership.role}
         >

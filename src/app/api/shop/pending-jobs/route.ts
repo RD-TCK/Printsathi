@@ -17,17 +17,13 @@ export async function GET() {
     return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
   }
 
-  const { data: member } = await client
-    .from("shop_members")
-    .select("shop_id")
-    .eq("user_id", user.id)
-    .maybeSingle();
+  const { data: member } = await client.from("shop_members").select("shop_id").eq("user_id", user.id).maybeSingle();
 
   if (!member) {
     return NextResponse.json({ error: "Not a shop member." }, { status: 403 });
   }
 
-  // Get jobs that are ready to print (e.g. status in 'queued' / 'paid' / 'claimed' / 'printing' / 'print_submitted')
+  // Never send agent-owned or already submitted jobs to browser auto-print.
   const { data: jobs, error } = await client
     .from("print_jobs")
     .select(
@@ -57,7 +53,7 @@ export async function GET() {
     `,
     )
     .eq("shop_id", member.shop_id)
-    .in("status", ["queued", "paid", "claimed", "printing", "print_submitted"])
+    .in("status", ["queued", "paid"])
     .order("created_at", { ascending: true })
     .limit(20);
 

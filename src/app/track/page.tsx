@@ -43,13 +43,14 @@ export default function PublicTrackPage() {
     try {
       const res = await fetch(`/api/customer/track?id=${encodeURIComponent(orderId.trim())}`);
       const text = await res.text();
-      let data: any = {};
+      let data: (TrackResult | { found: false }) & { error?: string };
       try {
         data = text ? JSON.parse(text) : {};
       } catch {
         throw new Error(`Tracking service error (HTTP ${res.status}). Please try again.`);
       }
       if (!res.ok) throw new Error(data.error || "Could not track order.");
+      if (!("found" in data) && !("publicId" in data)) throw new Error("Invalid tracking response.");
       setResult(data);
     } catch (err) {
       let msg = err instanceof Error ? err.message : "Could not track order.";
@@ -162,7 +163,6 @@ function TrackResultCard({ data }: { data: TrackResult }) {
   const isVerified = data.paymentStatus === "verified";
   const isFailed = data.paymentStatus === "failed";
   const allDone = data.jobs.every((j) => j.status === "completed");
-  const anyFailed = data.jobs.some((j) => j.status === "failed");
 
   return (
     <div className="space-y-4">

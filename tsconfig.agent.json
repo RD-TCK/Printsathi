@@ -13,5 +13,5 @@
     "declaration": false
   },
   "include": ["src/agent/**/*"],
-  "exclude": ["node_modules", "dist", "src/agent/agent.test.ts"]
+  "exclude": ["node_modules", "dist", "src/agent/**/*.test.ts"]
 }

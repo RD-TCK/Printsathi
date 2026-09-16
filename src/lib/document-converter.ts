@@ -18,7 +18,7 @@ export async function convertAnyFileToPdf(file: File): Promise<ConvertedFileResu
   // 1. Direct PDF
   if (file.type === "application/pdf" || lowerName.endsWith(".pdf")) {
     const arrayBuffer = await file.arrayBuffer();
-    const pdfDoc = await PDFDocument.load(arrayBuffer, { ignoreEncryption: true });
+    const pdfDoc = await PDFDocument.load(arrayBuffer, { ignoreEncryption: false });
     const pageCount = pdfDoc.getPageCount();
     return {
       file,
@@ -196,83 +196,7 @@ export async function convertAnyFileToPdf(file: File): Promise<ConvertedFileResu
     };
   }
 
-  // 4. Word Documents (DOCX / DOC) & other formats
-  // Create a clean formatted cover & document summary PDF page
-  const pdfDoc = await PDFDocument.create();
-  const font = await pdfDoc.embedFont(StandardFonts.Helvetica);
-  const boldFont = await pdfDoc.embedFont(StandardFonts.HelveticaBold);
-  const a4Width = 595.28;
-  const a4Height = 841.89;
-  const page = pdfDoc.addPage([a4Width, a4Height]);
-
-  page.drawText("PrintSaathi Printable Document", {
-    x: 50,
-    y: a4Height - 60,
-    size: 16,
-    font: boldFont,
-    color: rgb(0.1, 0.45, 0.25),
-  });
-
-  page.drawText(`File: ${fileName}`, {
-    x: 50,
-    y: a4Height - 100,
-    size: 13,
-    font: boldFont,
-    color: rgb(0.1, 0.1, 0.1),
-  });
-
-  page.drawText(`Size: ${(file.size / 1024).toFixed(1)} KB`, {
-    x: 50,
-    y: a4Height - 125,
-    size: 11,
-    font,
-    color: rgb(0.4, 0.4, 0.4),
-  });
-
-  page.drawText(`Format: ${file.type || "Document"}`, {
-    x: 50,
-    y: a4Height - 145,
-    size: 11,
-    font,
-    color: rgb(0.4, 0.4, 0.4),
-  });
-
-  // If text could be extracted
-  try {
-    const sampleText = await file.text();
-    if (sampleText && sampleText.trim().length > 0) {
-      const cleanSnippet = sampleText.slice(0, 500).replace(/[^\x20-\x7E\n\r]/g, " ");
-      page.drawText("Content Preview:", {
-        x: 50,
-        y: a4Height - 180,
-        size: 11,
-        font: boldFont,
-        color: rgb(0.2, 0.2, 0.2),
-      });
-      page.drawText(cleanSnippet, {
-        x: 50,
-        y: a4Height - 200,
-        size: 9,
-        font,
-        color: rgb(0.3, 0.3, 0.3),
-        maxWidth: a4Width - 100,
-        lineHeight: 14,
-      });
-    }
-  } catch {
-    // Binary document format
-  }
-
-  const pdfBytes = await pdfDoc.save();
-  const convertedFileName = `${fileName.replace(/\.[^/.]+$/, "")}.pdf`;
-  const convertedFile = new File([pdfBytes.buffer as ArrayBuffer], convertedFileName, { type: "application/pdf" });
-
-  return {
-    file: convertedFile,
-    pageCount: 1,
-    originalName: fileName,
-    mimeType: "application/pdf",
-  };
+  throw new Error("This format requires server-side conversion. Upload the original file through the document upload form.");
 }
 
 /**

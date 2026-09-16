@@ -78,11 +78,12 @@ export function MarketingFooter() {
           </div>
         </div>
         <div>
-          <h2 className="text-sm font-semibold">Company</h2>
+          <h2 className="text-sm font-semibold">Customers</h2>
           <div className="mt-4 space-y-3 text-sm text-white/65">
-            <span className="block">Contact: hello@printsaathi.example</span>
-            <span className="block">Privacy placeholder</span>
-            <span className="block">Terms placeholder</span>
+            <Link className="block hover:text-white" href="/shops">Find a shop</Link>
+            <Link className="block hover:text-white" href="/track">Track an order</Link>
+            <Link className="block hover:text-white" href="/customer">My orders</Link>
+            <p>For help with printed pages, contact the shop shown on your order.</p>
           </div>
         </div>
       </div>
