@@ -23,14 +23,14 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: Build Windows Agent
-        run: npm run build:agent
+      - name: Compile TypeScript agent
+        run: npm run build:agent:tsc
 
-      - name: Verify bundled PDF renderer
-        run: .\dist\PrintSaathiAgent.exe --check-print-backend
+      - name: Package native Windows desktop app
+        run: npm run build:desktop
 
-      - name: Upload Agent EXE
+      - name: Upload Desktop Agent Installer
         uses: actions/upload-artifact@v4
         with:
-          name: PrintSaathiAgent-Windows
+          name: PrintSaathiAgent-Windows-Desktop
           path: dist/PrintSaathiAgent.exe
