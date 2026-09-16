@@ -4,7 +4,7 @@ import os from "node:os";
 import type { AgentConfig } from "./types";
 
 const DEFAULT_CONFIG: AgentConfig = {
-  serverUrl: process.env.PRINTSAATHI_SERVER_URL || process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000",
+  serverUrl: process.env.PRINTSAATHI_SERVER_URL || process.env.NEXT_PUBLIC_APP_URL || "https://printsathi.vercel.app",
   agentId: null,
   shopId: null,
   shopName: null,
@@ -39,11 +39,16 @@ export function loadConfig(): AgentConfig {
   try {
     const raw = fs.readFileSync(filePath, "utf8");
     const parsed = JSON.parse(raw);
+    let serverUrl = process.env.PRINTSAATHI_SERVER_URL || parsed.serverUrl || DEFAULT_CONFIG.serverUrl;
+    if (serverUrl.includes("localhost:3000") && !process.env.PRINTSAATHI_SERVER_URL) {
+      serverUrl = "https://printsathi.vercel.app";
+    }
+
     return {
       ...DEFAULT_CONFIG,
       ...parsed,
+      serverUrl,
       heartbeatIntervalMs: 10000,
-      serverUrl: process.env.PRINTSAATHI_SERVER_URL || parsed.serverUrl || DEFAULT_CONFIG.serverUrl,
     };
   } catch {
     return { ...DEFAULT_CONFIG };

@@ -1,4 +1,4 @@
-import { app, BrowserWindow, Menu, Tray, nativeImage } from "electron";
+import { app, BrowserWindow, Menu, Tray, nativeImage, shell } from "electron";
 import { agentDaemon } from "./daemon";
 import { AgentWebServer } from "./ui";
 import { logger } from "./logger";
@@ -25,8 +25,13 @@ async function startDesktopAgent() {
         const url = `http://127.0.0.1:${port}`;
         const response = await fetch(`${url}/api/status`, { signal: AbortSignal.timeout(1000) });
         const status = await response.json();
-        if (typeof status.isPaired === "boolean" && Array.isArray(status.printers)) { dashboardUrl = url; break; }
-      } catch { /* Try the next dashboard port. */ }
+        if (typeof status.isPaired === "boolean" && Array.isArray(status.printers)) {
+          dashboardUrl = url;
+          break;
+        }
+      } catch {
+        /* Try the next dashboard port. */
+      }
     }
     if (!dashboardUrl) throw error;
   }
@@ -42,10 +47,10 @@ async function startDesktopAgent() {
 
 function createWindow() {
   mainWindow = new BrowserWindow({
-    width: 1180,
-    height: 820,
-    minWidth: 760,
-    minHeight: 620,
+    width: 1100,
+    height: 740,
+    minWidth: 800,
+    minHeight: 580,
     show: false,
     autoHideMenuBar: true,
     title: "PrintSaathi Desktop Agent",
@@ -53,6 +58,16 @@ function createWindow() {
       contextIsolation: true,
       nodeIntegration: false,
     },
+  });
+
+  mainWindow.webContents.setWindowOpenHandler(({ url }) => {
+    if (url.startsWith("http:") || url.startsWith("https:")) {
+      if (!url.includes("127.0.0.1") && !url.includes("localhost")) {
+        void shell.openExternal(url);
+        return { action: "deny" };
+      }
+    }
+    return { action: "allow" };
   });
 
   void mainWindow.loadURL(dashboardUrl);
@@ -71,10 +86,16 @@ function createTray() {
   tray.setContextMenu(
     Menu.buildFromTemplate([
       { label: "Open PrintSaathi", click: () => mainWindow?.show() },
-      { label: "Shop Dashboard", click: () => void mainWindow?.loadURL(`${agentDaemon.getStatus().serverUrl}/shop/dashboard`) },
+      {
+        label: "Shop Dashboard (Web)",
+        click: () =>
+          void shell.openExternal(
+            `${agentDaemon.getStatus().serverUrl || "https://printsathi.vercel.app"}/shop/dashboard`
+          ),
+      },
       { type: "separator" },
       { label: "Quit", click: () => quitDesktopAgent() },
-    ]),
+    ])
   );
   tray.on("double-click", () => mainWindow?.show());
 }
