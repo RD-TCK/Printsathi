@@ -24,13 +24,26 @@
   "build": {
     "appId": "com.printsaathi.agent",
     "productName": "PrintSaathi Desktop Agent",
+    "npmRebuild": false,
+    "nodeGypRebuild": false,
+    "directories": {
+      "output": "dist"
+    },
     "files": [
       "dist/agent/**/*",
-      "node_modules/**/*",
+      "node_modules/pdf-lib/**/*",
+      "node_modules/pdf-to-printer/**/*",
+      "node_modules/@pdf-lib/**/*",
+      "node_modules/tslib/**/*",
       "package.json"
     ],
     "win": {
-      "target": "nsis",
+      "target": [
+        {
+          "target": "nsis",
+          "arch": ["x64"]
+        }
+      ],
       "artifactName": "PrintSaathiAgent.${ext}"
     },
     "nsis": {
