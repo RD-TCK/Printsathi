@@ -26,8 +26,16 @@ import { Select } from "@/components/ui/select";
 import { cn } from "@/lib/utils";
 
 type CustomerDocument = { id: string; filename: string; pageCount: number; sizeBytes: number; ranges: PrintRange[] };
-type Estimate = { total: number; currency: string; totalPages: number; colorPages: number; blackAndWhitePages: number };
 type Props = { shop: PublicShop; identifier: string };
+type Estimate = {
+  total: number;
+  subtotal?: number;
+  platformFee?: number;
+  currency: string;
+  totalPages: number;
+  colorPages: number;
+  blackAndWhitePages: number;
+};
 
 const steps = ["1. Upload Document", "2. Configure & Pay"];
 
@@ -1204,6 +1212,22 @@ function PaymentStep({
             {estimate.totalPages} pages ({estimate.blackAndWhitePages} B&amp;W, {estimate.colorPages} Color)
           </span>
         </div>
+        {typeof estimate.platformFee === "number" && estimate.platformFee > 0 ? (
+          <>
+            <div className="mt-2 flex items-center justify-between text-sm">
+              <span className="text-muted">Print Subtotal</span>
+              <span className="font-semibold text-brand-950">
+                ₹{(estimate.subtotal ?? estimate.total - estimate.platformFee).toFixed(2)}
+              </span>
+            </div>
+            <div className="mt-2 flex items-center justify-between text-sm">
+              <span className="text-muted">
+                Platform Convenience Fee ({estimate.totalPages <= 5 ? "≤ 5 pages" : "6+ pages"})
+              </span>
+              <span className="font-semibold text-emerald-800">+ ₹{estimate.platformFee.toFixed(2)}</span>
+            </div>
+          </>
+        ) : null}
         <div className="mt-3 flex items-center justify-between border-t border-line/60 pt-3">
           <span className="text-base font-bold text-brand-950">Total Amount</span>
           <span className="text-2xl font-black text-brand-800">₹{estimate.total.toFixed(2)}</span>

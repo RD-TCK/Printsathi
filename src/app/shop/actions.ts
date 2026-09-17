@@ -282,3 +282,28 @@ export async function revokeAgent(formData: FormData) {
   revalidatePath("/shop/printer");
   redirect("/shop/printer?success=Agent+access+revoked");
 }
+
+export async function updateShopBillingMode(formData: FormData) {
+  const context = await getShopContext();
+  if (!context || !canManageShop(context)) {
+    redirect("/shop/subscription?error=Permission+denied");
+  }
+
+  const mode = z.enum(["customer_fee", "shop_subscription"]).safeParse(formData.get("billingMode"));
+  if (!mode.success) {
+    redirect("/shop/subscription?error=Invalid+billing+mode");
+  }
+
+  const { error } = await context.client
+    .from("shop_settings")
+    .update({ billing_mode: mode.data })
+    .eq("shop_id", context.shop.id);
+
+  if (error) {
+    redirect("/shop/subscription?error=Could+not+update+billing+mode");
+  }
+
+  revalidatePath("/shop/subscription");
+  redirect("/shop/subscription?success=Billing+mode+updated");
+}
+

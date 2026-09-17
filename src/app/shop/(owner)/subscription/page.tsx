@@ -3,6 +3,7 @@ import { ShopPageHeader } from "@/components/shop-page";
 import { Alert } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
+import { BillingModeToggle } from "@/components/billing-mode-toggle";
 
 export const dynamic = "force-dynamic";
 
@@ -11,41 +12,76 @@ function daysRemaining(date: string | null) {
   return Math.max(0, Math.ceil((new Date(date).getTime() - Date.now()) / 86400000));
 }
 
-export default async function SubscriptionPage() {
+export default async function SubscriptionPage({
+  searchParams,
+}: {
+  searchParams?: Promise<{ success?: string; error?: string }>;
+}) {
+  const params = await searchParams;
   const context = await getShopContext();
   if (!context) return <Alert tone="error">Shop workspace unavailable.</Alert>;
-  const { data: subscription, error } = await context.client
-    .from("subscriptions")
-    .select("status, trial_start, trial_end, current_period_start, current_period_end, provider_subscription_id")
-    .eq("shop_id", context.shop.id)
-    .maybeSingle();
+
+  const [{ data: subscription, error }, { data: settings }] = await Promise.all([
+    context.client
+      .from("subscriptions")
+      .select("status, trial_start, trial_end, current_period_start, current_period_end, provider_subscription_id")
+      .eq("shop_id", context.shop.id)
+      .maybeSingle(),
+    context.client
+      .from("shop_settings")
+      .select("billing_mode")
+      .eq("shop_id", context.shop.id)
+      .maybeSingle(),
+  ]);
+
   if (error)
     return (
       <Alert tone="error" title="Subscription unavailable">
         Could not read the shop subscription state.
       </Alert>
     );
+
   if (!subscription)
     return (
       <Alert tone="warning" title="No subscription record">
         No subscription has been provisioned for this shop.
       </Alert>
     );
+
   const trialDays = daysRemaining(subscription.trial_end);
+  const currentBillingMode = settings?.billing_mode === "shop_subscription" ? "shop_subscription" : "customer_fee";
+
   return (
     <div className="space-y-8">
       <ShopPageHeader
         eyebrow="Plan & access"
-        title="Subscription"
-        description="This page reads the current backend state. A new shop starts on a 15-day free trial; subscription billing can be connected separately without affecting customer order payments."
+        title="Subscription & Billing"
+        description="Manage your shop plan and choose between customer-funded platform convenience fees or standard subscription billing."
       />
-      <Card className="max-w-3xl">
+
+      {params?.success ? (
+        <Alert tone="success" className="max-w-3xl">
+          {params.success}
+        </Alert>
+      ) : null}
+
+      {params?.error ? (
+        <Alert tone="error" className="max-w-3xl">
+          {params.error}
+        </Alert>
+      ) : null}
+
+      {/* Interactive Billing Mode Toggle */}
+      <BillingModeToggle currentMode={currentBillingMode} />
+
+      {/* Subscription Plan Details */}
+      <Card className="max-w-3xl border-line">
         <CardHeader>
           <div className="flex flex-wrap items-center justify-between gap-4">
             <div>
-              <h2 className="text-xl font-semibold text-brand-950">PrintSathi shop plan</h2>
+              <h2 className="text-xl font-semibold text-brand-950">PrintSaathi Shop Plan</h2>
               <p className="mt-1 text-sm text-muted">
-                Customer order payments are separate from shop subscription billing.
+                Customer order payments are settled separately from shop subscription billing.
               </p>
             </div>
             <Badge tone={subscription.status === "active" || subscription.status === "trial" ? "success" : "warning"}>
@@ -58,7 +94,7 @@ export default async function SubscriptionPage() {
             {subscription.status === "trial" ? (
               <>
                 <div>
-                  <p className="text-xs uppercase tracking-wide text-muted">Trial started</p>
+                  <p className="text-xs uppercase tracking-wide text-muted font-bold">Trial started</p>
                   <p className="mt-2 font-semibold text-brand-950">
                     {subscription.trial_start
                       ? new Date(subscription.trial_start).toLocaleDateString()
@@ -66,11 +102,11 @@ export default async function SubscriptionPage() {
                   </p>
                 </div>
                 <div>
-                  <p className="text-xs uppercase tracking-wide text-muted">Trial ends</p>
+                  <p className="text-xs uppercase tracking-wide text-muted font-bold">Trial ends</p>
                   <p className="mt-2 font-semibold text-brand-950">
                     {subscription.trial_end ? new Date(subscription.trial_end).toLocaleDateString() : "Not recorded"}
                   </p>
-                  <p className="mt-1 text-xs text-brand-700">
+                  <p className="mt-1 text-xs font-semibold text-brand-700">
                     {trialDays === null ? "" : `${trialDays} days remaining`}
                   </p>
                 </div>
@@ -78,11 +114,11 @@ export default async function SubscriptionPage() {
             ) : (
               <>
                 <div>
-                  <p className="text-xs uppercase tracking-wide text-muted">Plan status</p>
+                  <p className="text-xs uppercase tracking-wide text-muted font-bold">Plan status</p>
                   <p className="mt-2 font-semibold text-brand-950">{formatStatus(subscription.status)}</p>
                 </div>
                 <div>
-                  <p className="text-xs uppercase tracking-wide text-muted">Renewal</p>
+                  <p className="text-xs uppercase tracking-wide text-muted font-bold">Renewal</p>
                   <p className="mt-2 font-semibold text-brand-950">
                     {subscription.current_period_end
                       ? new Date(subscription.current_period_end).toLocaleDateString()

@@ -28,7 +28,7 @@ export async function POST(request: Request) {
     .maybeSingle();
   if (!shop) return NextResponse.json({ error: "Shop not found." }, { status: 404 });
   const [{ data: settings }, { data: subscription }] = await Promise.all([
-    client.from("shop_settings").select("accepting_orders").eq("shop_id", shop.id).maybeSingle(),
+    client.from("shop_settings").select("accepting_orders, billing_mode").eq("shop_id", shop.id).maybeSingle(),
     client.from("subscriptions").select("status, trial_end").eq("shop_id", shop.id).maybeSingle(),
   ]);
   const subscriptionStatus =
@@ -50,12 +50,15 @@ export async function POST(request: Request) {
       .select("id, last_heartbeat_at, is_revoked")
       .eq("shop_id", shop.id)
       .eq("is_revoked", false)
-      .order("last_heartbeat_at", { ascending: false })
-      ,
-    client.from("printers").select("id, name, driver_name, desktop_agent_id, is_online, status, capabilities, last_seen_at").eq("shop_id", shop.id),
+      .order("last_heartbeat_at", { ascending: false }),
+    client
+      .from("printers")
+      .select("id, name, driver_name, desktop_agent_id, is_online, status, capabilities, last_seen_at")
+      .eq("shop_id", shop.id),
   ]);
-  const colorPrinterIsOnline = availablePrinters(printers ?? [], agents ?? [])
-    .some((printer) => Boolean(printer.capabilities?.colorSupport));
+  const colorPrinterIsOnline = availablePrinters(printers ?? [], agents ?? []).some((printer) =>
+    Boolean(printer.capabilities?.colorSupport),
+  );
   const { data: documents } = await client
     .from("documents")
     .select("id, order_id, page_count")
@@ -97,9 +100,11 @@ export async function POST(request: Request) {
     );
   }
   try {
+    const billingMode = (settings?.billing_mode as "customer_fee" | "shop_subscription") || "customer_fee";
     const pricing = calculatePricing(
       allRanges,
       rules.map((rule) => ({ ...rule, price_per_page: Number(rule.price_per_page), is_active: true })) as PricingRule[],
+      billingMode,
     );
     return NextResponse.json({ ...pricing, totalPages: pricing.colorPages + pricing.blackAndWhitePages });
   } catch (pricingError) {

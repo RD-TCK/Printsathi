@@ -12,6 +12,8 @@ export const pricingRuleSchema = z.object({
 
 export type PricingRule = z.infer<typeof pricingRuleSchema>;
 export type PricingSnapshotRule = PricingRule & { rule_key: string };
+export type BillingMode = "customer_fee" | "shop_subscription";
+
 export type PricingBreakdown = {
   colorMode: PrintRange["colorMode"];
   paperSize: PrintRange["paperSize"];
@@ -26,13 +28,16 @@ export type PricingBreakdown = {
     ruleKey: string;
   }>;
 };
+
 export type PricingResult = {
   blackAndWhitePages: number;
   colorPages: number;
   paperSizeBreakdown: Array<{ paperSize: PrintRange["paperSize"]; pages: number; subtotal: number }>;
   subtotal: number;
+  platformFee: number;
   total: number;
   currency: "INR";
+  billingMode: BillingMode;
   pricingRuleSnapshot: PricingSnapshotRule[];
   breakdown: PricingBreakdown[];
 };
@@ -56,6 +61,16 @@ const cents = (value: number) => Math.round((value + Number.EPSILON) * 100);
 const rupees = (value: number) => cents(value) / 100;
 const ruleKey = (rule: PricingRule) =>
   `${rule.color_mode}:${rule.paper_size}:${rule.min_pages}:${rule.max_pages ?? "plus"}`;
+
+export function calculatePlatformFee(
+  totalPages: number,
+  billingMode: BillingMode = "customer_fee",
+): number {
+  if (billingMode === "shop_subscription") return 0;
+  if (totalPages <= 0) return 0;
+  // If customer prints <= 5 pages: add ₹0.50. If >= 6 pages: add ₹1.50.
+  return totalPages <= 5 ? 0.5 : 1.5;
+}
 
 function validateRules(rules: PricingRule[]) {
   if (!rules.length) throw new Error("This shop has not configured printing prices yet.");
@@ -113,7 +128,11 @@ function priceBucket(
   return { mode, paperSize, pages, subtotal: rupees(subtotalCents / 100), slabBreakdown };
 }
 
-export function calculatePricing(ranges: PrintRange[], rules: PricingRule[]): PricingResult {
+export function calculatePricing(
+  ranges: PrintRange[],
+  rules: PricingRule[],
+  billingMode: BillingMode = "customer_fee",
+): PricingResult {
   const buckets = validateRules(rules);
   const grouped = new Map<string, number>();
   for (const range of ranges) {
@@ -142,22 +161,31 @@ export function calculatePricing(ranges: PrintRange[], rules: PricingRule[]): Pr
     current.subtotalCents += cents(item.subtotal);
     paperTotals.set(item.paperSize, current);
   }
+  const blackAndWhitePages = ranges
+    .filter((range) => range.colorMode === "black_and_white")
+    .reduce((sum, range) => sum + range.endPage - range.startPage + 1, 0);
+  const colorPages = ranges
+    .filter((range) => range.colorMode === "color")
+    .reduce((sum, range) => sum + range.endPage - range.startPage + 1, 0);
+  const totalPages = blackAndWhitePages + colorPages;
+  const platformFee = calculatePlatformFee(totalPages, billingMode);
+
   const subtotal = rupees(breakdown.reduce((sum, item) => sum + cents(item.subtotal), 0) / 100);
+  const total = rupees((cents(subtotal) + cents(platformFee)) / 100);
+
   return {
-    blackAndWhitePages: ranges
-      .filter((range) => range.colorMode === "black_and_white")
-      .reduce((sum, range) => sum + range.endPage - range.startPage + 1, 0),
-    colorPages: ranges
-      .filter((range) => range.colorMode === "color")
-      .reduce((sum, range) => sum + range.endPage - range.startPage + 1, 0),
+    blackAndWhitePages,
+    colorPages,
     paperSizeBreakdown: [...paperTotals].map(([paperSize, value]) => ({
       paperSize,
       pages: value.pages,
       subtotal: rupees(value.subtotalCents / 100),
     })),
     subtotal,
-    total: subtotal,
+    platformFee,
+    total,
     currency: "INR",
+    billingMode,
     pricingRuleSnapshot: rules
       .filter((rule) => rule.is_active !== false)
       .map((rule) => ({ ...rule, rule_key: ruleKey(rule) })),

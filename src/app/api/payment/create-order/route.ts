@@ -55,7 +55,7 @@ export async function POST(request: Request) {
   }
 
   const [{ data: settings }, { data: subscription }] = await Promise.all([
-    adminClient.from("shop_settings").select("accepting_orders").eq("shop_id", shop.id).maybeSingle(),
+    adminClient.from("shop_settings").select("accepting_orders, billing_mode").eq("shop_id", shop.id).maybeSingle(),
     adminClient.from("subscriptions").select("status, trial_end").eq("shop_id", shop.id).maybeSingle(),
   ]);
 
@@ -185,6 +185,7 @@ export async function POST(request: Request) {
     authoritativePricing = calculatePricing(
       ranges,
       rules.map((r) => ({ ...r, price_per_page: Number(r.price_per_page), is_active: true })) as PricingRule[],
+      (settings?.billing_mode as "customer_fee" | "shop_subscription") || "customer_fee",
     );
   } catch (calcError) {
     return NextResponse.json(
