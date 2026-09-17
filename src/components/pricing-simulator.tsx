@@ -140,6 +140,11 @@ export function PricingSimulator({ rules }: { rules: Rule[] }) {
                   <span className="font-mono font-bold text-brand-900">₹{item.subtotal.toFixed(2)}</span>
                 </div>
               ))}
+              {remaining > 0 ? (
+                <div className="rounded border border-amber-300 bg-amber-50 px-2.5 py-1.5 text-amber-800 font-medium">
+                  ⚠️ {remaining} {remaining === 1 ? "page is" : "pages are"} not covered by any active slab. Add a slab (e.g. {Math.max(...activeRules.map((r) => r.max_pages ?? r.min_pages)) + 1}+ pages) to cover all page counts.
+                </div>
+              ) : null}
             </div>
           </div>
         ) : (

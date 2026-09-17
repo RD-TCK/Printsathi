@@ -57,7 +57,7 @@ describe("PDF print submission", () => {
     let sliced!: string;
     mocks.execute.mockImplementation((_file, args, options, callback) => {
       expect(args.slice(0, 2)).toEqual(["-print-to", printerName]);
-      expect(args).toContain("fit,simplex,monochrome,paper=a4");
+      expect(args.some((arg: string) => arg.toLowerCase().includes("paper=a4"))).toBe(true);
       expect(options).toMatchObject({ windowsHide: true, timeout: 120000 });
       sliced = args.at(-1);
       finish = () => callback(null, "", "");

@@ -1,6 +1,6 @@
 import Link from "next/link";
-import { Plus, Zap, CheckCircle2, Trash2 } from "lucide-react";
-import { createPricingRule, deactivatePricingRule, deletePricingRule, updatePricingRule, quickSetupPricing } from "@/app/shop/actions";
+import { Plus, Trash2 } from "lucide-react";
+import { createPricingRule, deactivatePricingRule, deletePricingRule, updatePricingRule } from "@/app/shop/actions";
 import { getShopContext, formatStatus } from "@/lib/shop-portal";
 import { ShopPageHeader } from "@/components/shop-page";
 import { PricingSimulator } from "@/components/pricing-simulator";
@@ -37,50 +37,10 @@ export default async function PricingPage({
       <ShopPageHeader
         eyebrow="Customer-facing prices"
         title="Pricing rules & Slab calculator"
-        description="Configure what customers pay for printing. Define custom page-range slabs (e.g. 1-5 pages @ ₹5, 6+ pages @ ₹2) and test with the live simulator."
+        description="Configure what customers pay for printing. Define custom page-range slabs (e.g. 1–5 pages @ ₹5, 6+ pages @ ₹2) and test with the live simulator."
       />
       {params.error ? <Alert tone="error">{params.error}</Alert> : null}
       {params.success ? <Alert tone="success">{params.success}</Alert> : null}
-
-      {/* Quick Setup Banner */}
-      <div className="rounded-2xl border-2 border-dashed border-brand-300 bg-gradient-to-br from-brand-50 to-emerald-50/40 p-6">
-        <div className="flex flex-wrap items-start justify-between gap-4">
-          <div className="flex items-start gap-3">
-            <div className="flex size-10 items-center justify-center rounded-xl bg-brand-600 text-white shadow-sm">
-              <Zap className="size-5" />
-            </div>
-            <div>
-              <h2 className="font-bold text-brand-950">⚡ Quick Pricing Setup (Recommended)</h2>
-              <p className="mt-1 text-sm text-muted">
-                Instantly apply the standard slab pricing for A4 pages:
-                <span className="mx-1.5 inline-flex items-center gap-1 rounded-md bg-white border border-brand-200 px-2 py-0.5 text-xs font-bold text-brand-700">
-                  <CheckCircle2 className="size-3 text-emerald-600" /> 1–5 pages @ ₹5/page
-                </span>
-                +
-                <span className="ml-1.5 inline-flex items-center gap-1 rounded-md bg-white border border-brand-200 px-2 py-0.5 text-xs font-bold text-brand-700">
-                  <CheckCircle2 className="size-3 text-emerald-600" /> 6+ pages @ ₹2/page
-                </span>
-              </p>
-            </div>
-          </div>
-          <div className="flex flex-wrap gap-2">
-            <form action={quickSetupPricing}>
-              <input type="hidden" name="colorMode" value="black_and_white" />
-              <Button type="submit" variant="secondary">
-                <Zap className="size-4" />
-                Apply for B&amp;W (A4)
-              </Button>
-            </form>
-            <form action={quickSetupPricing}>
-              <input type="hidden" name="colorMode" value="color" />
-              <Button type="submit">
-                <Zap className="size-4" />
-                Apply for Color (A4)
-              </Button>
-            </form>
-          </div>
-        </div>
-      </div>
 
       {/* Real-time Pricing Simulator */}
       <PricingSimulator rules={rules || []} />

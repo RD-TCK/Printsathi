@@ -11,10 +11,11 @@ const pricingSchema = z.object({
   colorMode: z.enum(["black_and_white", "color"]),
   paperSize: z.enum(["a4", "a3", "letter", "legal"]),
   minPages: z.coerce.number().int().min(1),
-  maxPages: z.preprocess(
-    (value) => (value === "" || value === undefined ? null : value),
-    z.coerce.number().int().min(1).nullable(),
-  ),
+  maxPages: z.preprocess((value) => {
+    if (value === "" || value === undefined || value === null || value === "0" || value === 0) return null;
+    const parsed = Number(value);
+    return isNaN(parsed) || parsed <= 0 ? null : parsed;
+  }, z.number().int().min(1).nullable()),
   pricePerPage: z.coerce.number().min(0).max(100000),
 });
 
@@ -26,18 +27,41 @@ export async function createPricingRule(formData: FormData) {
   const context = await getShopContext();
   if (!context || !canManageShop(context)) result("You do not have permission to manage pricing.", true);
   const parsed = pricingSchema.safeParse(Object.fromEntries(formData.entries()));
-  if (!parsed.success || (parsed.data.maxPages !== null && parsed.data.minPages > parsed.data.maxPages))
+  if (!parsed.success || (parsed.data.maxPages !== null && parsed.data.minPages > parsed.data.maxPages)) {
     result("Enter a valid page range and price.", true);
-  const { data: conflict } = await context.client
+  }
+
+  // Check if a rule already exists for this (shop_id, color_mode, paper_size, min_pages)
+  const { data: existing } = await context.client
     .from("pricing_rules")
-    .select("id")
+    .select("id, is_active")
     .eq("shop_id", context.shop.id)
     .eq("color_mode", parsed.data.colorMode)
     .eq("paper_size", parsed.data.paperSize)
     .eq("min_pages", parsed.data.minPages)
-    .eq("is_active", true)
     .maybeSingle();
-  if (conflict) result("An active rule already starts at this page range.", true);
+
+  if (existing) {
+    if (existing.is_active) {
+      result(`An active pricing rule already starts at page ${parsed.data.minPages}. Please edit or delete the existing rule.`, true);
+    } else {
+      // Inactive rule exists: update and reactivate to avoid PostgreSQL unique constraint collision
+      const { error } = await context.client
+        .from("pricing_rules")
+        .update({
+          max_pages: parsed.data.maxPages,
+          price_per_page: parsed.data.pricePerPage,
+          is_active: true,
+          updated_at: new Date().toISOString(),
+        })
+        .eq("id", existing.id)
+        .eq("shop_id", context.shop.id);
+      if (error) result(`Could not save pricing rule: ${error.message}`, true);
+      revalidatePath("/shop/pricing");
+      result("Pricing rule saved.");
+    }
+  }
+
   const { error } = await context.client.from("pricing_rules").insert({
     shop_id: context.shop.id,
     color_mode: parsed.data.colorMode,
@@ -47,7 +71,7 @@ export async function createPricingRule(formData: FormData) {
     price_per_page: parsed.data.pricePerPage,
     is_active: true,
   });
-  if (error) result("Could not save the pricing rule.", true);
+  if (error) result(`Could not save pricing rule: ${error.message}`, true);
   revalidatePath("/shop/pricing");
   result("Pricing rule saved.");
 }
@@ -59,10 +83,10 @@ export async function deactivatePricingRule(formData: FormData) {
   if (!id.success) result("Invalid pricing rule.", true);
   const { error } = await context.client
     .from("pricing_rules")
-    .update({ is_active: false })
+    .update({ is_active: false, updated_at: new Date().toISOString() })
     .eq("id", id.data)
     .eq("shop_id", context.shop.id);
-  if (error) result("Could not deactivate the pricing rule.", true);
+  if (error) result(`Could not deactivate pricing rule: ${error.message}`, true);
   revalidatePath("/shop/pricing");
   result("Pricing rule deactivated.");
 }
@@ -77,7 +101,7 @@ export async function deletePricingRule(formData: FormData) {
     .delete()
     .eq("id", id.data)
     .eq("shop_id", context.shop.id);
-  if (error) result("Could not delete the pricing rule.", true);
+  if (error) result(`Could not delete pricing rule: ${error.message}`, true);
   revalidatePath("/shop/pricing");
   result("Pricing rule permanently deleted.");
 }
@@ -87,19 +111,30 @@ export async function updatePricingRule(formData: FormData) {
   if (!context || !canManageShop(context)) result("You do not have permission to manage pricing.", true);
   const id = z.string().uuid().safeParse(formData.get("id"));
   const parsed = pricingSchema.safeParse(Object.fromEntries(formData.entries()));
-  if (!id.success || !parsed.success || (parsed.data.maxPages !== null && parsed.data.minPages > parsed.data.maxPages))
+  if (!id.success || !parsed.success || (parsed.data.maxPages !== null && parsed.data.minPages > parsed.data.maxPages)) {
     result("Enter a valid page range and price.", true);
+  }
+
+  // Check if another rule exists with the same min_pages
   const { data: conflict } = await context.client
     .from("pricing_rules")
-    .select("id")
+    .select("id, is_active")
     .eq("shop_id", context.shop.id)
     .eq("color_mode", parsed.data.colorMode)
     .eq("paper_size", parsed.data.paperSize)
     .eq("min_pages", parsed.data.minPages)
-    .eq("is_active", true)
     .neq("id", id.data)
     .maybeSingle();
-  if (conflict) result("An active rule already starts at this page range.", true);
+
+  if (conflict) {
+    if (conflict.is_active) {
+      result(`Another active rule already starts at page ${parsed.data.minPages}.`, true);
+    } else {
+      // Delete inactive duplicate to satisfy Postgres unique constraint
+      await context.client.from("pricing_rules").delete().eq("id", conflict.id).eq("shop_id", context.shop.id);
+    }
+  }
+
   const { error } = await context.client
     .from("pricing_rules")
     .update({
@@ -108,56 +143,14 @@ export async function updatePricingRule(formData: FormData) {
       min_pages: parsed.data.minPages,
       max_pages: parsed.data.maxPages,
       price_per_page: parsed.data.pricePerPage,
+      is_active: true,
+      updated_at: new Date().toISOString(),
     })
     .eq("id", id.data)
     .eq("shop_id", context.shop.id);
-  if (error) result("Could not update the pricing rule.", true);
+  if (error) result(`Could not update pricing rule: ${error.message}`, true);
   revalidatePath("/shop/pricing");
   result("Pricing rule updated.");
-}
-
-export async function quickSetupPricing(formData: FormData) {
-  const context = await getShopContext();
-  if (!context || !canManageShop(context)) result("You do not have permission to manage pricing.", true);
-
-  const colorModeRaw = formData.get("colorMode") as string;
-  const colorMode = colorModeRaw === "color" ? "color" : "black_and_white";
-
-  // Deactivate existing rules for this mode + A4
-  await context.client
-    .from("pricing_rules")
-    .update({ is_active: false })
-    .eq("shop_id", context.shop.id)
-    .eq("color_mode", colorMode)
-    .eq("paper_size", "a4")
-    .eq("is_active", true);
-
-  // Insert slab 1: 1–5 pages @ ₹5/page
-  const { error: err1 } = await context.client.from("pricing_rules").insert({
-    shop_id: context.shop.id,
-    color_mode: colorMode,
-    paper_size: "a4",
-    min_pages: 1,
-    max_pages: 5,
-    price_per_page: 5,
-    is_active: true,
-  });
-  if (err1) result("Could not create pricing rule (slab 1).", true);
-
-  // Insert slab 2: 6+ pages @ ₹2/page
-  const { error: err2 } = await context.client.from("pricing_rules").insert({
-    shop_id: context.shop.id,
-    color_mode: colorMode,
-    paper_size: "a4",
-    min_pages: 6,
-    max_pages: null,
-    price_per_page: 2,
-    is_active: true,
-  });
-  if (err2) result("Could not create pricing rule (slab 2).", true);
-
-  revalidatePath("/shop/pricing");
-  result(`Quick pricing setup applied: 1–5 pages @ ₹5, 6+ pages @ ₹2 (${colorMode === "color" ? "Color" : "B&W"}, A4).`);
 }
 
 export async function updateShopSettings(formData: FormData) {
