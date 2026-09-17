@@ -16,16 +16,17 @@ export const configurationSchema = z.object({
 export type PrintRange = z.infer<typeof rangeSchema>;
 
 export function validateRanges(ranges: PrintRange[], pageCount: number) {
+  if (!ranges.length) return "Select at least one page range.";
   const sorted = [...ranges].sort((a, b) => a.startPage - b.startPage);
-  if (sorted.some((range) => range.startPage < 1 || range.endPage > pageCount))
-    return "A page range is outside the document.";
-  if (!sorted.length || sorted[0].startPage !== 1 || sorted.at(-1)?.endPage !== pageCount)
-    return "Ranges must cover every page in the document.";
   for (let index = 0; index < sorted.length; index += 1) {
     const range = sorted[index];
-    if (range.startPage > range.endPage || range.endPage > pageCount) return "A page range is outside the document.";
+    if (range.startPage < 1 || range.startPage > pageCount)
+      return `Range ${index + 1}: start page must be between 1 and ${pageCount}.`;
+    if (range.endPage < range.startPage || range.endPage > pageCount)
+      return `Range ${index + 1}: end page must be between ${range.startPage} and ${pageCount}.`;
     const next = sorted[index + 1];
-    if (next && range.endPage + 1 !== next.startPage) return "Ranges cannot overlap or leave gaps.";
+    if (next && range.endPage >= next.startPage)
+      return "Page ranges must not overlap.";
   }
   return null;
 }

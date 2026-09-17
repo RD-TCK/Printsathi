@@ -4,6 +4,7 @@ import { Alert } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { BillingModeToggle } from "@/components/billing-mode-toggle";
+import { SubscriptionCheckout } from "@/components/subscription-checkout";
 
 export const dynamic = "force-dynamic";
 
@@ -49,6 +50,7 @@ export default async function SubscriptionPage({
     );
 
   const trialDays = daysRemaining(subscription.trial_end);
+  const activeDays = daysRemaining(subscription.current_period_end);
   const currentBillingMode = settings?.billing_mode === "shop_subscription" ? "shop_subscription" : "customer_fee";
 
   return (
@@ -60,13 +62,13 @@ export default async function SubscriptionPage({
       />
 
       {params?.success ? (
-        <Alert tone="success" className="max-w-3xl">
+        <Alert tone="success" className="max-w-4xl">
           {params.success}
         </Alert>
       ) : null}
 
       {params?.error ? (
-        <Alert tone="error" className="max-w-3xl">
+        <Alert tone="error" className="max-w-4xl">
           {params.error}
         </Alert>
       ) : null}
@@ -75,11 +77,11 @@ export default async function SubscriptionPage({
       <BillingModeToggle currentMode={currentBillingMode} />
 
       {/* Subscription Plan Details */}
-      <Card className="max-w-3xl border-line">
+      <Card className="max-w-4xl border-line">
         <CardHeader>
           <div className="flex flex-wrap items-center justify-between gap-4">
             <div>
-              <h2 className="text-xl font-semibold text-brand-950">PrintSaathi Shop Plan</h2>
+              <h2 className="text-xl font-semibold text-brand-950">Current Shop Status</h2>
               <p className="mt-1 text-sm text-muted">
                 Customer order payments are settled separately from shop subscription billing.
               </p>
@@ -118,18 +120,38 @@ export default async function SubscriptionPage({
                   <p className="mt-2 font-semibold text-brand-950">{formatStatus(subscription.status)}</p>
                 </div>
                 <div>
-                  <p className="text-xs uppercase tracking-wide text-muted font-bold">Renewal</p>
+                  <p className="text-xs uppercase tracking-wide text-muted font-bold">Renewal Date</p>
                   <p className="mt-2 font-semibold text-brand-950">
                     {subscription.current_period_end
                       ? new Date(subscription.current_period_end).toLocaleDateString()
                       : "Not available"}
                   </p>
+                  {activeDays !== null ? (
+                    <p className="mt-1 text-xs font-semibold text-brand-700">
+                      {activeDays} days remaining
+                    </p>
+                  ) : null}
                 </div>
               </>
             )}
           </div>
         </CardContent>
       </Card>
+
+      {/* Available Plans & Razorpay Checkout */}
+      <div className="space-y-4 max-w-4xl">
+        <div>
+          <h2 className="text-xl font-bold text-brand-950">Choose or Renew Subscription</h2>
+          <p className="text-sm text-muted mt-1">
+            Subscribe to eliminate customer platform convenience fees and enable direct instant printing.
+          </p>
+        </div>
+        <SubscriptionCheckout
+          currentStatus={subscription.status}
+          currentPeriodEnd={subscription.current_period_end || subscription.trial_end}
+          shopName={context.shop.name}
+        />
+      </div>
     </div>
   );
 }

@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState, useEffect, useCallback } from "react";
+import { useMemo, useState, useEffect, useCallback, useRef } from "react";
 import {
   CheckCircle2,
   CreditCard,
@@ -158,18 +158,27 @@ export function CustomerPrintFlow({ shop: initialShop, identifier }: Props) {
     );
   }
 
-  async function uploadFiles(files: File[]) {
+  async function uploadFiles(files: File[], isAppending = false) {
     setError(null);
     if (!files.length) {
       setError("Choose at least one document or image.");
       return;
     }
+    const currentCount = isAppending ? documents.length : 0;
+    if (currentCount + files.length > 10) {
+      setError(`You can add up to 10 documents per order (${currentCount} already added).`);
+      return;
+    }
     setBusy(true);
     try {
-      if (files.length > 10 || files.some((file) => file.size > 25 * 1024 * 1024)) throw new Error("Choose up to 10 files, each under 25 MB.");
+      if (files.some((file) => file.size > 25 * 1024 * 1024)) throw new Error("Choose files under 25 MB each.");
       setUploadStatus("Uploading and analysing your documents...");
       const form = new FormData();
       form.append("shopIdentifier", identifier);
+      if (isAppending && orderId && accessToken) {
+        form.append("orderId", orderId);
+        form.append("accessToken", accessToken);
+      }
       files.forEach((file) => form.append("files", file));
       const response = await fetch("/api/customer/upload", { method: "POST", body: form });
       const uploadRes = await safeFetchJson<{
@@ -184,19 +193,24 @@ export function CustomerPrintFlow({ shop: initialShop, identifier }: Props) {
       }
       const result = uploadRes.data;
 
-      const parsedDocs: CustomerDocument[] = result.documents.map((document: CustomerDocument) => ({
+      const newDocs: CustomerDocument[] = result.documents.map((document: CustomerDocument) => ({
         ...document,
         filename: document.filename,
         pageCount: document.pageCount,
         ranges: [{ startPage: 1, endPage: document.pageCount, colorMode: "black_and_white", paperSize: "a4" }],
       }));
 
-      setDocuments(parsedDocs);
+      const mergedDocs = isAppending ? [...documents, ...newDocs] : newDocs;
+
+      setDocuments(mergedDocs);
       setOrderId(result.orderId);
       setAccessToken(result.accessToken);
+      if (isAppending) {
+        setActiveDocument(documents.length); // Switch focus to the newly added document
+      }
 
       // Automatically fetch initial estimate and move directly to Configure & Pay step
-      await fetchEstimate(parsedDocs, result.orderId, result.accessToken);
+      await fetchEstimate(mergedDocs, result.orderId, result.accessToken);
       setStep(1);
     } catch (uploadError) {
       let msg = uploadError instanceof Error ? uploadError.message : "Could not process or upload the files.";
@@ -227,20 +241,14 @@ export function CustomerPrintFlow({ shop: initialShop, identifier }: Props) {
 
   function addRange() {
     if (!current) return;
-    const index = current.ranges.findIndex((range) => range.endPage - range.startPage >= 1);
-    if (index < 0) {
-      setError("Edit a range to create room for another page range.");
-      return;
-    }
-    const range = current.ranges[index];
-    const split = Math.floor((range.startPage + range.endPage) / 2);
+    const lastRange = current.ranges[current.ranges.length - 1];
+    const defaultMode = lastRange?.colorMode ?? "black_and_white";
+    const defaultSize = lastRange?.paperSize ?? "a4";
     updateDocument((document) => ({
       ...document,
       ranges: [
-        ...document.ranges.slice(0, index),
-        { ...range, endPage: split },
-        { ...range, startPage: split + 1 },
-        ...document.ranges.slice(index + 1),
+        ...document.ranges,
+        { startPage: 1, endPage: document.pageCount, colorMode: defaultMode, paperSize: defaultSize },
       ],
     }));
     setError(null);
@@ -336,7 +344,7 @@ export function CustomerPrintFlow({ shop: initialShop, identifier }: Props) {
 
       {error ? <Alert tone="error">{error}</Alert> : null}
 
-      {step === 0 ? <UploadStep shop={shop} busy={busy} uploadStatus={uploadStatus} onSubmit={uploadFiles} /> : null}
+      {step === 0 ? <UploadStep busy={busy} uploadStatus={uploadStatus} onSubmit={(files) => uploadFiles(files, false)} shop={shop} /> : null}
 
       {step === 1 && current ? (
         <ConfigureAndPayStep
@@ -353,7 +361,7 @@ export function CustomerPrintFlow({ shop: initialShop, identifier }: Props) {
           busy={busy}
           estimate={estimate}
           onProceedToPay={handleProceedToPay}
-          onBackToUpload={() => setStep(0)}
+          onAddMoreFiles={(files) => uploadFiles(files, true)}
         />
       ) : null}
 
@@ -550,7 +558,7 @@ function ConfigureAndPayStep({
   busy,
   estimate,
   onProceedToPay,
-  onBackToUpload,
+  onAddMoreFiles,
 }: {
   shop: PublicShop;
   documents: CustomerDocument[];
@@ -565,10 +573,11 @@ function ConfigureAndPayStep({
   busy: boolean;
   estimate: Estimate | null;
   onProceedToPay: () => void;
-  onBackToUpload: () => void;
+  onAddMoreFiles: (files: File[]) => void;
 }) {
   const modes = useMemo(() => countModes(current.ranges), [current.ranges]);
   const rangeError = validateRanges(current.ranges, current.pageCount);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   // Calculate live fallback total if estimate API is pending
   const fallbackTotalPages = documents.reduce((sum, doc) => sum + doc.pageCount, 0);
@@ -624,8 +633,27 @@ function ConfigureAndPayStep({
             <Badge tone="success">
               {documents.length} File{documents.length === 1 ? "" : "s"} Uploaded
             </Badge>
-            <Button variant="secondary" size="sm" onClick={onBackToUpload}>
-              + Add File
+            <input
+              ref={fileInputRef}
+              className="sr-only"
+              type="file"
+              accept=".pdf,.png,.jpg,.jpeg,.webp,.gif,.tif,.tiff,.doc,.docx,.odt,.rtf,.ppt,.pptx,.odp,.xls,.xlsx,.ods,.txt,.csv,.md"
+              multiple
+              onChange={(e) => {
+                const files = Array.from(e.target.files ?? []);
+                if (files.length > 0) {
+                  onAddMoreFiles(files);
+                }
+                e.currentTarget.value = "";
+              }}
+            />
+            <Button
+              variant="secondary"
+              size="sm"
+              disabled={busy || documents.length >= 10}
+              onClick={() => fileInputRef.current?.click()}
+            >
+              <Plus className="size-3.5" /> Add File
             </Button>
           </div>
         </div>
@@ -740,13 +768,13 @@ function ConfigureAndPayStep({
             <p className="mt-3 text-sm font-medium text-red-600">{rangeError}</p>
           ) : (
             <p className="mt-3 text-xs text-emerald-700 font-semibold flex items-center gap-1">
-              <CheckCircle2 className="size-3.5" /> All {current.pageCount} pages configured properly.
+              <CheckCircle2 className="size-3.5" /> Ready to print selected pages.
             </p>
           )}
 
           <Button className="mt-3" variant="secondary" size="sm" onClick={addRange}>
             <Plus className="size-3.5" />
-            Split page range
+            Add another page range
           </Button>
         </div>
       </Card>
@@ -899,8 +927,6 @@ function PaymentStep({
   >("idle");
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [isTestMode, setIsTestMode] = useState(false);
-  const [mockAvailable, setMockAvailable] = useState(true);
-  const [razorpayAvailable, setRazorpayAvailable] = useState<boolean | null>(null);
   const [verifiedDetails, setVerifiedDetails] = useState<{
     paymentId?: string;
     publicOrderId?: string;
@@ -929,12 +955,12 @@ function PaymentStep({
   }, [orderId, accessToken]);
 
   const initiatePayment = useCallback(
-    async (mode: "razorpay" | "mock" = "razorpay") => {
+    async () => {
       setErrorMessage(null);
-      setPaymentStatus(mode === "mock" ? "verifying" : "creating_order");
+      setPaymentStatus("creating_order");
 
       try {
-        // 1. Create server-side Razorpay Order or Mock Order
+        // 1. Create server-side Razorpay Order
         const response = await fetch("/api/payment/create-order", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -942,7 +968,7 @@ function PaymentStep({
             orderId,
             shopIdentifier: identifier,
             accessToken,
-            paymentMode: mode,
+            paymentMode: "razorpay",
           }),
         });
 
@@ -955,7 +981,6 @@ function PaymentStep({
           keyId?: string;
           razorpayOrderId?: string;
           isTestMode?: boolean;
-          mock?: boolean;
           verified?: boolean;
           paymentId?: string;
           error?: string;
@@ -977,11 +1002,11 @@ function PaymentStep({
           throw new Error(createRes.error || orderData.error || "Failed to initiate payment order.");
         }
 
-        if (orderData.mock || orderData.verified || orderData.alreadyPaid) {
+        if (orderData.verified || orderData.alreadyPaid) {
           setPaymentStatus("verified");
           setVerifiedDetails({
             publicOrderId: orderData.publicOrderId || orderId.slice(0, 8),
-            paymentId: orderData.paymentId || `mock_payment_${orderId.slice(0, 8)}`,
+            paymentId: orderData.paymentId || `payment_${orderId.slice(0, 8)}`,
             amount: orderData.amountRupees || orderData.amount || estimate.total,
             currency: orderData.currency || "INR",
           });
@@ -993,7 +1018,7 @@ function PaymentStep({
         // 2. Load Razorpay Checkout SDK
         const scriptLoaded = await loadRazorpayScript();
         if (!scriptLoaded || !orderData.keyId || typeof orderData.amount !== "number" || !orderData.razorpayOrderId) {
-          throw new Error("Secure checkout could not load. Check your connection and retry. No payment has been verified.");
+          throw new Error("Razorpay checkout SDK could not load. Check your internet connection and retry.");
         }
 
         const RazorpayConstructor = (
@@ -1005,7 +1030,7 @@ function PaymentStep({
           }
         ).Razorpay;
 
-        if (!RazorpayConstructor) throw new Error("Secure checkout is unavailable. Please retry.");
+        if (!RazorpayConstructor) throw new Error("Razorpay checkout is unavailable. Please retry.");
 
         // 3. Open Razorpay Checkout modal
         const options: RazorpayCheckoutOptions = {
@@ -1092,29 +1117,10 @@ function PaymentStep({
   );
 
   useEffect(() => {
-    let isMounted = true;
-    fetch("/api/payment/config")
-      .then((res) => res.json())
-      .then((data: { mockEnabled?: boolean; razorpayEnabled?: boolean }) => {
-        if (!isMounted) return;
-        setMockAvailable(Boolean(data.mockEnabled));
-        setRazorpayAvailable(Boolean(data.razorpayEnabled));
-        if (data.razorpayEnabled) {
-          void initiatePayment("razorpay");
-        }
-      })
-      .catch(() => {
-        if (!isMounted) return;
-        setMockAvailable(true);
-        setRazorpayAvailable(false);
-      });
-    return () => {
-      isMounted = false;
-    };
+    void initiatePayment();
   }, [initiatePayment]);
 
   if (paymentStatus === "verified") {
-    const isMock = verifiedDetails?.paymentId?.startsWith("mock_");
     return (
       <Card className="border-emerald-200 bg-emerald-50/40 p-6 sm:p-8 shadow-xl">
         <div className="flex size-16 items-center justify-center rounded-2xl bg-emerald-100 text-emerald-700 shadow-inner">
@@ -1122,13 +1128,10 @@ function PaymentStep({
         </div>
         <div className="mt-5 flex flex-wrap items-center justify-between gap-2">
           <h2 className="text-2xl font-extrabold text-brand-950">Payment Confirmed &amp; Queued!</h2>
-          <div className="flex items-center gap-2">
-            {isMock ? <Badge tone="warning">TEST MOCK PAYMENT</Badge> : null}
-            <Badge tone="success">PAYMENT VERIFIED</Badge>
-          </div>
+          <Badge tone="success">PAYMENT VERIFIED</Badge>
         </div>
         <p className="mt-2 text-sm leading-6 text-muted">
-          Your payment of <b className="text-brand-950">₹{estimate.total.toFixed(2)}</b> was received. Your print job is queued for automatic printing at <b className="text-brand-950">{shop.name}</b>.
+          Your payment of <b className="text-brand-950">₹{estimate.total.toFixed(2)}</b> was received via Razorpay. Your print job is queued for automatic printing at <b className="text-brand-950">{shop.name}</b>.
         </p>
 
         <div className="mt-6 divide-y divide-emerald-100 rounded-2xl border border-emerald-200 bg-white p-5 shadow-sm">
@@ -1140,7 +1143,7 @@ function PaymentStep({
           </div>
           {verifiedDetails?.paymentId ? (
             <div className="flex items-center justify-between py-2 text-xs">
-              <span className="text-muted">Transaction ID</span>
+              <span className="text-muted">Razorpay Payment ID</span>
               <span className="font-mono font-semibold text-brand-950">{verifiedDetails.paymentId}</span>
             </div>
           ) : null}
@@ -1169,8 +1172,6 @@ function PaymentStep({
     );
   }
 
-  const isRazorpayUnset = razorpayAvailable === false || (errorMessage && errorMessage.includes("Razorpay keys"));
-
   return (
     <Card className="p-6 sm:p-8">
       <div className="flex size-14 items-center justify-center rounded-2xl bg-brand-100 text-brand-700 shadow-inner">
@@ -1178,27 +1179,13 @@ function PaymentStep({
       </div>
       <div className="mt-4 flex flex-wrap items-center justify-between gap-2">
         <h2 className="text-xl font-bold text-brand-950">Complete Payment</h2>
-        {isRazorpayUnset || isTestMode ? <Badge tone="warning">TEST MODE</Badge> : null}
+        {isTestMode ? <Badge tone="warning">TEST MODE</Badge> : null}
       </div>
 
-      {errorMessage && !isRazorpayUnset ? (
+      {errorMessage ? (
         <Alert className="mt-4" tone="error">
           {errorMessage}
         </Alert>
-      ) : null}
-
-      {isRazorpayUnset ? (
-        <div className="mt-4 rounded-xl border border-amber-200 bg-amber-50/80 p-4 text-sm text-amber-900 leading-relaxed shadow-sm">
-          <div className="flex items-start gap-2.5">
-            <Sparkles className="size-5 shrink-0 text-amber-600 mt-0.5" />
-            <div>
-              <p className="font-bold text-amber-950">Test Mode Active</p>
-              <p className="mt-1 text-xs text-amber-800">
-                Razorpay keys are not configured for live transactions. You can use the mock payment option below to simulate a successful payment and queue this job immediately.
-              </p>
-            </div>
-          </div>
-        </div>
       ) : null}
 
       <div className="mt-6 rounded-2xl border border-line bg-brand-50/50 p-5">
@@ -1234,55 +1221,40 @@ function PaymentStep({
         </div>
       </div>
 
-      <div className="mt-6 flex flex-col gap-3">
-        {/* Mock Payment Button */}
-        {mockAvailable ? (
-          <Button
-            variant="primary"
-            className="w-full text-base py-3.5 font-bold shadow-lg bg-emerald-600 hover:bg-emerald-700 text-white"
-            loading={paymentStatus === "verifying"}
-            onClick={() => void initiatePayment("mock")}
-          >
-            {paymentStatus === "verifying" ? (
-              <>
-                <LoaderCircle className="size-5 animate-spin" />
-                Processing Mock Payment...
-              </>
-            ) : (
-              <>
-                <Sparkles className="size-5" />
-                Pay with Mock Payment (₹{estimate.total.toFixed(2)})
-              </>
-            )}
-          </Button>
-        ) : null}
+      <div className="mt-6">
+        <Button
+          variant="primary"
+          className="w-full text-base py-4 font-bold shadow-xl shadow-brand-900/15"
+          loading={paymentStatus === "creating_order" || paymentStatus === "verifying"}
+          onClick={() => void initiatePayment()}
+        >
+          {paymentStatus === "creating_order" ? (
+            <>
+              <LoaderCircle className="size-5 animate-spin" />
+              Opening Razorpay Checkout...
+            </>
+          ) : paymentStatus === "verifying" ? (
+            <>
+              <LoaderCircle className="size-5 animate-spin" />
+              Verifying Razorpay Payment...
+            </>
+          ) : paymentStatus === "failed" ? (
+            <>
+              <RotateCcw className="size-5" />
+              Retry Razorpay (₹{estimate.total.toFixed(2)})
+            </>
+          ) : (
+            <>
+              <CreditCard className="size-5" />
+              Pay with Razorpay ₹{estimate.total.toFixed(2)}
+            </>
+          )}
+        </Button>
+      </div>
 
-        {/* Real Razorpay Checkout Button if configured */}
-        {razorpayAvailable ? (
-          <Button
-            variant="secondary"
-            className="w-full text-base py-3.5 font-semibold"
-            loading={paymentStatus === "creating_order"}
-            onClick={() => void initiatePayment("razorpay")}
-          >
-            {paymentStatus === "creating_order" ? (
-              <>
-                <LoaderCircle className="size-5 animate-spin" />
-                Initiating Razorpay...
-              </>
-            ) : paymentStatus === "failed" ? (
-              <>
-                <RotateCcw className="size-5" />
-                Retry Razorpay (₹{estimate.total.toFixed(2)})
-              </>
-            ) : (
-              <>
-                <CreditCard className="size-5" />
-                Pay with Razorpay (₹{estimate.total.toFixed(2)})
-              </>
-            )}
-          </Button>
-        ) : null}
+      <div className="mt-4 flex items-center justify-center gap-2 text-xs text-muted">
+        <ShieldCheck className="size-4 text-emerald-600" />
+        <span>Secured by Razorpay · 256-Bit SSL Encrypted Payment</span>
       </div>
     </Card>
   );

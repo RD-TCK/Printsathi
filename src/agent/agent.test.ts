@@ -43,7 +43,7 @@ describe("Phase 8: Windows Desktop Agent Subsystem", () => {
         agentName: "Windows Agent",
         selectedPrinter: null,
         version: "1.0.0",
-        pollIntervalMs: 5000,
+        pollIntervalMs: 2000,
         heartbeatIntervalMs: 20000,
       };
 

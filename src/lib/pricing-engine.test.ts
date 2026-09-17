@@ -115,10 +115,15 @@ describe("PrintSathi pricing engine", () => {
     expect(result.total).toBe(110);
   });
 
-  it("rejects gaps and overlaps", () => {
+  it("validates page ranges properly (allows partial prints and gaps, rejects overlaps and out-of-bounds)", () => {
+    // Partial range (e.g. print pages 10-20 of 100) is now completely valid!
+    expect(validateRanges([range(10, 20)], 100)).toBeNull();
+    // Non-overlapping ranges with gaps (e.g. pages 1-4 and 6-10) are valid
+    expect(validateRanges([range(1, 4), range(6, 10)], 10)).toBeNull();
+    // Overlapping ranges must be rejected
     expect(validateRanges([range(1, 5), range(5, 10)], 10)).toContain("overlap");
-    expect(validateRanges([range(1, 4), range(6, 10)], 10)).toContain("overlap");
-    expect(validateRanges([range(1, 11)], 10)).toContain("outside");
+    // Out-of-bounds pages must be rejected
+    expect(validateRanges([range(1, 11)], 10)).toBeTruthy();
   });
 
   it("rejects missing pricing and invalid shop state", () => {

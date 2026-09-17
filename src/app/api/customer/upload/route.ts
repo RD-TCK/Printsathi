@@ -3,7 +3,7 @@ import { normalizeDocument } from "@/lib/normalize-document";
 import { z } from "zod";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
-import { createGuestOrderToken } from "@/lib/guest-order";
+import { createGuestOrderToken, hashGuestOrderToken } from "@/lib/guest-order";
 
 export const runtime = "nodejs";
 
@@ -15,6 +15,8 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Invalid upload request format. Please choose your files and try again." }, { status: 400 });
   }
   const shopIdentifier = z.string().min(1).safeParse(form.get("shopIdentifier"));
+  const existingOrderId = z.string().uuid().optional().safeParse(form.get("orderId") || undefined);
+  const existingAccessToken = z.string().min(10).optional().safeParse(form.get("accessToken") || undefined);
   const files = form.getAll("files").filter((value): value is File => value instanceof File);
   if (!shopIdentifier.success || !files.length)
     return NextResponse.json({ error: "Select at least one document." }, { status: 400 });
@@ -51,9 +53,13 @@ export async function POST(request: Request) {
 
   if (files.reduce((sum, file) => sum + file.size, 0) > 100 * 1024 * 1024)
     return NextResponse.json({ error: "Combined upload size must be under 100 MB." }, { status: 400 });
-  const normalized = [];
-  try { for (const file of files) normalized.push(await normalizeDocument(file)); }
-  catch (error) { return NextResponse.json({ error: error instanceof Error ? error.message : "Document conversion failed." }, { status: 400 }); }
+  
+  let normalized: Array<{ bytes: Buffer; pageCount: number; filename: string }>;
+  try {
+    normalized = await Promise.all(files.map((file) => normalizeDocument(file)));
+  } catch (error) {
+    return NextResponse.json({ error: error instanceof Error ? error.message : "Document conversion failed." }, { status: 400 });
+  }
 
   let customerId: string | null = null;
   const serverClient = await createSupabaseServerClient();
@@ -66,56 +72,115 @@ export async function POST(request: Request) {
     }
   }
 
-  const orderIdempotency = crypto.randomUUID();
-  const guestToken = createGuestOrderToken();
-  const { data: order, error: orderError } = await client
-    .from("orders")
-    .insert({
-      shop_id: shop.id,
-      customer_id: customerId,
-      idempotency_key: orderIdempotency,
-      guest_access_token_hash: guestToken.hash,
-      status: "draft",
-    })
-    .select("id, public_id")
-    .single();
-  if (orderError || !order) return NextResponse.json({ error: "Could not create the order." }, { status: 500 });
-  const documents: Array<{ id: string; filename: string; pageCount: number; sizeBytes: number }> = [];
+  let orderId: string;
+  let orderPublicId: string;
+  let returnAccessToken: string;
+  let isNewOrder = false;
+
+  if (existingOrderId.success && existingOrderId.data && existingAccessToken.success && existingAccessToken.data) {
+    const tokenHash = hashGuestOrderToken(existingAccessToken.data);
+    const { data: existingOrder } = await client
+      .from("orders")
+      .select("id, public_id, status")
+      .eq("id", existingOrderId.data)
+      .eq("shop_id", shop.id)
+      .eq("guest_access_token_hash", tokenHash)
+      .maybeSingle();
+
+    if (existingOrder && existingOrder.status === "draft") {
+      orderId = existingOrder.id;
+      orderPublicId = existingOrder.public_id;
+      returnAccessToken = existingAccessToken.data;
+    } else {
+      isNewOrder = true;
+      const orderIdempotency = crypto.randomUUID();
+      const guestToken = createGuestOrderToken();
+      const { data: newOrder, error: orderError } = await client
+        .from("orders")
+        .insert({
+          shop_id: shop.id,
+          customer_id: customerId,
+          idempotency_key: orderIdempotency,
+          guest_access_token_hash: guestToken.hash,
+          status: "draft",
+        })
+        .select("id, public_id")
+        .single();
+      if (orderError || !newOrder) return NextResponse.json({ error: "Could not create the order." }, { status: 500 });
+      orderId = newOrder.id;
+      orderPublicId = newOrder.public_id;
+      returnAccessToken = guestToken.token;
+    }
+  } else {
+    isNewOrder = true;
+    const orderIdempotency = crypto.randomUUID();
+    const guestToken = createGuestOrderToken();
+    const { data: newOrder, error: orderError } = await client
+      .from("orders")
+      .insert({
+        shop_id: shop.id,
+        customer_id: customerId,
+        idempotency_key: orderIdempotency,
+        guest_access_token_hash: guestToken.hash,
+        status: "draft",
+      })
+      .select("id, public_id")
+      .single();
+    if (orderError || !newOrder) return NextResponse.json({ error: "Could not create the order." }, { status: 500 });
+    orderId = newOrder.id;
+    orderPublicId = newOrder.public_id;
+    returnAccessToken = guestToken.token;
+  }
+
   const storedPaths: string[] = [];
   const rollback = async () => {
     if (storedPaths.length) await client.storage.from("print-documents").remove(storedPaths);
-    await client.from("orders").delete().eq("id", order.id);
+    if (isNewOrder) {
+      await client.from("orders").delete().eq("id", orderId);
+    }
   };
-  for (const document of normalized) {
-    const documentId = crypto.randomUUID();
-    const { bytes, pageCount } = document;
-    const storagePath = `shops/${shop.id}/orders/${order.id}/documents/${documentId}/source.pdf`;
-    const { error: uploadError } = await client.storage
-      .from("print-documents")
-      .upload(storagePath, bytes, { contentType: "application/pdf", upsert: false });
-    if (uploadError) { await rollback(); return NextResponse.json({ error: "Could not securely store the document." }, { status: 500 }); }
-    storedPaths.push(storagePath);
-    const { error: documentError } = await client.from("documents").insert({
-      id: documentId,
-      shop_id: shop.id,
-      order_id: order.id,
-      customer_id: customerId,
-      storage_path: storagePath,
-      original_filename: document.filename,
-      mime_type: "application/pdf",
-      size_bytes: bytes.length,
-      page_count: pageCount,
-      processing_status: "ready",
-      normalized_storage_path: storagePath,
-      normalized_mime_type: "application/pdf",
+
+  try {
+    const documents = await Promise.all(
+      normalized.map(async (doc) => {
+        const documentId = crypto.randomUUID();
+        const { bytes, pageCount } = doc;
+        const storagePath = `shops/${shop.id}/orders/${orderId}/documents/${documentId}/source.pdf`;
+        const { error: uploadError } = await client.storage
+          .from("print-documents")
+          .upload(storagePath, bytes, { contentType: "application/pdf", upsert: false });
+        if (uploadError) throw new Error("Could not securely store the document.");
+        storedPaths.push(storagePath);
+        const { error: documentError } = await client.from("documents").insert({
+          id: documentId,
+          shop_id: shop.id,
+          order_id: orderId,
+          customer_id: customerId,
+          storage_path: storagePath,
+          original_filename: doc.filename,
+          mime_type: "application/pdf",
+          size_bytes: bytes.length,
+          page_count: pageCount,
+          processing_status: "ready",
+          normalized_storage_path: storagePath,
+          normalized_mime_type: "application/pdf",
+        });
+        if (documentError) throw new Error("Could not register the document.");
+        return { id: documentId, filename: doc.filename, pageCount, sizeBytes: bytes.length };
+      }),
+    );
+
+    return NextResponse.json({
+      orderId,
+      orderPublicId,
+      accessToken: returnAccessToken,
+      documents,
     });
-    if (documentError) { await rollback(); return NextResponse.json({ error: "Could not register the document." }, { status: 500 }); }
-    documents.push({ id: documentId, filename: document.filename, pageCount, sizeBytes: bytes.length });
+  } catch (error) {
+    await rollback();
+    return NextResponse.json(
+      { error: error instanceof Error ? error.message : "Could not upload documents." },
+      { status: 500 },
+    );
   }
-  return NextResponse.json({
-    orderId: order.id,
-    orderPublicId: order.public_id,
-    accessToken: guestToken.token,
-    documents,
-  });
 }
