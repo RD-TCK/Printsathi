@@ -25,27 +25,30 @@ export function PricingSimulator({ rules }: { rules: Rule[] }) {
     .filter((r) => r.is_active && r.color_mode === mode && r.paper_size === paper)
     .sort((a, b) => a.min_pages - b.min_pages);
 
-  // Calculate simulated price
-  let remaining = pages;
+  // Find matching tier for total page count
+  let matchedRule: Rule | undefined = activeRules.find(
+    (rule) => pages >= rule.min_pages && (rule.max_pages === null || pages <= rule.max_pages),
+  );
+
+  if (!matchedRule && activeRules.length > 0) {
+    const highestRule = activeRules[activeRules.length - 1];
+    if (pages >= highestRule.min_pages) {
+      matchedRule = highestRule;
+    }
+  }
+
   let total = 0;
   const breakdown: Array<{ slab: string; pagesInSlab: number; rate: number; subtotal: number }> = [];
 
-  for (const rule of activeRules) {
-    if (remaining <= 0) break;
-    const slabEnd = rule.max_pages ?? Number.POSITIVE_INFINITY;
-    const capacity = slabEnd - rule.min_pages + 1;
-    const pagesInSlab = Math.min(remaining, capacity);
-    if (pagesInSlab <= 0) continue;
-
-    const subtotal = pagesInSlab * Number(rule.price_per_page);
-    total += subtotal;
+  if (matchedRule) {
+    const rate = Number(matchedRule.price_per_page);
+    total = pages * rate;
     breakdown.push({
-      slab: `${rule.min_pages}–${rule.max_pages ?? "∞"} pages`,
-      pagesInSlab,
-      rate: Number(rule.price_per_page),
-      subtotal,
+      slab: `${matchedRule.min_pages}–${matchedRule.max_pages ?? "∞"} pages`,
+      pagesInSlab: pages,
+      rate,
+      subtotal: total,
     });
-    remaining -= pagesInSlab;
   }
 
   const effectivePerPage = pages > 0 ? (total / pages).toFixed(2) : "0.00";
@@ -56,7 +59,7 @@ export function PricingSimulator({ rules }: { rules: Rule[] }) {
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2">
             <Calculator className="size-5 text-brand-600" />
-            <h3 className="font-bold text-brand-950">Live Slab Pricing Simulator</h3>
+            <h3 className="font-bold text-brand-950">Live Pricing Simulator</h3>
           </div>
           <Badge tone="neutral">Real-time</Badge>
         </div>
@@ -125,7 +128,7 @@ export function PricingSimulator({ rules }: { rules: Rule[] }) {
                 <div className="text-3xl font-extrabold text-brand-900">₹{total.toFixed(2)}</div>
               </div>
               <div className="text-right">
-                <span className="text-xs text-muted">Effective Avg Rate</span>
+                <span className="text-xs text-muted">Applied Tier Rate</span>
                 <div className="text-sm font-bold text-brand-700">₹{effectivePerPage} / page</div>
               </div>
             </div>
@@ -135,14 +138,14 @@ export function PricingSimulator({ rules }: { rules: Rule[] }) {
               {breakdown.map((item, idx) => (
                 <div key={idx} className="flex justify-between items-center bg-white/80 rounded px-2.5 py-1.5 border border-line">
                   <span>
-                    Slab ({item.slab}): <b>{item.pagesInSlab} pages</b> × ₹{item.rate.toFixed(2)}
+                    Matched Tier ({item.slab}): <b>{item.pagesInSlab} pages</b> × ₹{item.rate.toFixed(2)}
                   </span>
                   <span className="font-mono font-bold text-brand-900">₹{item.subtotal.toFixed(2)}</span>
                 </div>
               ))}
-              {remaining > 0 ? (
+              {!matchedRule ? (
                 <div className="rounded border border-amber-300 bg-amber-50 px-2.5 py-1.5 text-amber-800 font-medium">
-                  ⚠️ {remaining} {remaining === 1 ? "page is" : "pages are"} not covered by any active slab. Add a slab (e.g. {Math.max(...activeRules.map((r) => r.max_pages ?? r.min_pages)) + 1}+ pages) to cover all page counts.
+                  ⚠️ {pages} pages not covered by any active tier rule.
                 </div>
               ) : null}
             </div>

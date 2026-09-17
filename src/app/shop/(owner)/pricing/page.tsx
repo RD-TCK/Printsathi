@@ -50,16 +50,34 @@ export default async function PricingPage({
           <CardHeader>
             <div className="flex items-center justify-between">
               <div>
-                <h2 className="font-semibold text-brand-950">{editRule ? "Edit rule" : "Add custom pricing rule"}</h2>
-                <p className="mt-1 text-sm text-muted">Create non-overlapping page slabs (e.g. 1–5 pages, 6+ pages).</p>
+                <div className="flex items-center gap-2">
+                  <h2 className="font-semibold text-brand-950">{editRule ? "Edit pricing rule" : "Add custom pricing rule"}</h2>
+                  {editRule ? <Badge tone="warning">Editing</Badge> : null}
+                </div>
+                <p className="mt-1 text-sm text-muted">
+                  {editRule
+                    ? "Update this pricing tier rate and save changes."
+                    : "Create page tiers (e.g. 1–5 pages @ ₹5, 6+ pages @ ₹2). Total pages within a tier are charged at that rate."}
+                </p>
               </div>
-              <Plus className="size-5 text-brand-600" />
+              {editRule ? (
+                <Link className="text-xs font-semibold text-brand-700 hover:underline" href="/shop/pricing">
+                  Cancel edit
+                </Link>
+              ) : (
+                <Plus className="size-5 text-brand-600" />
+              )}
             </div>
           </CardHeader>
           <CardContent>
-            <form action={editRule ? updatePricingRule : createPricingRule} className="space-y-4">
+            <form
+              key={editRule ? editRule.id : "new-pricing-rule"}
+              action={editRule ? updatePricingRule : createPricingRule}
+              className="space-y-4"
+            >
               {editRule ? <input type="hidden" name="id" value={editRule.id} /> : null}
               <Select
+                key={`colorMode-${editRule?.id ?? "new"}`}
                 id="colorMode"
                 name="colorMode"
                 label="Print mode"
@@ -68,7 +86,13 @@ export default async function PricingPage({
                 <option value="black_and_white">Black &amp; white</option>
                 <option value="color">Color</option>
               </Select>
-              <Select id="paperSize" name="paperSize" label="Paper size" defaultValue={editRule?.paper_size ?? "a4"}>
+              <Select
+                key={`paperSize-${editRule?.id ?? "new"}`}
+                id="paperSize"
+                name="paperSize"
+                label="Paper size"
+                defaultValue={editRule?.paper_size ?? "a4"}
+              >
                 <option value="a4">A4</option>
                 <option value="a3">A3</option>
                 <option value="letter">Letter</option>
@@ -76,6 +100,7 @@ export default async function PricingPage({
               </Select>
               <div className="grid grid-cols-2 gap-3">
                 <Input
+                  key={`minPages-${editRule?.id ?? "new"}`}
                   id="minPages"
                   name="minPages"
                   label="From page"
@@ -85,6 +110,7 @@ export default async function PricingPage({
                   required
                 />
                 <Input
+                  key={`maxPages-${editRule?.id ?? "new"}`}
                   id="maxPages"
                   name="maxPages"
                   label="To page"
@@ -96,18 +122,26 @@ export default async function PricingPage({
                 />
               </div>
               <Input
+                key={`pricePerPage-${editRule?.id ?? "new"}`}
                 id="pricePerPage"
                 name="pricePerPage"
                 label="Price per page (INR)"
                 type="number"
                 min="0"
                 step="0.01"
-                defaultValue={editRule?.price_per_page ?? 5}
+                defaultValue={editRule ? Number(editRule.price_per_page) : 5}
                 required
               />
-              <Button className="w-full" type="submit">
-                {editRule ? "Update pricing rule" : "Save pricing rule"}
-              </Button>
+              <div className="flex gap-2">
+                <Button className="w-full" type="submit">
+                  {editRule ? "Update pricing rule" : "Save pricing rule"}
+                </Button>
+                {editRule ? (
+                  <Button variant="secondary" asChild>
+                    <Link href="/shop/pricing">Cancel</Link>
+                  </Button>
+                ) : null}
+              </div>
             </form>
           </CardContent>
         </Card>

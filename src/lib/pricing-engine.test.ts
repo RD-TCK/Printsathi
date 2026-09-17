@@ -31,8 +31,8 @@ describe("PrintSathi pricing engine", () => {
     [1, 5, 0.5, 5.5],
     [5, 25, 0.5, 25.5],
     [10, 50, 1.5, 51.5],
-    [11, 52, 1.5, 53.5],
-    [50, 130, 1.5, 131.5],
+    [11, 22, 1.5, 23.5],
+    [50, 100, 1.5, 101.5],
   ])("prices %i pages with customer platform fee", (pages, expectedSubtotal, expectedFee, expectedTotal) => {
     const result = calculatePricing([range(1, pages)], rules, "customer_fee");
     expect(result.subtotal).toBe(expectedSubtotal);
@@ -40,10 +40,10 @@ describe("PrintSathi pricing engine", () => {
     expect(result.total).toBe(expectedTotal);
   });
 
-  it("calculates platform fee on total pages across multiple files/ranges", () => {
-    // File 1: 1 page, File 2: 8 pages -> Total: 9 pages (>= 6 => ₹1.50 fee)
+  it("calculates platform fee and tier rate on total pages across multiple files/ranges", () => {
+    // File 1: 1 page, File 2: 8 pages -> Total: 9 pages (<= 10 pages => ₹5 tier + ₹1.50 fee)
     const result = calculatePricing([range(1, 1), range(1, 8)], rules, "customer_fee");
-    expect(result.subtotal).toBe(45); // (1*5) + (8*5) = 45
+    expect(result.subtotal).toBe(45); // 9 pages * 5
     expect(result.platformFee).toBe(1.5);
     expect(result.total).toBe(46.5);
   });
@@ -55,7 +55,7 @@ describe("PrintSathi pricing engine", () => {
     expect(result.total).toBe(50);
   });
 
-  it("correctly calculates pricing for 1-5 pages @ ₹5 and 6+ pages @ ₹2 slabs", () => {
+  it("correctly calculates pricing for 1-5 pages @ ₹5 and 6+ pages @ ₹2 tier rules", () => {
     const customSlabRules: PricingRule[] = [
       { color_mode: "black_and_white", paper_size: "a4", min_pages: 1, max_pages: 5, price_per_page: 5 },
       { color_mode: "black_and_white", paper_size: "a4", min_pages: 6, max_pages: null, price_per_page: 2 },
@@ -73,23 +73,23 @@ describe("PrintSathi pricing engine", () => {
     expect(p5.platformFee).toBe(0.5);
     expect(p5.total).toBe(25.5);
 
-    // 6 pages: 5 * 5 + 1 * 2 = ₹27
+    // 6 pages (matches 6+ tier @ ₹2): 6 * 2 = ₹12
     const p6 = calculatePricing([range(1, 6)], customSlabRules, "customer_fee");
-    expect(p6.subtotal).toBe(27);
+    expect(p6.subtotal).toBe(12);
     expect(p6.platformFee).toBe(1.5);
-    expect(p6.total).toBe(28.5);
+    expect(p6.total).toBe(13.5);
 
-    // 7 pages: 5 * 5 + 2 * 2 = ₹29
+    // 7 pages (matches 6+ tier @ ₹2): 7 * 2 = ₹14
     const p7 = calculatePricing([range(1, 7)], customSlabRules, "customer_fee");
-    expect(p7.subtotal).toBe(29);
+    expect(p7.subtotal).toBe(14);
     expect(p7.platformFee).toBe(1.5);
-    expect(p7.total).toBe(30.5);
+    expect(p7.total).toBe(15.5);
 
-    // 10 pages: 5 * 5 + 5 * 2 = ₹35
+    // 10 pages (matches 6+ tier @ ₹2): 10 * 2 = ₹20
     const p10 = calculatePricing([range(1, 10)], customSlabRules, "customer_fee");
-    expect(p10.subtotal).toBe(35);
+    expect(p10.subtotal).toBe(20);
     expect(p10.platformFee).toBe(1.5);
-    expect(p10.total).toBe(36.5);
+    expect(p10.total).toBe(21.5);
   });
 
   it("prices mixed color and black-and-white ranges", () => {

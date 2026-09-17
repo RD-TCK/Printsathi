@@ -103,29 +103,39 @@ function priceBucket(
   pages: number,
   bucket: PricingRule[],
 ) {
-  let remaining = pages;
-  let subtotalCents = 0;
-  const slabBreakdown: PricingBreakdown["slabBreakdown"] = [];
-  for (const rule of bucket) {
-    if (remaining <= 0) break;
-    const slabEnd = rule.max_pages ?? Number.POSITIVE_INFINITY;
-    const slabCapacity = slabEnd - rule.min_pages + 1;
-    const slabPages = Math.min(remaining, slabCapacity);
-    if (slabPages <= 0) continue;
-    const slabSubtotalCents = slabPages * cents(rule.price_per_page);
-    subtotalCents += slabSubtotalCents;
-    slabBreakdown.push({
-      minPages: rule.min_pages,
-      maxPages: rule.max_pages,
-      pages: slabPages,
-      pricePerPage: rule.price_per_page,
-      subtotal: rupees(slabSubtotalCents / 100),
-      ruleKey: ruleKey(rule),
-    });
-    remaining -= slabPages;
+  // Find the tier rule that matches the total page count
+  // bucket is sorted by min_pages ascending
+  let matchedRule: PricingRule | undefined = bucket.find(
+    (rule) => pages >= rule.min_pages && (rule.max_pages === null || pages <= rule.max_pages),
+  );
+
+  // Fallback: if pages exceeds all defined ranges, use the highest tier (e.g. 6+ pages)
+  if (!matchedRule && bucket.length > 0) {
+    const highestRule = bucket[bucket.length - 1];
+    if (pages >= highestRule.min_pages) {
+      matchedRule = highestRule;
+    }
   }
-  if (remaining > 0) throw new Error(`No pricing slab covers ${pages} ${mode} ${paperSize} pages.`);
-  return { mode, paperSize, pages, subtotal: rupees(subtotalCents / 100), slabBreakdown };
+
+  if (!matchedRule) {
+    throw new Error(`No pricing rule covers ${pages} ${mode} ${paperSize} pages.`);
+  }
+
+  const subtotalCents = pages * cents(matchedRule.price_per_page);
+  const subtotal = rupees(subtotalCents / 100);
+
+  const slabBreakdown: PricingBreakdown["slabBreakdown"] = [
+    {
+      minPages: matchedRule.min_pages,
+      maxPages: matchedRule.max_pages,
+      pages,
+      pricePerPage: matchedRule.price_per_page,
+      subtotal,
+      ruleKey: ruleKey(matchedRule),
+    },
+  ];
+
+  return { mode, paperSize, pages, subtotal, slabBreakdown };
 }
 
 export function calculatePricing(
