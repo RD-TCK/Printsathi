@@ -1,4 +1,5 @@
 "use server";
+import { hasSubscriptionAccess } from "@/lib/subscription";
 
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
@@ -285,6 +286,12 @@ export async function updateShopBillingMode(formData: FormData) {
   const mode = z.enum(["customer_fee", "shop_subscription"]).safeParse(formData.get("billingMode"));
   if (!mode.success) {
     redirect("/shop/subscription?error=Invalid+billing+mode");
+  }
+
+  if (mode.data === "shop_subscription") {
+    const { data: subscription } = await context.client.from("subscriptions")
+      .select("status, trial_end, current_period_end").eq("shop_id", context.shop.id).maybeSingle();
+    if (!hasSubscriptionAccess(subscription)) redirect("/shop/subscription?error=Choose+a+plan+and+pay+to+activate+subscription+billing");
   }
 
   const { error } = await context.client

@@ -1,3 +1,4 @@
+import { effectiveBillingMode, hasSubscriptionAccess } from "@/lib/subscription";
 import { getShopContext, formatStatus } from "@/lib/shop-portal";
 import { ShopPageHeader } from "@/components/shop-page";
 import { Alert } from "@/components/ui/alert";
@@ -49,9 +50,10 @@ export default async function SubscriptionPage({
       </Alert>
     );
 
+  if (!hasSubscriptionAccess(subscription)) subscription.status = "expired";
   const trialDays = daysRemaining(subscription.trial_end);
   const activeDays = daysRemaining(subscription.current_period_end);
-  const currentBillingMode = settings?.billing_mode === "shop_subscription" ? "shop_subscription" : "customer_fee";
+  const currentBillingMode = effectiveBillingMode(settings?.billing_mode, subscription);
 
   return (
     <div className="space-y-8">
@@ -120,7 +122,7 @@ export default async function SubscriptionPage({
                   <p className="mt-2 font-semibold text-brand-950">{formatStatus(subscription.status)}</p>
                 </div>
                 <div>
-                  <p className="text-xs uppercase tracking-wide text-muted font-bold">Renewal Date</p>
+                  <p className="text-xs uppercase tracking-wide text-muted font-bold">Expiry date</p>
                   <p className="mt-2 font-semibold text-brand-950">
                     {subscription.current_period_end
                       ? new Date(subscription.current_period_end).toLocaleDateString()
@@ -147,9 +149,8 @@ export default async function SubscriptionPage({
           </p>
         </div>
         <SubscriptionCheckout
-          currentStatus={subscription.status}
-          currentPeriodEnd={subscription.current_period_end || subscription.trial_end}
           shopName={context.shop.name}
+          shopId={context.shop.id}
         />
       </div>
     </div>

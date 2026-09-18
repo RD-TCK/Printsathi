@@ -131,8 +131,6 @@ describe("PrintSathi pricing engine", () => {
     expect(() => assertShopCanPrice({ isActive: false, acceptingOrders: true, subscriptionStatus: "active" })).toThrow(
       "not active",
     );
-    expect(() => assertShopCanPrice({ isActive: true, acceptingOrders: true, subscriptionStatus: "expired" })).toThrow(
-      "subscription",
-    );
+    expect(() => assertShopCanPrice({ isActive: true, acceptingOrders: true, subscriptionStatus: "expired" })).not.toThrow();
   });
 });

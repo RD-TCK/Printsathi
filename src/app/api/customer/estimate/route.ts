@@ -1,3 +1,4 @@
+import { effectiveBillingMode } from "@/lib/subscription";
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
@@ -29,14 +30,11 @@ export async function POST(request: Request) {
   if (!shop) return NextResponse.json({ error: "Shop not found." }, { status: 404 });
   const [{ data: settings }, { data: subscription }] = await Promise.all([
     client.from("shop_settings").select("accepting_orders, billing_mode").eq("shop_id", shop.id).maybeSingle(),
-    client.from("subscriptions").select("status, trial_end").eq("shop_id", shop.id).maybeSingle(),
+    client.from("subscriptions").select("status, trial_end, current_period_end").eq("shop_id", shop.id).maybeSingle(),
   ]);
-  const subscriptionStatus =
-    subscription?.status === "trial" && subscription.trial_end && new Date(subscription.trial_end) <= new Date()
-      ? "expired"
-      : (subscription?.status ?? "expired");
+  const billingMode = effectiveBillingMode(settings?.billing_mode, subscription);
   try {
-    assertShopCanPrice({ isActive: true, acceptingOrders: settings?.accepting_orders === true, subscriptionStatus });
+    assertShopCanPrice({ isActive: true, acceptingOrders: settings?.accepting_orders === true });
   } catch (eligibilityError) {
     return NextResponse.json(
       { error: eligibilityError instanceof Error ? eligibilityError.message : "Shop is unavailable." },
@@ -100,7 +98,6 @@ export async function POST(request: Request) {
     );
   }
   try {
-    const billingMode = (settings?.billing_mode as "customer_fee" | "shop_subscription") || "customer_fee";
     const pricing = calculatePricing(
       allRanges,
       rules.map((rule) => ({ ...rule, price_per_page: Number(rule.price_per_page), is_active: true })) as PricingRule[],

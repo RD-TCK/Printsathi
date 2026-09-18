@@ -159,3 +159,24 @@ npm run format:check
 npm run build
 npm run test
 ```
+
+
+## Shop subscription checkout
+
+Shop owners can pay with Razorpay at `/shop/subscription`: INR 699 for one calendar month or INR 7,499 for one calendar year. The yearly plan saves INR 889 (10.6%) against twelve monthly payments. Payments extend the remaining active subscription or trial period (or start from today after expiry); these are one-time payments, without automatic debit.
+
+Before deploying subscription checkout, apply `supabase/migrations/20260918000000_subscription_payments.sql` after the existing migrations. It adds the service-only payment ledger and atomic activation function. Callback and webhook retries cannot extend the plan twice for the same order/payment.
+
+Configure the existing Razorpay keys and webhook secret, enable automatic payment capture, and subscribe `/api/payment/webhook` to `payment.captured` and `order.paid`. Only captured payments with matching shop, plan, currency, and amount activate a subscription. Webhooks recover activation when the owner closes checkout. See [Razorpay integration steps](https://razorpay.com/docs/payments/server-integration/nodejs/integration-steps/).
+
+At expiry, server-side estimates and checkout calculate the effective billing mode as `customer_fee`, even if the stored preference/status has not changed. No scheduled task is needed to keep customer printing available. The dashboard and subscription page show the effective state; the dashboard warns during the last seven days. Renewing switches the shop back to subscription billing.
+
+If a payment succeeded before this migration was installed, apply the migration and use **Already paid? / Retry activation** on `/shop/subscription` with the Razorpay `pay_...` ID. This verifies the existing payment and updates the expiry without charging again. New checkout callbacks remember the payment ID in this browser until activation succeeds. The confirmation displays the new expiry date.
+
+## Administrator monitoring
+
+Open `/admin` after signing in with a platform administrator account (`profiles.role = 'admin'`). Existing login redirects administrators there automatically. Shop owner and staff accounts cannot access platform monitoring. Grant the administrator role only through your trusted database administrator, never through public registration.
+
+The dashboard includes searchable shop summaries, successful printing and revenue totals, failed/pending counts, orders, verified customer payments, subscription expiry and purchase history, desktop agent health, printer status, and payment events. Select a shop to inspect its activity and contact details, and choose the last 24 hours, 7 days, 30 days, or all time. Activity periods use record creation dates; hardware and subscription statuses show the current state. Tables paginate at 20 records and visible dashboards refresh every 15 seconds (can be paused).
+
+Data access verifies the authenticated administrator profile before opening a server-only privileged database client. Queries fetch all database pages to avoid silently truncating totals. If a query fails, the dashboard shows an error instead of partial totals. This implementation loads the monitoring dataset on the server and sends selected metadata to the admin client; at large transaction volumes, move aggregation and pagination into database queries. Customer document contents and access tokens are never included. Subscription sales use the current fixed plan prices and are labelled accordingly.

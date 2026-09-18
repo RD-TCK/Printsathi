@@ -1,10 +1,11 @@
+import { activateSubscriptionPayment } from "@/lib/subscription-payment";
 import { releasePaidOrder } from "@/lib/release-paid-order";
 import { NextResponse } from "next/server";
 import { createHash } from "node:crypto";
 import { capturedPaymentMatches } from "@/lib/payment-validation";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import { getRazorpayServerEnv } from "@/lib/env";
-import { fromPaise, toPaise, verifyWebhookSignature } from "@/lib/razorpay/server";
+import { fetchRazorpayOrder, fromPaise, toPaise, verifyWebhookSignature } from "@/lib/razorpay/server";
 
 export async function POST(request: Request) {
   const adminClient = createSupabaseAdminClient();
@@ -84,6 +85,19 @@ export async function POST(request: Request) {
     const rzpPaymentId = String(paymentEntity?.id || "");
     const notes = (paymentEntity?.notes || orderEntity?.notes || {}) as Record<string, string>;
     const orderIdFromNotes = notes?.order_id;
+    // Subscription orders have their own ledger and never release print jobs.
+    const providerOrder = rzpOrderId ? await fetchRazorpayOrder(rzpOrderId) : null;
+    if (rzpOrderId && !providerOrder) throw new Error("Could not fetch Razorpay order; retry event.");
+    if ((providerOrder?.notes as Record<string, string> | undefined)?.purpose === "shop_subscription") {
+      if (["payment.captured", "order.paid"].includes(eventType)) {
+        if (!rzpPaymentId) throw new Error("Missing subscription payment ID.");
+        await activateSubscriptionPayment(adminClient, rzpPaymentId);
+      }
+      const { error } = await adminClient.from("payment_webhook_events").update({ processed: true }).eq("event_id", eventId);
+      if (error) throw error;
+      return NextResponse.json({ received: true, eventId });
+    }
+
 
     if (rzpOrderId || orderIdFromNotes) {
       // Find matching payment in our database

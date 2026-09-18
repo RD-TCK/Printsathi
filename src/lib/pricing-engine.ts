@@ -45,16 +45,10 @@ export type PricingResult = {
 export function assertShopCanPrice(shop: {
   isActive: boolean;
   acceptingOrders: boolean;
-  subscriptionStatus: "trial" | "active" | "expired" | "cancelled" | "past_due";
+  subscriptionStatus?: "trial" | "active" | "expired" | "cancelled" | "past_due";
 }) {
   if (!shop.isActive) throw new Error("Shop is not active.");
   if (!shop.acceptingOrders) throw new Error("Shop is not accepting orders.");
-  if (
-    shop.subscriptionStatus === "expired" ||
-    shop.subscriptionStatus === "cancelled" ||
-    shop.subscriptionStatus === "past_due"
-  )
-    throw new Error("Shop subscription is not valid.");
 }
 
 const cents = (value: number) => Math.round((value + Number.EPSILON) * 100);

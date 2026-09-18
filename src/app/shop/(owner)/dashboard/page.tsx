@@ -1,3 +1,4 @@
+import { hasSubscriptionAccess, subscriptionEnd, subscriptionWarningDays } from "@/lib/subscription";
 import Link from "next/link";
 import { Download, ExternalLink, Printer } from "lucide-react";
 import { getShopContext, formatStatus, isHeartbeatFresh } from "@/lib/shop-portal";
@@ -45,7 +46,7 @@ export default async function ShopDashboardPage() {
       .maybeSingle(),
     context.client
       .from("print_jobs")
-      .select("status, total_amount, created_at", { count: "exact", head: false })
+      .select("id, status, total_amount, created_at")
       .eq("shop_id", context.shop.id)
       .gte("created_at", start.toISOString()),
     context.client
@@ -55,21 +56,19 @@ export default async function ShopDashboardPage() {
       .gte("print_jobs.created_at", start.toISOString()),
   ]);
   const jobRows = jobs.data ?? [];
-  const paidJobRows = jobRows.filter((job) =>
-    ["paid", "queued", "claimed", "printing", "print_submitted", "completed"].includes(job.status),
-  );
-  const pending = jobRows.filter((job) => ["queued", "claimed", "printing", "print_submitted", "paid"].includes(job.status)).length;
-  const completed = jobRows.filter((job) => job.status === "completed").length;
+  const successfulJobs = jobRows.filter((job) => job.status === "completed");
+  const successfulJobIds = new Set(successfulJobs.map((job) => job.id));
   const failed = jobRows.filter((job) => job.status === "failed").length;
-  const revenue = paidJobRows.reduce((sum, job) => sum + Number(job.total_amount || 0), 0);
-  const totalPages = (pages.data ?? []).reduce((sum, page) => sum + page.end_page - page.start_page + 1, 0);
+  const revenue = successfulJobs.reduce((sum, job) => sum + Number(job.total_amount || 0), 0);
+  const totalPages = (pages.data ?? [])
+    .filter((page) => successfulJobIds.has(page.print_job_id))
+    .reduce((sum, page) => sum + page.end_page - page.start_page + 1, 0);
   const agentConnected = agent.data?.status === "online" && isHeartbeatFresh(agent.data?.last_heartbeat_at);
   const printerReady = agentConnected && isHeartbeatFresh(printer.data?.last_seen_at, 30000) && ["online", "printing"].includes(printer.data?.status ?? "") && !/onenote|pdf|xps|fax/i.test(printer.data?.name || "");
-  const subscriptionValid =
-    subscription.data?.status === "trial"
-      ? Boolean(subscription.data.trial_end && new Date(subscription.data.trial_end) > new Date())
-      : subscription.data?.status === "active";
-  const shopOpen = context.shop.is_active && Boolean(settings.data?.accepting_orders) && subscriptionValid;
+  const subscriptionValid = hasSubscriptionAccess(subscription.data);
+  const warningDays = subscriptionWarningDays(subscription.data);
+  const periodEnd = subscriptionEnd(subscription.data);
+  const shopOpen = context.shop.is_active && Boolean(settings.data?.accepting_orders);
   const operational = shopOpen && agentConnected && printerReady;
   return (
     <div className="space-y-8">
@@ -86,27 +85,32 @@ export default async function ShopDashboardPage() {
         }
       />
 
+      {warningDays !== null ? (
+        <Alert tone="warning" className="py-3 text-sm">
+          Your subscription ends in {warningDays} {warningDays === 1 ? "day" : "days"}. Renew to keep customer platform fees at zero; after expiry your shop switches to Take from Customer. {" "}
+          <Link href="/shop/subscription" className="font-semibold underline">Renew subscription</Link>
+        </Alert>
+      ) : null}
       {/* Auto-Print Station runs live right on the main dashboard */}
       <WebAutoPrintStation shopName={context.shop.name} />
       <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-        <MetricCard label="Today's jobs" value={String(jobRows.length)} detail="From recorded print jobs" />
-        <MetricCard label="Pages today" value={String(totalPages)} detail="From configured page ranges" />
+        <MetricCard label="Successful jobs today" value={jobs.error ? "Unavailable" : String(successfulJobs.length)} detail="Confirmed completed jobs" />
+        <MetricCard label="Pages printed today" value={jobs.error || pages.error ? "Unavailable" : String(totalPages)} detail="From successfully completed jobs" />
         <MetricCard
           label="Today's revenue"
           value={jobs.data ? `₹${revenue.toFixed(2)}` : "—"}
-          detail={jobs.data ? "Recorded job totals" : "Awaiting data"}
+          detail={jobs.data ? "From successfully completed jobs" : "Awaiting data"}
         />
         <MetricCard
-          label="Processing today"
-          value={String(pending)}
-          detail={`${completed} completed · ${failed} failed`}
-          tone={pending || failed ? "warning" : "success"}
+          label="Failed prints today"
+          value={jobs.error ? "Unavailable" : String(failed)}
+          detail="Failed job count"
+          tone={failed ? "warning" : "success"}
         />
       </div>
       {!shopOpen ? (
         <Alert tone="warning" title="Shop is not accepting orders">
-          Customers can see this shop, but printing is not available until the shop is active, the subscription is
-          valid, and accepting orders is enabled.
+          Customers can see this shop, but printing is not available until the shop is active and accepting orders is enabled.
         </Alert>
       ) : (
         <Alert tone={operational ? "success" : "warning"} title={operational ? "Printer connected" : "Connect the Windows agent and printer"}>
@@ -130,11 +134,11 @@ export default async function ShopDashboardPage() {
             />
             <StatusRow
               label="Subscription"
-              value={formatStatus(subscription.data?.status)}
+              value={subscriptionValid ? formatStatus(subscription.data?.status) : "TAKE FROM CUSTOMER"}
               detail={
-                subscription.data?.trial_end
-                  ? `Trial ends ${new Date(subscription.data.trial_end).toLocaleDateString()}`
-                  : "View subscription details"
+                subscriptionValid && periodEnd
+                  ? `Plan ends ${new Date(periodEnd).toLocaleDateString()}`
+                  : "Customer platform fees apply; printing remains available"
               }
               tone={subscriptionValid ? "success" : "warning"}
             />

@@ -201,7 +201,7 @@ export function FaqList() {
     ],
     [
       "Is there a free trial?",
-      "New shops start on a 15-day free trial. Customer order payments are already live; subscription billing for shop plans is the next milestone.",
+      "New shops start on a 15-day free trial. Shop plans cost ₹699/month or ₹7,499/year, payable with Razorpay.",
     ],
   ];
   return (

@@ -136,7 +136,7 @@ export default function Home() {
                 },
                 {
                   title: "A 15-day start",
-                  body: "Shop onboarding begins with a free trial before subscription billing is enabled.",
+                  body: "Start with a free trial, then choose monthly or yearly subscription billing.",
                 },
               ].map((item) => (
                 <div className="border-l-2 border-brand-100 pl-5" key={item.title}>

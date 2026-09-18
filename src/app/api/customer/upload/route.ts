@@ -34,16 +34,9 @@ export async function POST(request: Request) {
     .select("accepting_orders, max_upload_size_bytes")
     .eq("shop_id", shop?.id ?? "")
     .maybeSingle();
-  const { data: subscription } = await client
-    .from("subscriptions")
-    .select("status, trial_end")
-    .eq("shop_id", shop?.id ?? "")
-    .maybeSingle();
-  const trialExpired =
-    subscription?.status === "trial" && subscription.trial_end && new Date(subscription.trial_end) <= new Date();
   const acceptingOrders = settings?.accepting_orders !== false;
   const isActive = shop?.is_active !== false;
-  if (!shop || !isActive || !acceptingOrders || trialExpired || !subscription || !["trial", "active"].includes(subscription.status))
+  if (!shop || !isActive || !acceptingOrders)
     return NextResponse.json({ error: "This shop is not accepting orders." }, { status: 409 });
   const maxSize = Number(settings?.max_upload_size_bytes || 26214400);
   for (const file of files) {

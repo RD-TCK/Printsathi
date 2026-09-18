@@ -1,8 +1,8 @@
+import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { getShopContext, canManageShop } from "@/lib/shop-portal";
-import { createSupabaseAdminClient } from "@/lib/supabase/admin";
-import { createRazorpayOrder, getRazorpayClient, toPaise } from "@/lib/razorpay/server";
+import { createRazorpayOrder, getRazorpayClient } from "@/lib/razorpay/server";
 
 const createSubscriptionOrderSchema = z.object({
   plan: z.enum(["monthly", "yearly"]),
@@ -34,9 +34,15 @@ export async function POST(request: Request) {
     );
   }
 
+  const adminClient = createSupabaseAdminClient();
+  if (!adminClient) return NextResponse.json({ error: "Database unavailable." }, { status: 503 });
+  // Fail before collecting money if the activation migration is absent.
+  const { error: setupError } = await adminClient.from("shop_subscription_payments").select("payment_id").limit(0);
+  if (setupError) return NextResponse.json({ error: "Subscription payments are unavailable until database setup is complete. No payment has been taken." }, { status: 503 });
+
   const plan = parsed.data.plan;
   const amountRupees = plan === "monthly" ? 699 : 7499;
-  const planDescription = plan === "monthly" ? "Shop Monthly Subscription (₹699/mo)" : "Shop Yearly Subscription (₹7,499/yr - 10% Discount)";
+  const planDescription = plan === "monthly" ? "Shop Monthly Subscription (₹699/mo)" : "Shop Yearly Subscription (₹7,499/yr - 10%+ Discount)";
   const receipt = `sub_${context.shop.id.slice(0, 8)}_${Date.now()}`.slice(0, 40);
 
   try {

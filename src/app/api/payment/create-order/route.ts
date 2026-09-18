@@ -1,3 +1,4 @@
+import { effectiveBillingMode } from "@/lib/subscription";
 import { availablePrinters, supportsPrint } from "@/lib/printer-availability";
 import { NextResponse } from "next/server";
 import { z } from "zod";
@@ -56,19 +57,14 @@ export async function POST(request: Request) {
 
   const [{ data: settings }, { data: subscription }] = await Promise.all([
     adminClient.from("shop_settings").select("accepting_orders, billing_mode").eq("shop_id", shop.id).maybeSingle(),
-    adminClient.from("subscriptions").select("status, trial_end").eq("shop_id", shop.id).maybeSingle(),
+    adminClient.from("subscriptions").select("status, trial_end, current_period_end").eq("shop_id", shop.id).maybeSingle(),
   ]);
 
-  const subscriptionStatus =
-    subscription?.status === "trial" && subscription.trial_end && new Date(subscription.trial_end) <= new Date()
-      ? "expired"
-      : (subscription?.status ?? "expired");
-
+  const billingMode = effectiveBillingMode(settings?.billing_mode, subscription);
   try {
     assertShopCanPrice({
       isActive: shop.is_active,
       acceptingOrders: settings?.accepting_orders === true,
-      subscriptionStatus,
     });
   } catch (eligibilityError) {
     return NextResponse.json(
@@ -185,7 +181,7 @@ export async function POST(request: Request) {
     authoritativePricing = calculatePricing(
       ranges,
       rules.map((r) => ({ ...r, price_per_page: Number(r.price_per_page), is_active: true })) as PricingRule[],
-      (settings?.billing_mode as "customer_fee" | "shop_subscription") || "customer_fee",
+      billingMode,
     );
   } catch (calcError) {
     return NextResponse.json(
