@@ -2,6 +2,7 @@ import Link from "next/link";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
+import { SubmitButton } from "@/components/ui/submit-button";
 import { Alert } from "@/components/ui/alert";
 import { signIn } from "@/app/actions/auth";
 
@@ -32,17 +33,27 @@ export default async function LoginPage({
           ) : null}
           <form action={signIn} className="space-y-5">
             <Input id="email" name="email" label="Email address" type="email" autoComplete="email" required />
-            <Input
-              id="password"
-              name="password"
-              label="Password"
-              type="password"
-              autoComplete="current-password"
-              required
-            />
-            <Button className="w-full" type="submit">
+            <div className="space-y-1">
+              <Input
+                id="password"
+                name="password"
+                label="Password"
+                type="password"
+                autoComplete="current-password"
+                required
+              />
+              <div className="flex justify-end">
+                <Link
+                  href="/forgot-password"
+                  className="text-xs font-semibold text-brand-700 hover:underline"
+                >
+                  Forgot password?
+                </Link>
+              </div>
+            </div>
+            <SubmitButton className="w-full" pendingLabel="Signing in...">
               Sign in
-            </Button>
+            </SubmitButton>
           </form>
           <p className="mt-6 text-center text-sm text-muted">
             New to PrintSathi?{" "}

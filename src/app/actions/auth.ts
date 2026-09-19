@@ -3,6 +3,7 @@
 import { redirect } from "next/navigation";
 import { z } from "zod";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
+import { getAppUrl } from "@/lib/env";
 
 const credentialsSchema = z.object({
   email: z.string().trim().email("Please enter a valid email address."),
@@ -77,6 +78,7 @@ export async function signUpShopOwner(formData: FormData) {
     email: parsed.data.email,
     password: parsed.data.password,
     options: {
+      emailRedirectTo: `${getAppUrl()}/auth/callback?next=/shop`,
       data: {
         full_name: parsed.data.fullName,
         shop_name: parsed.data.shopName,
@@ -95,6 +97,50 @@ export async function signUpShopOwner(formData: FormData) {
   });
   if (shopError) redirect(`/register?error=${encodeURIComponent(shopError.message)}`);
   redirect("/shop");
+}
+
+export async function requestPasswordReset(formData: FormData) {
+  const email = String(formData.get("email") || "").trim();
+  const parsed = z.string().email("Please enter a valid email address.").safeParse(email);
+  if (!parsed.success) {
+    redirect(`/forgot-password?error=${encodeURIComponent(parsed.error.issues[0]?.message || "Invalid email.")}`);
+  }
+
+  const client = await createSupabaseServerClient();
+  if (!client) redirect("/forgot-password?error=Authentication+service+not+configured.");
+
+  const { error } = await client.auth.resetPasswordForEmail(parsed.data, {
+    redirectTo: `${getAppUrl()}/auth/callback?next=/reset-password`,
+  });
+
+  if (error) {
+    redirect(`/forgot-password?error=${encodeURIComponent(error.message)}`);
+  }
+
+  redirect("/forgot-password?success=Password+reset+link+has+been+sent+to+your+email.");
+}
+
+export async function updateUserPassword(formData: FormData) {
+  const password = String(formData.get("password") || "");
+  const confirmPassword = String(formData.get("confirmPassword") || "");
+
+  if (password.length < 8) {
+    redirect("/reset-password?error=Password+must+be+at+least+8+characters+long.");
+  }
+
+  if (password !== confirmPassword) {
+    redirect("/reset-password?error=Passwords+do+not+match.");
+  }
+
+  const client = await createSupabaseServerClient();
+  if (!client) redirect("/reset-password?error=Authentication+service+not+configured.");
+
+  const { error } = await client.auth.updateUser({ password });
+  if (error) {
+    redirect(`/reset-password?error=${encodeURIComponent(error.message)}`);
+  }
+
+  redirect("/login?message=Password+updated+successfully.+Please+sign+in+with+your+new+password.");
 }
 
 export async function signOut() {

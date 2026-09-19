@@ -24,6 +24,7 @@
   "build": {
     "appId": "com.printsaathi.agent",
     "productName": "PrintSaathi Desktop Agent",
+    "icon": "assets/icon.png",
     "publish": null,
     "npmRebuild": false,
     "nodeGypRebuild": false,
@@ -32,6 +33,7 @@
     },
     "files": [
       "dist/agent/**/*",
+      "assets/**/*",
       "node_modules/pdf-lib/**/*",
       "node_modules/pdf-to-printer/**/*",
       "node_modules/@pdf-lib/**/*",

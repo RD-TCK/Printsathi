@@ -8,4 +8,12 @@ fs.writeFileSync(destinationJson, JSON.stringify({ base64: fs.readFileSync(sourc
 if (fs.existsSync(source)) {
   fs.copyFileSync(source, destinationExe);
 }
-console.log("Embedded PDF renderer module generated.");
+const assetsSrc = path.join(__dirname, "../assets");
+const assetsDst = path.join(__dirname, "../dist/assets");
+if (fs.existsSync(assetsSrc)) {
+  fs.mkdirSync(assetsDst, { recursive: true });
+  for (const file of fs.readdirSync(assetsSrc)) {
+    fs.copyFileSync(path.join(assetsSrc, file), path.join(assetsDst, file));
+  }
+}
+console.log("Embedded PDF renderer module & app assets generated.");

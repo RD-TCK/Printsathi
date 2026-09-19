@@ -168,6 +168,7 @@ export async function updateShopSettings(formData: FormData) {
     })
     .safeParse(Object.fromEntries(formData.entries()));
   if (!parsed.success) redirect("/shop/settings?error=Check+the+settings+fields");
+
   const { error: shopError } = await context.client
     .from("shops")
     .update({
@@ -178,11 +179,45 @@ export async function updateShopSettings(formData: FormData) {
       is_active: parsed.data.isActive === "true",
     })
     .eq("id", context.shop.id);
-  const { error: settingsError } = await context.client
+
+  // Check if shop_settings row exists
+  const { data: existingSettings } = await context.client
     .from("shop_settings")
-    .update({ accepting_orders: parsed.data.acceptingOrders === "true" })
-    .eq("shop_id", context.shop.id);
-  if (shopError || settingsError) redirect("/shop/settings?error=Could+not+save+settings");
+    .select("shop_id")
+    .eq("shop_id", context.shop.id)
+    .maybeSingle();
+
+  let settingsError = null;
+  if (existingSettings) {
+    const { error } = await context.client
+      .from("shop_settings")
+      .update({ accepting_orders: parsed.data.acceptingOrders === "true" })
+      .eq("shop_id", context.shop.id);
+    settingsError = error;
+  } else {
+    // Upsert using admin client to ensure missing settings row is created
+    const admin = createSupabaseAdminClient();
+    if (admin) {
+      const { error } = await admin
+        .from("shop_settings")
+        .upsert(
+          { shop_id: context.shop.id, accepting_orders: parsed.data.acceptingOrders === "true" },
+          { onConflict: "shop_id" }
+        );
+      settingsError = error;
+    } else {
+      const { error } = await context.client
+        .from("shop_settings")
+        .insert({ shop_id: context.shop.id, accepting_orders: parsed.data.acceptingOrders === "true" });
+      settingsError = error;
+    }
+  }
+
+  if (shopError || settingsError) {
+    const errorMsg = shopError?.message || settingsError?.message || "Could not save settings";
+    redirect(`/shop/settings?error=${encodeURIComponent(errorMsg)}`);
+  }
+
   revalidatePath("/shop", "layout");
   redirect("/shop/settings?success=Settings+saved");
 }

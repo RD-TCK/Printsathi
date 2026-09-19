@@ -50,16 +50,26 @@ create policy qr_member_select on public.qr_codes
 for select to authenticated
 using ((select public.is_shop_member(shop_id)) or (select public.is_admin()));
 
-create or replace function public.protect_public_identifiers()
+create or replace function public.protect_shop_public_id()
 returns trigger
 language plpgsql
 set search_path = public
 as $$
 begin
-	if tg_table_name = 'shops' and new.public_id is distinct from old.public_id then
+	if new.public_id is distinct from old.public_id then
 		raise exception 'Shop public identifier cannot be changed';
 	end if;
-	if tg_table_name = 'qr_codes' and new.public_token is distinct from old.public_token then
+	return new;
+end;
+$$;
+
+create or replace function public.protect_qr_public_token()
+returns trigger
+language plpgsql
+set search_path = public
+as $$
+begin
+	if new.public_token is distinct from old.public_token then
 		raise exception 'QR public token cannot be changed';
 	end if;
 	return new;
@@ -68,11 +78,11 @@ $$;
 
 create trigger protect_shop_public_identifier
 before update on public.shops
-for each row execute function public.protect_public_identifiers();
+for each row execute function public.protect_shop_public_id();
 
 create trigger protect_qr_public_token
 before update on public.qr_codes
-for each row execute function public.protect_public_identifiers();
+for each row execute function public.protect_qr_public_token();
 
 create or replace function public.validate_pricing_rule_overlap()
 returns trigger

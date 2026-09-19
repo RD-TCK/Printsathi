@@ -3,6 +3,7 @@ import { getShopContext } from "@/lib/shop-portal";
 import { ShopPageHeader } from "@/components/shop-page";
 import { Alert } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
+import { SubmitButton } from "@/components/ui/submit-button";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
@@ -64,13 +65,13 @@ export default async function ShopSettingsPage({
                 id="acceptingOrders"
                 name="acceptingOrders"
                 label="Accepting orders"
-                defaultValue={settings?.accepting_orders ? "true" : "false"}
+                defaultValue={settings?.accepting_orders ?? true ? "true" : "false"}
               >
                 <option value="true">Yes</option>
                 <option value="false">No</option>
               </Select>
             </div>
-            <Button type="submit">Save settings</Button>
+            <SubmitButton pendingLabel="Saving settings...">Save settings</SubmitButton>
           </form>
         </CardContent>
       </Card>

@@ -45,7 +45,26 @@ async function startDesktopAgent() {
   });
 }
 
+import fs from "node:fs";
+import path from "node:path";
+
+function getAssetIconPath(filename: string): string | null {
+  const possiblePaths = [
+    path.join(__dirname, "..", "..", "assets", filename),
+    path.join(__dirname, "..", "assets", filename),
+    path.join(process.cwd(), "assets", filename),
+    path.join(process.cwd(), "dist", "assets", filename),
+  ];
+  for (const p of possiblePaths) {
+    if (fs.existsSync(p)) return p;
+  }
+  return null;
+}
+
 function createWindow() {
+  const iconPath = getAssetIconPath("icon-256.png");
+  const appIcon = iconPath ? nativeImage.createFromPath(iconPath) : undefined;
+
   mainWindow = new BrowserWindow({
     width: 1100,
     height: 740,
@@ -54,6 +73,7 @@ function createWindow() {
     show: false,
     autoHideMenuBar: true,
     title: "PrintSaathi Desktop Agent",
+    icon: appIcon,
     webPreferences: {
       contextIsolation: true,
       nodeIntegration: false,
@@ -81,7 +101,10 @@ function createWindow() {
 }
 
 function createTray() {
-  tray = new Tray(nativeImage.createEmpty());
+  const trayIconPath = getAssetIconPath("icon-32.png") || getAssetIconPath("icon-256.png");
+  const trayIcon = trayIconPath ? nativeImage.createFromPath(trayIconPath) : nativeImage.createEmpty();
+
+  tray = new Tray(trayIcon);
   tray.setToolTip("PrintSaathi Desktop Agent");
   tray.setContextMenu(
     Menu.buildFromTemplate([

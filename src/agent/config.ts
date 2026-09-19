@@ -39,10 +39,7 @@ export function loadConfig(): AgentConfig {
   try {
     const raw = fs.readFileSync(filePath, "utf8");
     const parsed = JSON.parse(raw);
-    let serverUrl = process.env.PRINTSAATHI_SERVER_URL || parsed.serverUrl || DEFAULT_CONFIG.serverUrl;
-    if (serverUrl.includes("localhost:3000") && !process.env.PRINTSAATHI_SERVER_URL) {
-      serverUrl = "https://printsathi.vercel.app";
-    }
+    const serverUrl = process.env.PRINTSAATHI_SERVER_URL || parsed.serverUrl || DEFAULT_CONFIG.serverUrl;
 
     return {
       ...DEFAULT_CONFIG,

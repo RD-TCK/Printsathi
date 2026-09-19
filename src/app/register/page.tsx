@@ -2,6 +2,7 @@ import Link from "next/link";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
+import { SubmitButton } from "@/components/ui/submit-button";
 import { Alert } from "@/components/ui/alert";
 import { signUpShopOwner } from "@/app/actions/auth";
 
@@ -45,9 +46,9 @@ export default async function RegisterPage({ searchParams }: { searchParams: Pro
               title="Letters, numbers, and hyphens only (e.g. my-print-shop)."
               required
             />
-            <Button className="w-full" type="submit">
+            <SubmitButton className="w-full" pendingLabel="Creating account...">
               Create account
-            </Button>
+            </SubmitButton>
           </form>
           <p className="mt-6 text-center text-sm text-muted">
             Already registered?{" "}
