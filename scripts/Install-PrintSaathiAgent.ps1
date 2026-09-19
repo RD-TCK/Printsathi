@@ -35,11 +35,16 @@ Write-Host ""
 
 # ─── Step 1: Verify agent exe ──────────────────────────────────────────────────
 if (-not (Test-Path $AgentExe)) {
-  Write-Host "[ERROR] PrintivaAgent.exe not found next to this script." -ForegroundColor Red
-  Write-Host "        Place both files in the same folder and try again."   -ForegroundColor Red
-  exit 1
+  $LegacyExe = Join-Path $PSScriptRoot "PrintSaathiAgent.exe"
+  if (Test-Path $LegacyExe) {
+    $AgentExe = $LegacyExe
+  } else {
+    Write-Host "[ERROR] PrintivaAgent.exe (or PrintSaathiAgent.exe) not found next to this script." -ForegroundColor Red
+    Write-Host "        Place the downloaded agent .exe in the same folder and try again." -ForegroundColor Red
+    exit 1
+  }
 }
-Write-Host "[1/6] Found PrintivaAgent.exe" -ForegroundColor Green
+Write-Host "[1/6] Found agent executable: $(Split-Path $AgentExe -Leaf)" -ForegroundColor Green
 
 # ─── Step 2: Create install directory ─────────────────────────────────────────
 if (-not (Test-Path $InstallDir)) {

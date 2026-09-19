@@ -52,10 +52,11 @@ export function getRazorpayServerEnv() {
 }
 
 export function getAgentDownloadUrl(): string {
-  return (
-    process.env.AGENT_DOWNLOAD_URL ||
-    "https://github.com/RD-TCK/Printsathi/releases/latest/download/PrintivaAgent.exe"
-  );
+  const envUrl = process.env.AGENT_DOWNLOAD_URL?.trim();
+  if (envUrl) {
+    return envUrl.replace(/PrintSaathiAgent\.exe/gi, "PrintivaAgent.exe");
+  }
+  return "https://github.com/RD-TCK/Printsathi/releases/latest/download/PrintivaAgent.exe";
 }
 
 export function getAppUrl(): string {

@@ -35,6 +35,13 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: npm run build:desktop
 
+      - name: Prepare release assets with backward-compatible aliases
+        shell: pwsh
+        run: |
+          if (Test-Path dist/PrintivaAgent.exe) {
+            Copy-Item dist/PrintivaAgent.exe dist/PrintSaathiAgent.exe -Force
+          }
+
       - name: Create release and upload asset
         uses: softprops/action-gh-release@v2
         with:
@@ -43,7 +50,7 @@ jobs:
             ## Printiva Windows Desktop Agent ${{ github.ref_name }}
 
             ### Installation
-            1. Download `PrintivaAgent.exe` below
+            1. Download `PrintivaAgent.exe` (or `PrintSaathiAgent.exe`) below
             2. Run the installer and launch Printiva from the Start menu
             3. Sign in with your Printiva shop-owner account in the desktop app
             4. Leave the app running in the Windows notification area for automatic printing
@@ -56,6 +63,7 @@ jobs:
             - Updated subscription billing, expiry recovery, and platform admin monitoring
           files: |
             dist/PrintivaAgent.exe
-          fail_on_unmatched_files: true
+            dist/PrintSaathiAgent.exe
+          fail_on_unmatched_files: false
           draft: false
           prerelease: false
