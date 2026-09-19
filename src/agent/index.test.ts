@@ -11,7 +11,7 @@ afterEach(() => { process.argv = originalArgs; vi.unstubAllGlobals(); vi.resetAl
 describe("downloaded agent startup", () => {
   it("reopens an existing agent instead of crashing on a second launch", async () => {
     process.argv = ["node", "agent"];
-    mocks.start.mockRejectedValue(new Error("Another PrintSaathi agent is already running."));
+    mocks.start.mockRejectedValue(new Error("Another Printiva agent is already running."));
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue({ json: async () => ({ isPaired: false, printers: [] }) }));
     await expect(main()).resolves.toBeUndefined();
     expect(mocks.exec).toHaveBeenCalledWith('start "" "http://127.0.0.1:4321"');

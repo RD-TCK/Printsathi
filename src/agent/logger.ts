@@ -17,8 +17,8 @@ class AgentLogger {
       const appData =
         process.env.LOCALAPPDATA ||
         path.join(os.homedir(), "AppData", "Local") ||
-        path.join(os.homedir(), ".printsaathi");
-      const logDir = path.join(appData, "PrintSaathiAgent", "logs");
+        path.join(os.homedir(), ".printiva");
+      const logDir = path.join(appData, "PrintivaAgent", "logs");
       if (!fs.existsSync(logDir)) {
         fs.mkdirSync(logDir, { recursive: true });
       }

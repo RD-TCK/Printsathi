@@ -69,7 +69,7 @@ export default function PublicTrackPage() {
       <header className="border-b border-slate-200 bg-white">
         <div className="mx-auto flex h-16 max-w-3xl items-center justify-between px-6">
           <Link href="/" className="text-xl font-bold tracking-tight text-slate-800">
-            Print<span className="text-emerald-600">Sathi</span>
+            Print<span className="text-emerald-600">iva</span>
           </Link>
           <Link
             href="/customer"
@@ -142,7 +142,7 @@ export default function PublicTrackPage() {
         {/* Sign-in CTA */}
         <div className="flex flex-wrap items-center justify-between gap-4 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
           <div>
-            <p className="font-semibold text-slate-900">Have a PrintSathi account?</p>
+            <p className="font-semibold text-slate-900">Have a Printiva account?</p>
             <p className="text-sm text-slate-500">
               Sign in to see all your orders in one place with full history.
             </p>

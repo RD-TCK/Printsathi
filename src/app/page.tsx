@@ -13,9 +13,9 @@ import { Button } from "@/components/ui/button";
 
 export const metadata = {
   title: "Scan. Upload. Pay. Print.",
-  description: "PrintSathi gives local print shops and their customers one clearer way to get print work done.",
+  description: "Printiva gives local print shops and their customers one clearer way to get print work done.",
   openGraph: {
-    title: "PrintSathi | Scan. Upload. Pay. Print.",
+    title: "Printiva | Scan. Upload. Pay. Print.",
     description: "A clearer way for local shops and their customers to print together.",
     type: "website",
   },
@@ -39,13 +39,13 @@ export default function Home() {
                 Automated printing for the places people already trust.
               </h1>
               <p className="mt-7 max-w-2xl text-lg leading-8 text-white/75">
-                PrintSathi connects a shop&apos;s QR code, a customer&apos;s order, and the shop&apos;s future local
+                Printiva connects a shop&apos;s QR code, a customer&apos;s order, and the shop&apos;s future local
                 print bridge in one focused platform.
               </p>
               <div className="mt-9 flex flex-wrap gap-3">
                 <Button asChild size="lg">
                   <Link href="/register">
-                    Start Free 15-Day Trial <ArrowRight className="size-4" />
+                    Start Free 7-Day Trial <ArrowRight className="size-4" />
                   </Link>
                 </Button>
                 <Button asChild variant="secondary" size="lg">
@@ -68,7 +68,7 @@ export default function Home() {
             <div className="rounded-xl border border-white/20 bg-white/10 p-6 backdrop-blur-sm">
               <div className="flex items-center justify-between border-b border-white/15 pb-5">
                 <div>
-                  <p className="text-sm font-semibold">PrintSathi order view</p>
+                  <p className="text-sm font-semibold">Printiva order view</p>
                   <p className="mt-1 text-xs text-white/55">Designed for one clear status</p>
                 </div>
                 <ShieldCheck className="size-6 text-brand-100" />
@@ -96,7 +96,7 @@ export default function Home() {
             <SectionHeading
               eyebrow="How it works"
               title="A short path from counter to completion."
-              description="PrintSathi is being assembled around the moments that make printing feel unnecessarily manual today."
+              description="Printiva is being assembled around the moments that make printing feel unnecessarily manual today."
             />
             <div className="mt-12">
               <Steps />
@@ -135,7 +135,7 @@ export default function Home() {
                   body: "Payments, pricing, and printer execution are kept behind the right server and desktop boundaries.",
                 },
                 {
-                  title: "A 15-day start",
+                  title: "A 7-day start",
                   body: "Start with a free trial, then choose monthly or yearly subscription billing.",
                 },
               ].map((item) => (

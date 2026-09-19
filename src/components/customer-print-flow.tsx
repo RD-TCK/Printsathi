@@ -169,10 +169,30 @@ export function CustomerPrintFlow({ shop: initialShop, identifier }: Props) {
       setError(`You can add up to 10 documents per order (${currentCount} already added).`);
       return;
     }
+    const allowedExtensions = new Set([
+      ".pdf", ".jpg", ".jpeg", ".png", ".webp", ".gif", ".bmp", ".tif", ".tiff",
+      ".doc", ".docx", ".odt", ".rtf", ".ppt", ".pptx", ".odp", ".xls", ".xlsx", ".ods", ".txt", ".csv", ".md"
+    ]);
+
+    for (const f of files) {
+      const ext = f.name.slice(f.name.lastIndexOf(".")).toLowerCase();
+      if (!allowedExtensions.has(ext)) {
+        setError(`"${f.name}" has an unsupported format. Please upload PDF, images, or Office documents.`);
+        return;
+      }
+      if (f.size > 25 * 1024 * 1024) {
+        setError(`"${f.name}" exceeds the 25 MB limit. Please choose a smaller file.`);
+        return;
+      }
+      if (f.size === 0) {
+        setError(`"${f.name}" is empty (0 bytes).`);
+        return;
+      }
+    }
+
     setBusy(true);
     try {
-      if (files.some((file) => file.size > 25 * 1024 * 1024)) throw new Error("Choose files under 25 MB each.");
-      setUploadStatus("Uploading and analysing your documents...");
+      setUploadStatus(files.length > 1 ? `Uploading ${files.length} documents...` : "Uploading document...");
       const form = new FormData();
       form.append("shopIdentifier", identifier);
       if (isAppending && orderId && accessToken) {

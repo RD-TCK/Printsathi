@@ -3,8 +3,8 @@ import "./globals.css";
 
 export const metadata: Metadata = {
   title: {
-    default: "PrintSathi | Scan. Upload. Pay. Print.",
-    template: "%s | PrintSathi",
+    default: "Printiva | Scan. Upload. Pay. Print.",
+    template: "%s | Printiva",
   },
   description: "A simpler way to print at your trusted local shop.",
 };

@@ -21,7 +21,7 @@ type Props = { params: Promise<{ orderId: string }> };
 export async function generateMetadata({ params }: Props) {
   const { orderId } = await params;
   return {
-    title: `Order #${orderId.slice(0, 8).toUpperCase()} — PrintSathi`,
+    title: `Order #${orderId.slice(0, 8).toUpperCase()} — Printiva`,
     description: "View your print order details and real-time status.",
   };
 }
@@ -151,7 +151,7 @@ export default async function OrderDetailPage({ params }: Props) {
                 Order #{order.public_id || order.id.slice(0, 8).toUpperCase()}
               </p>
               <h1 className="mt-1 text-2xl font-bold">
-                {shop?.name || "PrintSathi Shop"}
+                {shop?.name || "Printiva Shop"}
               </h1>
               {shop?.address && (
                 <p className="mt-1 flex items-center gap-1.5 text-sm text-slate-300">

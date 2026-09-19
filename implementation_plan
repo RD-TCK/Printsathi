@@ -7,7 +7,7 @@ The agent code in `src/agent/` is already fully built. It:
 - Polls the server for paid print jobs every 5 seconds
 - Downloads the PDF, slices page ranges with `pdf-lib`, and submits to the Windows Print Spooler via `PrintTo` verb
 - Serves a local web dashboard at `http://127.0.0.1:4321`
-- Persists config at `%LOCALAPPDATA%\PrintSaathiAgent\config.json`
+- Persists config at `%LOCALAPPDATA%\PrintivaAgent\config.json`
 
 **The gap:** Shop owners currently need Node.js + npm installed to run it. We need a true **standalone Windows `.exe`** they can just double-click.
 
@@ -22,7 +22,7 @@ Use [`pkg`](https://github.com/vercel/pkg) to bundle the TypeScript-compiled age
 > [!IMPORTANT]
 > `pkg` requires a compiled JS entry point. We'll add a small build step:
 > `tsc --project tsconfig.agent.json` → compiles only `src/agent/` to `dist/agent/`
-> then `pkg dist/agent/index.js` → produces `PrintSaathiAgent.exe`
+> then `pkg dist/agent/index.js` → produces `PrintivaAgent.exe`
 
 #### [NEW] `tsconfig.agent.json`
 A separate TypeScript config that compiles only `src/agent/` to `dist/agent/`, targeting CommonJS (required by pkg).
@@ -31,13 +31,13 @@ A separate TypeScript config that compiles only `src/agent/` to `dist/agent/`, t
 `pkg` configuration specifying:
 - Entry: `dist/agent/index.js`
 - Target: `node20-win-x64`
-- Output: `dist/PrintSaathiAgent.exe`
+- Output: `dist/PrintivaAgent.exe`
 - Assets: include `pdf-lib` wasm assets if any
 
-#### [MODIFY] [`package.json`](file:///c:\Users\user\Downloads\PrintSaathi\package.json)
+#### [MODIFY] [`package.json`](file:///c:\Users\user\Downloads\Printiva\package.json)
 Add new scripts:
 ```json
-"build:agent":   "tsc --project tsconfig.agent.json && pkg dist/agent/index.js --config agent.pkg.json --output dist/PrintSaathiAgent.exe --target node20-win-x64",
+"build:agent":   "tsc --project tsconfig.agent.json && pkg dist/agent/index.js --config agent.pkg.json --output dist/PrintivaAgent.exe --target node20-win-x64",
 "agent":         "tsx src/agent/index.ts"   ← already fixed
 ```
 
@@ -46,18 +46,18 @@ Add new scripts:
 ### 2 — Serve the Agent Download from Next.js
 
 #### [NEW] `src/app/api/agent/download/route.ts`
-A Next.js route that serves `dist/PrintSaathiAgent.exe` as a binary download with the correct `Content-Disposition` header. Falls back to a redirect to GitHub Releases if the binary isn't built locally.
+A Next.js route that serves `dist/PrintivaAgent.exe` as a binary download with the correct `Content-Disposition` header. Falls back to a redirect to GitHub Releases if the binary isn't built locally.
 
 ---
 
 ### 3 — Update the `/download` Page
 
-#### [MODIFY] [`src/app/download/page.tsx`](file:///c:\Users\user\Downloads\PrintSaathi\src\app\download\page.tsx)
+#### [MODIFY] [`src/app/download/page.tsx`](file:///c:\Users\user\Downloads\Printiva\src\app\download\page.tsx)
 Replace the current "run `npm run agent`" instructions with a proper **Download .exe** button and updated installation steps:
 
 | Old Step | New Step |
 |---|---|
-| Run `npm run agent` | Download `PrintSaathiAgent.exe` |
+| Run `npm run agent` | Download `PrintivaAgent.exe` |
 | Enter pairing code via CLI | Double-click exe → browser dashboard opens |
 | — | Enter pairing code in the dashboard UI |
 
@@ -65,9 +65,9 @@ Replace the current "run `npm run agent`" instructions with a proper **Download 
 
 ### 4 — PowerShell Installer Script (Optional but Recommended)
 
-#### [NEW] `dist/Install-PrintSaathiAgent.ps1`
+#### [NEW] `dist/Install-PrintivaAgent.ps1`
 A one-click PowerShell installer that:
-1. Copies `PrintSaathiAgent.exe` to `%LOCALAPPDATA%\PrintSaathiAgent\`
+1. Copies `PrintivaAgent.exe` to `%LOCALAPPDATA%\PrintivaAgent\`
 2. Creates a Desktop shortcut
 3. Registers the agent as a Windows Startup item (via registry `HKCU\SOFTWARE\Microsoft\Windows\CurrentVersion\Run`)
 
@@ -97,8 +97,8 @@ A one-click PowerShell installer that:
 ## Verification Plan
 
 ### Automated
-- `npm run build:agent` should produce `dist/PrintSaathiAgent.exe` without errors
-- Run `.\dist\PrintSaathiAgent.exe` — dashboard should open at `http://127.0.0.1:4321`
+- `npm run build:agent` should produce `dist/PrintivaAgent.exe` without errors
+- Run `.\dist\PrintivaAgent.exe` — dashboard should open at `http://127.0.0.1:4321`
 - Printer list should appear in the dashboard
 
 ### Manual

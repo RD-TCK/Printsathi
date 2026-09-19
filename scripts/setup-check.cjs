@@ -8,7 +8,7 @@ for (const key of ["NEXT_PUBLIC_SUPABASE_URL", "NEXT_PUBLIC_SUPABASE_ANON_KEY", 
   check(key, Boolean(process.env[key] && !/your_|placeholder/.test(process.env[key])), "Set in .env.local (value hidden)");
 }
 check("Office document conversion", fs.existsSync(process.env.LIBREOFFICE_PATH || "C:/Program Files/LibreOffice/program/soffice.exe"), "Install LibreOffice and set LIBREOFFICE_PATH to its executable");
-check("Agent download", Boolean(process.env.AGENT_DOWNLOAD_URL || fs.existsSync(process.env.AGENT_BINARY_PATH || path.join("dist", "PrintSaathiAgent.exe"))), "Run npm run build:agent on Windows or set AGENT_DOWNLOAD_URL");
+check("Agent download", Boolean(process.env.AGENT_DOWNLOAD_URL || fs.existsSync(process.env.AGENT_BINARY_PATH || path.join("dist", "PrintivaAgent.exe"))), "Run npm run build:agent on Windows or set AGENT_DOWNLOAD_URL");
 console.log("Also apply supabase/migrations in filename order and configure the Razorpay webhook; see SETUP.md.");
 process.exitCode = missing ? 1 : 0;
 

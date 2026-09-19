@@ -3,7 +3,7 @@ import { FeatureGrid, MarketingFooter, SectionHeading, TrialCallout } from "@/co
 
 export const metadata = {
   title: "Features",
-  description: "Explore the PrintSathi platform foundation for modern local printing.",
+  description: "Explore the Printiva platform foundation for modern local printing.",
 };
 
 export default function FeaturesPage() {
@@ -16,7 +16,7 @@ export default function FeaturesPage() {
             <SectionHeading
               eyebrow="Platform foundation"
               title="A calmer way to run print requests."
-              description="PrintSathi connects the customer journey, the shop workflow, and the Windows printer bridge into one focused system."
+              description="Printiva connects the customer journey, the shop workflow, and the Windows printer bridge into one focused system."
             />
             <div className="mt-12">
               <FeatureGrid />

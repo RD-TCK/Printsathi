@@ -27,7 +27,7 @@ export class AgentWebServer {
       });
 
       this.server.listen(this.port, "127.0.0.1", () => {
-        logger.info(`PrintSathi Desktop Agent local dashboard running at http://127.0.0.1:${this.port}`);
+        logger.info(`Printiva Desktop Agent local dashboard running at http://127.0.0.1:${this.port}`);
         resolve(this.port);
       });
     });
@@ -169,7 +169,7 @@ export class AgentWebServer {
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>PrintSaathi — Hardware Print Agent</title>
+  <title>Printiva — Hardware Print Agent</title>
   <style>
     :root {
       --brand-950: #064e3b;
@@ -477,7 +477,7 @@ export class AgentWebServer {
     <header>
       <div class="logo-area">
         <div class="logo">
-          PrintSaathi
+          Printiva
           <span class="logo-badge">Desktop Agent</span>
         </div>
         <div class="tagline">Zero-Touch Hardware Print Spooler</div>
@@ -588,7 +588,7 @@ export class AgentWebServer {
       const btn = document.getElementById('loginBtn');
       if (btn) {
         btn.disabled = true;
-        btn.innerText = 'Connecting to PrintSaathi...';
+        btn.innerText = 'Connecting to Printiva...';
       }
       try {
         const res = await fetch('/api/login', {
@@ -699,7 +699,7 @@ export class AgentWebServer {
         const connDiv = document.getElementById('connectionDetails');
         if (!status.isPaired) {
           connDiv.innerHTML = \`
-            <label for="serverUrlInput" style="font-size:12px; font-weight:700; color:var(--text-main);">PrintSaathi Website Address</label>
+            <label for="serverUrlInput" style="font-size:12px; font-weight:700; color:var(--text-main);">Printiva Website Address</label>
             <input type="url" id="serverUrlInput" class="input-field" value="\${escapeHtml(activeServerUrl)}" placeholder="https://printsathi.vercel.app" />
             
             <div class="tab-group">
@@ -725,7 +725,7 @@ export class AgentWebServer {
             
             <div id="signinFormContainer" style="display:none;">
               <p style="font-size:12px; color:var(--text-muted); margin-bottom:12px; line-height:1.4;">
-                Sign in with your PrintSaathi shop owner account to automatically link this printer station.
+                Sign in with your Printiva shop owner account to automatically link this printer station.
               </p>
               <form onsubmit="handleLogin(event)">
                 <label style="font-size:12px; font-weight:700; color:var(--text-main);">Shop Email</label>

@@ -1,5 +1,5 @@
 {
-  "name": "printsaathi",
+  "name": "printiva",
   "version": "1.3.0",
   "private": true,
   "main": "dist/agent/desktop.js",
@@ -17,13 +17,13 @@
     "test": "vitest run",
     "agent": "tsx src/agent/index.ts",
     "build:agent:tsc": "tsc --project tsconfig.agent.json && node scripts/copy-print-renderer.cjs",
-    "build:agent": "npm run build:agent:tsc && pkg dist/agent/index.js --config pkg.agent.json --target node22-win-x64 --output dist/PrintSaathiAgent.exe --compress GZip && node scripts/verify-agent.cjs",
+    "build:agent": "npm run build:agent:tsc && pkg dist/agent/index.js --config pkg.agent.json --target node22-win-x64 --output dist/PrintivaAgent.exe --compress GZip && node scripts/verify-agent.cjs",
     "build:desktop": "npm run build:agent:tsc && electron-builder --win --publish never",
     "setup:check": "node scripts/setup-check.cjs"
   },
   "build": {
-    "appId": "com.printsaathi.agent",
-    "productName": "PrintSaathi Desktop Agent",
+    "appId": "com.printiva.agent",
+    "productName": "Printiva Desktop Agent",
     "icon": "assets/icon.png",
     "publish": null,
     "npmRebuild": false,
@@ -47,7 +47,7 @@
           "arch": ["x64"]
         }
       ],
-      "artifactName": "PrintSaathiAgent.${ext}"
+      "artifactName": "PrintivaAgent.${ext}"
     },
     "nsis": {
       "oneClick": false,

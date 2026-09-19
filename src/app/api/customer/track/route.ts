@@ -55,7 +55,7 @@ export async function GET(request: Request) {
   return NextResponse.json({
     publicId: order.public_id || order.id.slice(0, 8).toUpperCase(),
     status: order.status,
-    shopName: (shop as { name?: string } | null)?.name || "PrintSathi Shop",
+    shopName: (shop as { name?: string } | null)?.name || "Printiva Shop",
     totalAmount: Number(order.total_amount),
     totalPages: order.total_pages,
     createdAt: order.created_at,

@@ -1,6 +1,6 @@
-# PrintSathi
+# Printiva
 
-PrintSathi is a multi-tenant printing SaaS: **Scan. Upload. Pay. Print.**
+Printiva is a multi-tenant printing SaaS: **Scan. Upload. Pay. Print.**
 
 ## Completed phases
 
@@ -68,7 +68,7 @@ PrintSathi is a multi-tenant printing SaaS: **Scan. Upload. Pay. Print.**
 - `submit_print_job` RPC (records that the Windows Print Spooler accepted the job — duplicate-print guard)
 - `complete_print_job` and `fail_print_job` RPCs with agent ownership validation
 - PDF page-range extraction and submission to the Windows PrintTo verb
-- Agent local config stored in `%LOCALAPPDATA%/PrintSaathiAgent`
+- Agent local config stored in `%LOCALAPPDATA%/PrintivaAgent`
 - Agent web dashboard at `http://127.0.0.1:4321`
 
 ### Phase 9: Print idempotency and reconciliation
@@ -102,7 +102,7 @@ Set `NEXT_PUBLIC_SUPABASE_URL` and `NEXT_PUBLIC_SUPABASE_ANON_KEY` in `.env.loca
 | `RAZORPAY_KEY_SECRET`           | Server only | Razorpay secret for HMAC verification                              |
 | `RAZORPAY_WEBHOOK_SECRET`       | Server only | Razorpay webhook signature verification                            |
 | `NEXT_PUBLIC_APP_URL`           | Client      | Production URL of the application                                  |
-| `PRINTSAATHI_SERVER_URL`        | Agent       | Backend URL for the Windows Agent (default: `NEXT_PUBLIC_APP_URL`) |
+| `PRINTIVA_SERVER_URL`        | Agent       | Backend URL for the Windows Agent (default: `NEXT_PUBLIC_APP_URL`) |
 
 ## Supabase migrations
 

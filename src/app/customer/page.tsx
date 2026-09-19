@@ -14,8 +14,8 @@ import { createSupabaseServerClient, getCurrentUser } from "@/lib/supabase/serve
 export const dynamic = "force-dynamic";
 
 export const metadata = {
-  title: "My Print Orders — PrintSathi Customer Portal",
-  description: "View and track all your print orders from PrintSathi shops.",
+  title: "My Print Orders — Printiva Customer Portal",
+  description: "View and track all your print orders from Printiva shops.",
 };
 
 function statusMeta(orderStatus: string, paymentStatus?: string, anyJobFailed?: boolean) {
@@ -102,7 +102,7 @@ export default async function MyOrdersPage() {
         </p>
         <h1 className="mt-1 text-2xl font-bold text-slate-900">My Print Orders</h1>
         <p className="mt-1 text-sm text-slate-500">
-          All your print orders from PrintSathi shops — payments, status, and documents.
+          All your print orders from Printiva shops — payments, status, and documents.
         </p>
       </div>
 
@@ -133,7 +133,7 @@ export default async function MyOrdersPage() {
           </div>
           <h2 className="mt-5 text-lg font-semibold text-slate-900">No print orders yet</h2>
           <p className="mt-2 max-w-xs text-sm text-slate-500">
-            Scan a QR code at any PrintSathi shop to upload your documents and print instantly.
+            Scan a QR code at any Printiva shop to upload your documents and print instantly.
           </p>
           <Link
             href="/shops"
@@ -178,7 +178,7 @@ export default async function MyOrdersPage() {
                         </span>
                       </div>
                       <p className="mt-1 text-xs text-slate-500">
-                        {shop?.name || "PrintSathi Shop"}
+                        {shop?.name || "Printiva Shop"}
                         {shop?.address ? ` · ${shop.address}` : ""}
                       </p>
                       {docs.slice(0, 2).map((doc) => (
@@ -245,7 +245,7 @@ export default async function MyOrdersPage() {
             <div>
               <p className="font-semibold text-emerald-900">Need to print something new?</p>
               <p className="text-sm text-emerald-700">
-                Scan a QR code at any PrintSathi shop to start a new order.
+                Scan a QR code at any Printiva shop to start a new order.
               </p>
             </div>
           </div>

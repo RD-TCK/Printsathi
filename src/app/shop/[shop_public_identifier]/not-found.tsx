@@ -9,10 +9,10 @@ export default function ShopNotFound() {
         <SearchX className="mx-auto size-10 text-brand-600" />
         <h1 className="mt-5 text-2xl font-semibold text-brand-950">Shop not found</h1>
         <p className="mt-3 text-sm leading-6 text-muted">
-          This QR link does not match a PrintSathi shop. Check the scan or ask the shop for its current link.
+          This QR link does not match a Printiva shop. Check the scan or ask the shop for its current link.
         </p>
         <Button asChild className="mt-6">
-          <Link href="/">Return to PrintSathi</Link>
+          <Link href="/">Return to Printiva</Link>
         </Button>
       </div>
     </main>

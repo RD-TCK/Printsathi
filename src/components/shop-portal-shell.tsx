@@ -57,7 +57,7 @@ export function ShopPortalShell({
       >
         <div className="flex h-16 items-center justify-between border-b border-line px-6">
           <Link href="/" className="text-xl font-bold tracking-tight text-brand-800">
-            Print<span className="text-brand-600">Sathi</span>
+            Print<span className="text-brand-600">iva</span>
           </Link>
           <button
             className="rounded-md p-2 text-muted lg:hidden"

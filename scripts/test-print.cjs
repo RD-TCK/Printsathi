@@ -9,11 +9,11 @@ async function main() {
   const printer = process.argv[2];
   if (!printer) throw new Error('Usage: node scripts/test-print.cjs "Windows printer name"');
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), "printsaathi-diagnostic-"));
-  const file = path.join(directory, "PrintSaathi-test.pdf");
+  const file = path.join(directory, "Printiva-test.pdf");
   try {
     const pdf = await PDFDocument.create();
     const page = pdf.addPage([595, 842]);
-    page.drawText("PrintSaathi printer test", { x: 60, y: 760, size: 22 });
+    page.drawText("Printiva printer test", { x: 60, y: 760, size: 22 });
     page.drawText("If you can read this page, the PDF printing path is working.", { x: 60, y: 720, size: 12 });
     page.drawText(new Date().toISOString(), { x: 60, y: 690, size: 12 });
     fs.writeFileSync(file, await pdf.save());

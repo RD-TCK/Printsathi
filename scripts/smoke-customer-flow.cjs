@@ -4,7 +4,7 @@ const assert = require("node:assert/strict");
 const { createClient } = require("@supabase/supabase-js");
 const { PDFDocument } = require("pdf-lib");
 const client = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL, process.env.SUPABASE_SERVICE_ROLE_KEY);
-const base = process.env.PRINTSAATHI_SERVER_URL || "http://localhost:3000";
+const base = process.env.PRINTIVA_SERVER_URL || "http://localhost:3000";
 
 async function main() {
   const { data: shops, error } = await client.from("shops").select("id, public_id, shop_settings(accepting_orders), subscriptions(status, trial_end)").eq("is_active", true);
@@ -16,7 +16,7 @@ async function main() {
   });
   assert(shop, "An active shop with a valid subscription is needed for the upload smoke test.");
   const pdf = await PDFDocument.create();
-  pdf.addPage().drawText("PrintSaathi upload smoke test - not for printing");
+  pdf.addPage().drawText("Printiva upload smoke test - not for printing");
   pdf.addPage();
   const form = new FormData();
   form.set("shopIdentifier", shop.public_id);

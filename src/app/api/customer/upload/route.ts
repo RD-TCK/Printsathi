@@ -134,41 +134,66 @@ export async function POST(request: Request) {
   };
 
   try {
-    const documents = await Promise.all(
-      normalized.map(async (doc) => {
-        const documentId = crypto.randomUUID();
-        const { bytes, pageCount } = doc;
-        const storagePath = `shops/${shop.id}/orders/${orderId}/documents/${documentId}/source.pdf`;
+    const preparedDocs = normalized.map((doc) => {
+      const documentId = crypto.randomUUID();
+      const storagePath = `shops/${shop.id}/orders/${orderId}/documents/${documentId}/source.pdf`;
+      return {
+        id: documentId,
+        doc,
+        storagePath,
+      };
+    });
+
+    // 1. Upload files to storage in parallel
+    await Promise.all(
+      preparedDocs.map(async ({ storagePath, doc }) => {
         const { error: uploadError } = await client.storage
           .from("print-documents")
-          .upload(storagePath, bytes, { contentType: "application/pdf", upsert: false });
+          .upload(storagePath, doc.bytes, { contentType: "application/pdf", upsert: false });
         if (uploadError) throw new Error("Could not securely store the document.");
         storedPaths.push(storagePath);
-        const { error: documentError } = await client.from("documents").insert({
-          id: documentId,
-          shop_id: shop.id,
-          order_id: orderId,
-          customer_id: customerId,
-          storage_path: storagePath,
-          original_filename: doc.filename,
-          mime_type: "application/pdf",
-          size_bytes: bytes.length,
-          page_count: pageCount,
-          processing_status: "ready",
-          normalized_storage_path: storagePath,
-          normalized_mime_type: "application/pdf",
-        });
-        if (documentError) throw new Error("Could not register the document.");
-        return { id: documentId, filename: doc.filename, pageCount, sizeBytes: bytes.length };
       }),
     );
 
-    return NextResponse.json({
-      orderId,
-      orderPublicId,
-      accessToken: returnAccessToken,
-      documents,
-    });
+    // 2. Batch insert all documents in a single round-trip query instead of N serial/parallel queries
+    const documentsToInsert = preparedDocs.map(({ id, storagePath, doc }) => ({
+      id,
+      shop_id: shop.id,
+      order_id: orderId,
+      customer_id: customerId,
+      storage_path: storagePath,
+      original_filename: doc.filename,
+      mime_type: "application/pdf",
+      size_bytes: doc.bytes.length,
+      page_count: doc.pageCount,
+      processing_status: "ready",
+      normalized_storage_path: storagePath,
+      normalized_mime_type: "application/pdf",
+    }));
+
+    const { error: batchInsertError } = await client.from("documents").insert(documentsToInsert);
+    if (batchInsertError) throw new Error("Could not register the documents.");
+
+    const documents = preparedDocs.map(({ id, doc }) => ({
+      id,
+      filename: doc.filename,
+      pageCount: doc.pageCount,
+      sizeBytes: doc.bytes.length,
+    }));
+
+    return NextResponse.json(
+      {
+        orderId,
+        orderPublicId,
+        accessToken: returnAccessToken,
+        documents,
+      },
+      {
+        headers: {
+          "Cache-Control": "no-store",
+        },
+      },
+    );
   } catch (error) {
     await rollback();
     return NextResponse.json(

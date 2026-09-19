@@ -12,9 +12,9 @@ export default async function RegisterPage({ searchParams }: { searchParams: Pro
     <main className="flex min-h-screen items-center justify-center px-6 py-12">
       <Card className="w-full max-w-md">
         <CardHeader>
-          <p className="text-sm font-bold text-brand-600">PrintSathi</p>
+          <p className="text-sm font-bold text-brand-600">Printiva</p>
           <h1 className="mt-2 text-2xl font-semibold text-brand-950">Create your shop account</h1>
-          <p className="mt-1 text-sm text-muted">Start with a 15-day free trial when onboarding is available.</p>
+          <p className="mt-1 text-sm text-muted">Start with a 7-day free trial when onboarding is available.</p>
         </CardHeader>
         <CardContent>
           {params.error ? (

@@ -40,7 +40,7 @@ export function MarketingFooter() {
       <div className="mx-auto grid max-w-7xl gap-12 px-6 py-14 lg:grid-cols-[1.2fr_1fr_1fr_1fr] lg:px-8">
         <div>
           <Link href="/" className="text-2xl font-bold tracking-tight">
-            Print<span className="text-brand-100">Sathi</span>
+            Print<span className="text-brand-100">iva</span>
           </Link>
           <p className="mt-4 max-w-xs text-sm leading-6 text-white/65">
             A clearer way for local shops and their customers to print together.
@@ -89,7 +89,7 @@ export function MarketingFooter() {
       </div>
       <div className="border-t border-white/10">
         <div className="mx-auto flex max-w-7xl flex-col gap-2 px-6 py-5 text-xs text-white/45 sm:flex-row sm:items-center sm:justify-between lg:px-8">
-          <span>© 2026 PrintSathi. Built for better print days.</span>
+          <span>© 2026 Printiva. Built for better print days.</span>
           <span>Scan. Upload. Pay. Print.</span>
         </div>
       </div>
@@ -164,12 +164,12 @@ export function TrialCallout() {
             Make every print request easier to handle.
           </h2>
           <p className="mt-3 max-w-xl leading-7 text-white/75">
-            Start with a 15-day trial. Connect the parts of your shop workflow as the PrintSathi platform grows.
+            Start with a 7-day trial. Connect the parts of your shop workflow as the Printiva platform grows.
           </p>
         </div>
         <Button asChild variant="secondary" size="lg">
           <Link href="/register">
-            Start free 15-day trial <ArrowRight className="size-4" />
+            Start free 7-day trial <ArrowRight className="size-4" />
           </Link>
         </Button>
       </div>
@@ -180,8 +180,8 @@ export function TrialCallout() {
 export function FaqList() {
   const items = [
     [
-      "What is PrintSathi?",
-      "PrintSathi is a platform for connecting customers with local print shops through a simple QR-led ordering journey.",
+      "What is Printiva?",
+      "Printiva is a platform for connecting customers with local print shops through a simple QR-led ordering journey.",
     ],
     [
       "How does QR printing work?",
@@ -201,7 +201,7 @@ export function FaqList() {
     ],
     [
       "Is there a free trial?",
-      "New shops start on a 15-day free trial. Shop plans cost ₹699/month or ₹7,499/year, payable with Razorpay.",
+      "New shops start on a 7-day free trial. Shop plans cost ₹699/month or ₹7,499/year, payable with Razorpay.",
     ],
   ];
   return (

@@ -1,12 +1,12 @@
-# PrintSaathi Codebase Context & Directory Guide
+# Printiva Codebase Context & Directory Guide
 
-This document provides a comprehensive overview of the PrintSaathi codebase structure, detailing where specific file types and features are located, how to edit them, and how to run the web and Electron desktop applications.
+This document provides a comprehensive overview of the Printiva codebase structure, detailing where specific file types and features are located, how to edit them, and how to run the web and Electron desktop applications.
 
 ---
 
 ## 🏗️ Architecture Overview
 
-PrintSaathi is a full-stack automated printing management system consisting of:
+Printiva is a full-stack automated printing management system consisting of:
 1. **Next.js Web Application** (`src/app`, `src/components`, `src/lib`): Customer ordering portal, shop owner management dashboard, admin analytics, payment processing (Razorpay), document conversion (LibreOffice/Sharp), and Supabase backend integration.
 2. **Electron & Node Desktop Agent** (`src/agent`): Native Windows desktop app and daemon that discovers local physical printers, polls print jobs from Supabase, dispatches print tasks via SumatraPDF/`pdf-to-printer`, and maintains real-time status heartbeats.
 3. **Database & Backend Infrastructure** (`supabase/`): Supabase database schema, RLS security policies, document storage buckets, and SQL migrations.
@@ -67,7 +67,7 @@ PrintSaathi is a full-stack automated printing management system consisting of:
 - **Location:** `scripts/`
 - **File Types:** Node.js CommonJS scripts (`.cjs`) and PowerShell scripts (`.ps1`).
 - **Key Files:**
-  - `scripts/Install-PrintSaathiAgent.ps1`: Windows installer script.
+  - `scripts/Install-PrintivaAgent.ps1`: Windows installer script.
   - `scripts/copy-print-renderer.cjs`: Bundles SumatraPDF renderer for silent background printing.
   - `scripts/smoke-customer-flow.cjs`: E2E integration test script.
 
@@ -88,7 +88,7 @@ All project dependencies (including `electron`, `electron-builder`, `next`, `rea
 | **Run Web + Electron Concurrently** | `npm run dev` | Runs both Next.js web app and Electron app side-by-side. |
 | **Run Agent CLI (No GUI)** | `npm run dev:agent` | Runs background print daemon directly in console. |
 | **Build Web Application** | `npm run build` | Builds production Next.js application. |
-| **Build Desktop Standalone (.exe)** | `npm run build:desktop` | Builds Electron Windows installer (`PrintSaathiAgent.exe`) via `electron-builder`. |
+| **Build Desktop Standalone (.exe)** | `npm run build:desktop` | Builds Electron Windows installer (`PrintivaAgent.exe`) via `electron-builder`. |
 | **Run Unit Tests** | `npm test` | Runs tests using Vitest. |
 | **Check Types & Linting** | `npm run typecheck && npm run lint` | Validates TypeScript types and ESLint standards. |
 

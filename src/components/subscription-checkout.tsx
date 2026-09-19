@@ -125,7 +125,7 @@ export function SubscriptionCheckout({ shopName, shopId }: { shopName: string; s
         key: data.keyId,
         amount: data.amount,
         currency: data.currency || "INR",
-        name: `PrintSaathi - ${shopName}`,
+        name: `Printiva - ${shopName}`,
         description: data.planDescription || (plan === "monthly" ? "Shop Monthly Subscription" : "Shop Yearly Subscription"),
         order_id: data.razorpayOrderId,
         theme: { color: "#2563eb" },

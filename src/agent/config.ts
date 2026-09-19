@@ -4,7 +4,7 @@ import os from "node:os";
 import type { AgentConfig } from "./types";
 
 const DEFAULT_CONFIG: AgentConfig = {
-  serverUrl: process.env.PRINTSAATHI_SERVER_URL || process.env.NEXT_PUBLIC_APP_URL || "https://printsathi.vercel.app",
+  serverUrl: process.env.PRINTIVA_SERVER_URL || process.env.NEXT_PUBLIC_APP_URL || "https://printsathi.vercel.app",
   agentId: null,
   shopId: null,
   shopName: null,
@@ -18,8 +18,8 @@ const DEFAULT_CONFIG: AgentConfig = {
 
 export function getConfigDirectory(): string {
   const appData =
-    process.env.LOCALAPPDATA || path.join(os.homedir(), "AppData", "Local") || path.join(os.homedir(), ".printsaathi");
-  const dir = path.join(appData, "PrintSaathiAgent");
+    process.env.LOCALAPPDATA || path.join(os.homedir(), "AppData", "Local") || path.join(os.homedir(), ".printiva");
+  const dir = path.join(appData, "PrintivaAgent");
   if (!fs.existsSync(dir)) {
     fs.mkdirSync(dir, { recursive: true });
   }
@@ -39,7 +39,7 @@ export function loadConfig(): AgentConfig {
   try {
     const raw = fs.readFileSync(filePath, "utf8");
     const parsed = JSON.parse(raw);
-    const serverUrl = process.env.PRINTSAATHI_SERVER_URL || parsed.serverUrl || DEFAULT_CONFIG.serverUrl;
+    const serverUrl = process.env.PRINTIVA_SERVER_URL || parsed.serverUrl || DEFAULT_CONFIG.serverUrl;
 
     return {
       ...DEFAULT_CONFIG,

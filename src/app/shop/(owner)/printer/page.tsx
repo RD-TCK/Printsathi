@@ -81,7 +81,7 @@ export default async function PrinterPage({ searchParams }: PrinterPageProps) {
       <ShopPageHeader
         eyebrow="Hardware bridge"
         title="Printer connection &amp; Windows Agent"
-        description="The Windows Desktop Agent connects your physical printer subsystem to PrintSathi. All discoveries, queue status, and heartbeats are verified live."
+        description="The Windows Desktop Agent connects your physical printer subsystem to Printiva. All discoveries, queue status, and heartbeats are verified live."
         action={
           <div className="flex items-center gap-3">
             <Button asChild variant="secondary">
@@ -239,7 +239,7 @@ export default async function PrinterPage({ searchParams }: PrinterPageProps) {
               <div>
                 <h2 className="text-lg font-semibold text-brand-950">Discovered Windows Printers</h2>
                 <p className="text-sm text-muted">
-                  Printers reported live by your Windows Agent. PrintSaathi <b>automatically switches</b> between color
+                  Printers reported live by your Windows Agent. Printiva <b>automatically switches</b> between color
                   and B&amp;W printers based on customer orders without requiring manual selection.
                 </p>
               </div>

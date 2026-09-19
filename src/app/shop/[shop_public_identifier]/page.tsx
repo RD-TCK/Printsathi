@@ -15,7 +15,7 @@ export async function generateMetadata({ params }: ShopPageProps): Promise<Metad
   const { shop } = await getPublicShop(identifier);
   return {
     title: shop ? `${shop.name} print shop` : "Shop",
-    description: shop ? `Print with ${shop.name} through PrintSathi.` : "PrintSathi shop entry",
+    description: shop ? `Print with ${shop.name} through Printiva.` : "Printiva shop entry",
   };
 }
 
@@ -30,7 +30,7 @@ export default async function PublicShopPage({ params }: ShopPageProps) {
       <div className="mx-auto max-w-3xl">
         <header className="flex items-center justify-between px-1 pb-3">
           <Link href="/" className="text-xl font-bold tracking-tight text-brand-800">
-            Print<span className="text-brand-600">Sathi</span>
+            Print<span className="text-brand-600">iva</span>
           </Link>
           <span className="inline-flex items-center gap-1.5 text-xs font-semibold text-emerald-800 bg-emerald-100/80 px-2.5 py-1 rounded-full">
             <span className="size-2 rounded-full bg-emerald-500 animate-pulse" />
@@ -136,7 +136,7 @@ export default async function PublicShopPage({ params }: ShopPageProps) {
         <p className="mt-6 text-center text-xs text-muted">
           Powered by{" "}
           <Link className="font-semibold text-brand-700" href="/">
-            PrintSathi
+            Printiva
           </Link>
         </p>
       </div>
@@ -150,10 +150,10 @@ function ShopLookupUnavailable() {
       <div className="max-w-md text-center">
         <h1 className="text-2xl font-semibold text-brand-950">Shop entry is temporarily unavailable</h1>
         <p className="mt-3 text-sm leading-6 text-muted">
-          PrintSathi could not connect to the public shop directory. Please try again later.
+          Printiva could not connect to the public shop directory. Please try again later.
         </p>
         <Button asChild className="mt-6">
-          <Link href="/">Return to PrintSathi</Link>
+          <Link href="/">Return to Printiva</Link>
         </Button>
       </div>
     </main>

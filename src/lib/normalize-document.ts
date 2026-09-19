@@ -25,7 +25,7 @@ export async function normalizeDocument(file: File): Promise<{ bytes: Buffer; pa
     page.drawImage(image, { x: (595.28 - width) / 2, y: (841.89 - height) / 2, width, height });
     bytes = Buffer.from(await pdf.save());
   } else if (officeExtensions.has(extension)) {
-    const directory = await fs.mkdtemp(path.join(os.tmpdir(), "printsaathi-convert-"));
+    const directory = await fs.mkdtemp(path.join(os.tmpdir(), "printiva-convert-"));
     try {
       const input = path.join(directory, `source${extension === ".md" ? ".txt" : extension}`);
       await fs.writeFile(input, bytes);

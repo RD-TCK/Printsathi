@@ -1,6 +1,6 @@
-# PrintSaathi setup and acceptance checks
+# Printiva setup and acceptance checks
 
-Use Node.js 22 or later. Run these commands in `PrintSaathi-main` (the outer workspace forwards the common commands too):
+Use Node.js 22 or later. Run these commands in `Printiva-main` (the outer workspace forwards the common commands too):
 
 ```powershell
 npm ci
@@ -34,11 +34,11 @@ Checkout signatures are checked, then the server requires a captured payment mat
 
 ## Windows printing
 
-1. Install the printer's Windows driver. A **Windows test page must physically print** before PrintSaathi can print through that driver. Installed queues and Windows success events alone do not prove output.
-2. Run `npm run build:agent` on Windows. This builds `dist/PrintSaathiAgent.exe` and verifies the embedded renderer. `/api/agent/download` serves it locally; set `AGENT_DOWNLOAD_URL` when hosting the binary elsewhere.
+1. Install the printer's Windows driver. A **Windows test page must physically print** before Printiva can print through that driver. Installed queues and Windows success events alone do not prove output.
+2. Run `npm run build:agent` on Windows. This builds `dist/PrintivaAgent.exe` and verifies the embedded renderer. `/api/agent/download` serves it locally; set `AGENT_DOWNLOAD_URL` when hosting the binary elsewhere.
 3. Launch the executable. Open **Printer** on the owner dashboard, generate a pairing key and enter it in the agent. Existing paired credentials are preserved when replacing the executable. Run only one agent per computer.
 4. Keep the agent open/running, printer connected, paper loaded and the driver healthy. The standalone executable does not install an automatic Windows service. For automatic startup, add a shortcut to the user's Windows Startup folder or run it as part of your managed shop startup.
-5. Before pairing, enter the website address in the agent's **PrintSaathi website address** field, including its port (for example `http://localhost:3001`). For a remote shop computer, use the server's reachable address instead of localhost. This is the web URL, not a Supabase URL. `PRINTSAATHI_SERVER_URL` can also configure managed installations.
+5. Before pairing, enter the website address in the agent's **Printiva website address** field, including its port (for example `http://localhost:3001`). For a remote shop computer, use the server's reachable address instead of localhost. This is the web URL, not a Supabase URL. `PRINTIVA_SERVER_URL` can also configure managed installations.
 
 Opening the executable again reopens the existing agent dashboard. The owner Printer page refreshes every five seconds, and its default-printer selection persists across agent heartbeats. A locally detected printer is registered with the shop only after the agent is paired and connected.
 

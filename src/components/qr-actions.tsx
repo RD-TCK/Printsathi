@@ -24,7 +24,7 @@ export function QrActions({ url, dataUrl, enabled }: { url: string; dataUrl: str
       </Button>
       <a
         className={`inline-flex h-10 items-center justify-center gap-2 rounded-lg border border-line bg-white px-4 text-sm font-semibold text-brand-800 ${enabled && dataUrl ? "hover:bg-brand-50" : "pointer-events-none opacity-50"}`}
-        download="printsaathi-shop-qr.png"
+        download="printiva-shop-qr.png"
         href={dataUrl ?? undefined}
       >
         Download QR

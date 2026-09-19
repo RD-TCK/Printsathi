@@ -3,7 +3,7 @@ import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { MarketingShell } from "@/components/marketing-site";
 
 export const dynamic = "force-dynamic";
-export const metadata = { title: "Find a print shop | PrintSaathi" };
+export const metadata = { title: "Find a print shop | Printiva" };
 
 export default async function ShopsPage() {
   const client = await createSupabaseServerClient();

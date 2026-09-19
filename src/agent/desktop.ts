@@ -11,7 +11,7 @@ let isQuitting = false;
 
 async function startDesktopAgent() {
   await app.whenReady();
-  app.setAppUserModelId("com.printsaathi.agent");
+  app.setAppUserModelId("com.printiva.agent");
 
   try {
     await agentDaemon.start();
@@ -72,7 +72,7 @@ function createWindow() {
     minHeight: 580,
     show: false,
     autoHideMenuBar: true,
-    title: "PrintSaathi Desktop Agent",
+    title: "Printiva Desktop Agent",
     icon: appIcon,
     webPreferences: {
       contextIsolation: true,
@@ -105,10 +105,10 @@ function createTray() {
   const trayIcon = trayIconPath ? nativeImage.createFromPath(trayIconPath) : nativeImage.createEmpty();
 
   tray = new Tray(trayIcon);
-  tray.setToolTip("PrintSaathi Desktop Agent");
+  tray.setToolTip("Printiva Desktop Agent");
   tray.setContextMenu(
     Menu.buildFromTemplate([
-      { label: "Open PrintSaathi", click: () => mainWindow?.show() },
+      { label: "Open Printiva", click: () => mainWindow?.show() },
       {
         label: "Shop Dashboard (Web)",
         click: () =>

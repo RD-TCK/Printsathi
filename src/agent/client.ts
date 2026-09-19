@@ -22,7 +22,7 @@ export class AgentApiClient {
   private getHeaders(): Record<string, string> {
     const headers: Record<string, string> = {
       "Content-Type": "application/json",
-      "User-Agent": "PrintSaathi-WindowsAgent/1.0",
+      "User-Agent": "Printiva-WindowsAgent/1.0",
     };
     if (this.token) {
       headers["Authorization"] = `Bearer ${this.token}`;

@@ -20,7 +20,7 @@ export default async function AdminPage() {
     <PortalShell
       eyebrow="Platform administration"
       title="Every shop. One overview."
-      description="Monitor printing, revenue, payments, subscriptions, and connected devices across PrintSaathi."
+      description="Monitor printing, revenue, payments, subscriptions, and connected devices across Printiva."
     >
       {failed ? (
         <Alert tone="error" title="Monitoring data unavailable">

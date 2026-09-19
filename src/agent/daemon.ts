@@ -43,11 +43,11 @@ export class AgentDaemon {
     if (this.isRunning) return;
     await new Promise<void>((resolve, reject) => {
       const server = net.createServer(socket => socket.end());
-      server.once("error", () => reject(new Error("Another PrintSaathi agent is already running. Close it before starting this agent.")));
+      server.once("error", () => reject(new Error("Another Printiva agent is already running. Close it before starting this agent.")));
       server.listen(4320, "127.0.0.1", () => { this.instanceLock = server; resolve(); });
     });
     this.isRunning = true;
-    logger.info(`Starting PrintSathi Windows Desktop Agent v${this.config.version}...`);
+    logger.info(`Starting Printiva Windows Desktop Agent v${this.config.version}...`);
 
     // Initial printer discovery
     try {
@@ -69,7 +69,7 @@ export class AgentDaemon {
     if (this.discoveryTimer) clearInterval(this.discoveryTimer);
     if (this.heartbeatTimer) clearInterval(this.heartbeatTimer);
     if (this.pollTimer) clearInterval(this.pollTimer);
-    logger.info("PrintSathi Windows Desktop Agent stopped.");
+    logger.info("Printiva Windows Desktop Agent stopped.");
   }
 
   async pair(pairingCode: string, customAgentName?: string): Promise<{ success: boolean; shopName: string }> {

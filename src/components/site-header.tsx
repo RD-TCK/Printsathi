@@ -11,7 +11,7 @@ export function SiteHeader() {
     <header className="border-b border-line bg-white">
       <div className="mx-auto flex h-16 max-w-7xl items-center justify-between px-6 lg:px-8">
         <Link href="/" className="text-xl font-bold tracking-tight text-brand-800">
-          Print<span className="text-brand-600">Sathi</span>
+          Print<span className="text-brand-600">iva</span>
         </Link>
         <nav className="hidden items-center gap-6 md:flex">
           <Link className="text-sm text-muted hover:text-brand-700" href="/features">

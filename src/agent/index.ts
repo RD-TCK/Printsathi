@@ -27,7 +27,7 @@ export async function main() {
     }
   }
 
-  logger.info(`Starting PrintSaathi Windows Desktop Agent${serviceMode ? " [Service Mode]" : ""}...`);
+  logger.info(`Starting Printiva Windows Desktop Agent${serviceMode ? " [Service Mode]" : ""}...`);
 
   // Start background daemon (printer discovery, job polling, heartbeat)
   try {
@@ -66,7 +66,7 @@ export async function main() {
     const webServer = new AgentWebServer(port);
     const assignedPort = await webServer.start();
     const dashboardUrl = `http://127.0.0.1:${assignedPort}`;
-    logger.info(`PrintSaathi Agent dashboard: ${dashboardUrl}`);
+    logger.info(`Printiva Agent dashboard: ${dashboardUrl}`);
 
     // Automatically open the graphical interface in the default browser
     try {

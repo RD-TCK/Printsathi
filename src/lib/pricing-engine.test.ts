@@ -17,7 +17,7 @@ const range = (
   paperSize: "a4" | "a3" = "a4",
 ) => ({ startPage, endPage, colorMode, paperSize });
 
-describe("PrintSathi pricing engine", () => {
+describe("Printiva pricing engine", () => {
   it("calculates platform fee based on total page count tiers", () => {
     expect(calculatePlatformFee(1, "customer_fee")).toBe(0.5);
     expect(calculatePlatformFee(5, "customer_fee")).toBe(0.5);

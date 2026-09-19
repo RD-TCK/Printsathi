@@ -1,7 +1,7 @@
 import { SiteHeader } from "@/components/site-header";
 import { MarketingFooter, SectionHeading, Steps, TrialCallout } from "@/components/marketing-site";
 
-export const metadata = { title: "How It Works", description: "See the PrintSathi QR-led printing journey." };
+export const metadata = { title: "How It Works", description: "See the Printiva QR-led printing journey." };
 
 export default function HowItWorksPage() {
   return (
