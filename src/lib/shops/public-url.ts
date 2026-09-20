@@ -1,5 +1,6 @@
-import { publicEnv } from "@/lib/env";
+import { getAppUrl } from "@/lib/env";
 
 export function getShopCustomerUrl(publicIdentifier: string) {
-  return new URL(`/shop/${encodeURIComponent(publicIdentifier)}`, publicEnv.NEXT_PUBLIC_APP_URL).toString();
+  const baseUrl = getAppUrl() || "https://printiva.co.in";
+  return new URL(`/shop/${encodeURIComponent(publicIdentifier)}`, baseUrl).toString();
 }
