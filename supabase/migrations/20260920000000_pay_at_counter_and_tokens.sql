@@ -74,12 +74,16 @@ SET search_path = public
 AS $$
 DECLARE
   v_token int;
+  v_midnight_ist timestamptz;
 BEGIN
+  v_midnight_ist := (date_trunc('day', timezone('Asia/Kolkata', now())) AT TIME ZONE 'Asia/Kolkata');
+
   SELECT coalesce(max(token_number), 0) + 1 INTO v_token
   FROM public.orders
   WHERE shop_id = p_shop_id
     AND payment_mode = 'counter'
-    AND created_at >= date_trunc('day', now() AT TIME ZONE 'Asia/Kolkata');
-  RETURN v_token;
+    AND created_at >= v_midnight_ist;
+
+  RETURN coalesce(v_token, 1);
 END;
 $$;

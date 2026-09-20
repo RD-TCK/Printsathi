@@ -95,7 +95,6 @@ export async function GET(request: Request) {
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
 
-  const now = new Date();
   const queueItems = (orders || []).map((o) => {
     const expiresAt = o.expires_at ? new Date(o.expires_at) : null;
     const isExpired = o.status === "awaiting_payment" && expiresAt ? expiresAt.getTime() < now.getTime() : false;
