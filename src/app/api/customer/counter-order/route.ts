@@ -125,29 +125,37 @@ export async function POST(request: Request) {
     }
   }
 
-  // 4. Generate sequential token number for this shop today
+  // 4. Generate sequential token number for this shop (reuse existing if re-configuring, else assign next max)
   let tokenNumber = 1;
-  const { data: generatedToken, error: tokenError } = await client.rpc("generate_counter_token", {
-    p_shop_id: shop.id,
-  });
+  const { data: currentOrderData } = await client
+    .from("orders")
+    .select("token_number")
+    .eq("id", orderId)
+    .maybeSingle();
 
-  if (!tokenError && typeof generatedToken === "number" && generatedToken > 0) {
-    tokenNumber = generatedToken;
+  if (currentOrderData?.token_number && currentOrderData.token_number > 0) {
+    tokenNumber = currentOrderData.token_number;
   } else {
-    // Fallback if RPC is not yet applied
-    const startOfToday = new Date();
-    startOfToday.setHours(0, 0, 0, 0);
-    const { data: existingTokens } = await client
-      .from("orders")
-      .select("token_number")
-      .eq("shop_id", shop.id)
-      .eq("payment_mode", "counter")
-      .gte("created_at", startOfToday.toISOString())
-      .order("token_number", { ascending: false })
-      .limit(1);
+    const { data: generatedToken, error: tokenError } = await client.rpc("generate_counter_token", {
+      p_shop_id: shop.id,
+    });
 
-    if (existingTokens && existingTokens.length > 0 && typeof existingTokens[0].token_number === "number") {
-      tokenNumber = existingTokens[0].token_number + 1;
+    if (!tokenError && typeof generatedToken === "number" && generatedToken > 0) {
+      tokenNumber = generatedToken;
+    } else {
+      // Robust Fallback: query highest token ever created for this shop
+      const { data: existingTokens } = await client
+        .from("orders")
+        .select("token_number")
+        .eq("shop_id", shop.id)
+        .eq("payment_mode", "counter")
+        .not("token_number", "is", null)
+        .order("token_number", { ascending: false })
+        .limit(1);
+
+      if (existingTokens && existingTokens.length > 0 && typeof existingTokens[0].token_number === "number") {
+        tokenNumber = existingTokens[0].token_number + 1;
+      }
     }
   }
 
