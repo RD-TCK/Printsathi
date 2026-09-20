@@ -6,7 +6,14 @@ const destinationExe = path.join(__dirname, "../dist/agent/SumatraPDF.exe");
 fs.mkdirSync(path.dirname(destinationJson), { recursive: true });
 fs.writeFileSync(destinationJson, JSON.stringify({ base64: fs.readFileSync(source).toString("base64") }));
 if (fs.existsSync(source)) {
-  fs.copyFileSync(source, destinationExe);
+  try {
+    fs.copyFileSync(source, destinationExe);
+  } catch (err) {
+    // If the binary is already in dist/agent/ and locked by a background process, keep the existing one
+    if (!fs.existsSync(destinationExe)) {
+      throw err;
+    }
+  }
 }
 const assetsSrc = path.join(__dirname, "../assets");
 const assetsDst = path.join(__dirname, "../dist/assets");
