@@ -44,20 +44,18 @@ export async function POST(request: Request) {
   if (!job) return NextResponse.json({ error: "Print job not found." }, { status: 404 });
   if (job.status === "completed" && status === "completed")
     return NextResponse.json({ success: true, job: { id: job.id, status: "completed" } });
-  if (job.status !== "print_submitted" || !job.claimed_by_agent_id)
-    return NextResponse.json({ error: "Job is not awaiting output confirmation." }, { status: 409 });
 
-  // The queue RPC also updates the parent order and clears the agent's current job.
-  if (status === "completed") {
+  // If claimed by Windows agent, call the agent completion RPC
+  if (job.claimed_by_agent_id && status === "completed") {
     const { data: completed, error: completionError } = await adminClient.rpc("complete_print_job", {
       p_job_id: job.id, p_agent_id: job.claimed_by_agent_id,
     });
-    if (completionError || !completed)
-      return NextResponse.json({ error: "Could not confirm the print job and order. Please retry." }, { status: 409 });
-    return NextResponse.json({ success: true, job: { id: job.id, status: "completed" } });
+    if (!completionError && completed) {
+      return NextResponse.json({ success: true, job: { id: job.id, status: "completed" } });
+    }
   }
 
-  // Update job status
+  // Update job status directly (for web prints or fallback)
   const updatePayload: Record<string, unknown> = {
     status,
     updated_at: new Date().toISOString(),
@@ -74,14 +72,26 @@ export async function POST(request: Request) {
     .update(updatePayload)
     .eq("id", jobId)
     .eq("shop_id", member.shop_id)
-    .in("status", ["print_submitted", "printing"])
-    .select("id, status")
+    .select("id, status, order_id")
     .maybeSingle();
 
   if (error) {
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
 
-  if (!data) return NextResponse.json({ error: "Job is not awaiting output confirmation." }, { status: 409 });
+  if (!data) return NextResponse.json({ error: "Could not update print job." }, { status: 409 });
+
+  // If all jobs for the order are completed, mark the order completed as well
+  if (data.order_id && status === "completed") {
+    const { data: orderJobs } = await adminClient
+      .from("print_jobs")
+      .select("status")
+      .eq("order_id", data.order_id);
+
+    if (orderJobs && orderJobs.length > 0 && orderJobs.every((j) => j.status === "completed")) {
+      await adminClient.from("orders").update({ status: "completed" }).eq("id", data.order_id);
+    }
+  }
+
   return NextResponse.json({ success: true, job: data });
 }

@@ -232,4 +232,125 @@ export class AgentApiClient {
 
     return true;
   }
+
+  async getCounterQueue(): Promise<{
+    queue: Array<{
+      id: string;
+      publicId: string;
+      tokenNumber: number | null;
+      status: string;
+      totalAmount: number;
+      totalPages: number;
+      colorPages: number;
+      blackAndWhitePages: number;
+      expiresAt: string | null;
+      remainingSeconds: number;
+      isExpired: boolean;
+      createdAt: string;
+      documents: Array<{ id: string; filename: string; pageCount: number }>;
+      jobs: Array<{ id: string; status: string; totalPages: number }>;
+    }>;
+    pendingCount: number;
+  }> {
+    if (!this.token) {
+      return { queue: [], pendingCount: 0 };
+    }
+
+    const candidateUrls = [this.serverUrl];
+    if (!this.serverUrl.includes("localhost") && !this.serverUrl.includes("127.0.0.1")) {
+      candidateUrls.push("http://localhost:3000", "http://127.0.0.1:3000");
+    }
+
+    let lastError: Error | null = null;
+    for (const baseUrl of candidateUrls) {
+      try {
+        const url = `${baseUrl}/api/shop/counter-queue`;
+        const response = await fetch(url, {
+          method: "GET",
+          headers: this.getHeaders(),
+        });
+        if (response.ok) {
+          if (baseUrl !== this.serverUrl) {
+            this.serverUrl = baseUrl;
+          }
+          return await response.json();
+        }
+        lastError = new Error(`Server at ${baseUrl} returned HTTP ${response.status}`);
+      } catch (err) {
+        lastError = err instanceof Error ? err : new Error(String(err));
+      }
+    }
+
+    throw lastError || new Error("Failed to fetch counter queue");
+  }
+
+  async approveCounterOrder(orderId: string): Promise<{ success: boolean; message: string }> {
+    if (!this.token) {
+      throw new Error("Agent is not authenticated.");
+    }
+
+    const candidateUrls = [this.serverUrl];
+    if (!this.serverUrl.includes("localhost") && !this.serverUrl.includes("127.0.0.1")) {
+      candidateUrls.push("http://localhost:3000", "http://127.0.0.1:3000");
+    }
+
+    let lastError: Error | null = null;
+    for (const baseUrl of candidateUrls) {
+      try {
+        const url = `${baseUrl}/api/shop/counter-order/approve`;
+        const response = await fetch(url, {
+          method: "POST",
+          headers: this.getHeaders(),
+          body: JSON.stringify({ orderId }),
+        });
+        const data = await response.json();
+        if (response.ok && data.success) {
+          if (baseUrl !== this.serverUrl) {
+            this.serverUrl = baseUrl;
+          }
+          return data;
+        }
+        lastError = new Error(data.error || `Approval failed with HTTP ${response.status} at ${baseUrl}`);
+      } catch (err) {
+        lastError = err instanceof Error ? err : new Error(String(err));
+      }
+    }
+
+    throw lastError || new Error("Counter approval failed");
+  }
+
+  async cancelCounterOrder(orderId: string): Promise<{ success: boolean; message: string }> {
+    if (!this.token) {
+      throw new Error("Agent is not authenticated.");
+    }
+
+    const candidateUrls = [this.serverUrl];
+    if (!this.serverUrl.includes("localhost") && !this.serverUrl.includes("127.0.0.1")) {
+      candidateUrls.push("http://localhost:3000", "http://127.0.0.1:3000");
+    }
+
+    let lastError: Error | null = null;
+    for (const baseUrl of candidateUrls) {
+      try {
+        const url = `${baseUrl}/api/shop/counter-order/cancel`;
+        const response = await fetch(url, {
+          method: "POST",
+          headers: this.getHeaders(),
+          body: JSON.stringify({ orderId }),
+        });
+        const data = await response.json();
+        if (response.ok && data.success) {
+          if (baseUrl !== this.serverUrl) {
+            this.serverUrl = baseUrl;
+          }
+          return data;
+        }
+        lastError = new Error(data.error || `Cancellation failed with HTTP ${response.status} at ${baseUrl}`);
+      } catch (err) {
+        lastError = err instanceof Error ? err : new Error(String(err));
+      }
+    }
+
+    throw lastError || new Error("Counter cancellation failed");
+  }
 }

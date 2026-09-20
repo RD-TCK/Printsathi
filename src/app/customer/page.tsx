@@ -18,7 +18,7 @@ export const metadata = {
   description: "View and track all your print orders from Printiva shops.",
 };
 
-function statusMeta(orderStatus: string, paymentStatus?: string, anyJobFailed?: boolean) {
+function statusMeta(orderStatus: string, paymentStatus?: string, anyJobFailed?: boolean, paymentMode?: string) {
   if (paymentStatus === "verified" && orderStatus === "completed") {
     return { label: "Printed ✓", color: "bg-emerald-100 text-emerald-800", dot: "bg-emerald-500", icon: CheckCircle2 };
   }
@@ -30,6 +30,9 @@ function statusMeta(orderStatus: string, paymentStatus?: string, anyJobFailed?: 
   }
   if (paymentStatus === "failed") {
     return { label: "Payment failed", color: "bg-red-100 text-red-800", dot: "bg-red-500", icon: XCircle };
+  }
+  if (paymentMode === "counter") {
+    return { label: "Pay at counter", color: "bg-amber-100 text-amber-800", dot: "bg-amber-500", icon: Clock };
   }
   return { label: "Awaiting payment", color: "bg-slate-100 text-slate-600", dot: "bg-slate-400", icon: Clock };
 }
@@ -51,6 +54,9 @@ export default async function MyOrdersPage() {
       total_pages,
       color_pages,
       black_and_white_pages,
+      payment_mode,
+      token_number,
+      expires_at,
       created_at,
       shops (
         id,
@@ -151,7 +157,7 @@ export default async function MyOrdersPage() {
             const jobs = Array.isArray(order.print_jobs) ? order.print_jobs : [];
             const anyFailed = jobs.some((j) => j.status === "failed");
             const paymentStatus = (payment as { status?: string } | null)?.status;
-            const status = statusMeta(order.status, paymentStatus, anyFailed);
+            const status = statusMeta(order.status, paymentStatus, anyFailed, order.payment_mode);
             const docs = jobs.flatMap((j) => Array.isArray(j.documents) ? j.documents : j.documents ? [j.documents] : []);
 
             return (
@@ -170,6 +176,11 @@ export default async function MyOrdersPage() {
                         <span className="font-mono text-sm font-semibold text-slate-900">
                           #{order.public_id || order.id.slice(0, 8).toUpperCase()}
                         </span>
+                        {order.payment_mode === "counter" && order.token_number ? (
+                          <span className="rounded-full bg-emerald-100 border border-emerald-300 px-2 py-0.5 text-[11px] font-black text-emerald-800 font-mono">
+                            TOKEN #{order.token_number}
+                          </span>
+                        ) : null}
                         <span
                           className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-0.5 text-xs font-semibold ${status.color}`}
                         >

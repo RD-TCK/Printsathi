@@ -20,5 +20,5 @@ export function paymentCanPrint(payment: {
   provider?: string; status?: string; provider_payment_id?: string | null; metadata?: Record<string, unknown> | null;
 }) {
   return payment.status === "verified" && Boolean(payment.provider_payment_id) &&
-    (payment.provider === "razorpay" || (mockPaymentsEnabled() && isMockPayment(payment)));
+    (payment.provider === "razorpay" || payment.provider === "counter" || (mockPaymentsEnabled() && isMockPayment(payment)));
 }

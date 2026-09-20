@@ -1,0 +1,24 @@
+<svg width="64" height="64" viewBox="0 0 100 100" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="p-stem" x1="26" y1="14" x2="44" y2="86" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stopColor="#10b981" />
+      <stop offset="100%" stopColor="#047857" />
+    </linearGradient>
+    <linearGradient id="p-loop" x1="38" y1="14" x2="82" y2="62" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stopColor="#34d399" />
+      <stop offset="100%" stopColor="#059669" />
+    </linearGradient>
+    <linearGradient id="p-accent" x1="44" y1="30" x2="64" y2="38" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stopColor="#6ee7b7" />
+      <stop offset="100%" stopColor="#10b981" />
+    </linearGradient>
+  </defs>
+  <!-- Stem -->
+  <path d="M26 20C26 16.6863 28.6863 14 32 14H38C41.3137 14 44 16.6863 44 20V80C44 83.3137 41.3137 86 38 86H32C28.6863 86 26 83.3137 26 80V20Z" fill="url(#p-stem)" />
+  <!-- Outer Loop with cut-out -->
+  <path fill-rule="evenodd" clip-rule="evenodd" d="M38 14H58C71.2548 14 82 24.7452 82 38C82 51.2548 71.2548 62 58 62H38V14ZM44 28V48H56C61.5228 48 66 43.5228 66 38C66 32.4772 61.5228 28 56 28H44Z" fill="url(#p-loop)" />
+  <!-- Highlight bar inside loop -->
+  <rect x="44" y="31" width="16" height="7" rx="3.5" fill="url(#p-accent)" />
+  <!-- Crisp highlight dot -->
+  <circle cx="35" cy="22" r="2.5" fill="#f0fdf4" />
+</svg>

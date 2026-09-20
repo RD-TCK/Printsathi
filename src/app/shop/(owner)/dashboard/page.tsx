@@ -8,6 +8,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { WebAutoPrintStation } from "@/components/web-auto-print";
+import { CounterQueueCenter } from "@/components/counter-queue-center";
 
 export const dynamic = "force-dynamic";
 
@@ -91,6 +92,9 @@ export default async function ShopDashboardPage() {
           <Link href="/shop/subscription" className="font-semibold underline">Renew subscription</Link>
         </Alert>
       ) : null}
+      {/* Live Counter Print Queue & Pop-up Notifications */}
+      <CounterQueueCenter shopName={context.shop.name} />
+
       {/* Auto-Print Station runs live right on the main dashboard */}
       <WebAutoPrintStation shopName={context.shop.name} />
       <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">

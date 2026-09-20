@@ -167,13 +167,13 @@ export class AgentDaemon {
   setServerUrl(value: string): void {
     const url = new URL(value.trim());
     if (!["http:", "https:"].includes(url.protocol) || url.username || url.password || url.search || url.hash)
-      throw new Error("Enter the website address, for example http://localhost:3001.");
+      throw new Error("Enter the website address, for example http://localhost:3000.");
     const serverUrl = url.href.replace(/\/+$/, "");
     if (serverUrl === this.config.serverUrl) return;
-    if (isConfigPaired(this.config)) throw new Error("Disconnect this agent before changing its server address.");
     this.config = saveConfig({ serverUrl });
     this.client.setServerUrl(serverUrl);
     this.isConnected = false;
+    logger.info(`Agent server URL changed to: ${serverUrl}`);
   }
 
   selectPrinter(printerName: string): void {
@@ -357,6 +357,26 @@ export class AgentDaemon {
       stats: { ...this.stats },
       recentLogs: logger.getRecentLogs(),
     };
+  }
+
+  async triggerPoll(): Promise<void> {
+    if (!this.isRunning || !isConfigPaired(this.config) || !this.isConnected || this.isProcessingJob) return;
+    await this.pollAndProcessNextJob();
+  }
+
+  async getCounterQueue() {
+    return await this.client.getCounterQueue();
+  }
+
+  async approveCounterOrder(orderId: string) {
+    const result = await this.client.approveCounterOrder(orderId);
+    // Immediately claim and print the newly approved job via agent
+    void this.triggerPoll();
+    return result;
+  }
+
+  async cancelCounterOrder(orderId: string) {
+    return await this.client.cancelCounterOrder(orderId);
   }
 }
 

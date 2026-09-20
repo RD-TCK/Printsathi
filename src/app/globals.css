@@ -1,9 +1,9 @@
 @import "tailwindcss";
 
 :root {
-  --brand-950: #0b2b1c;
+  --brand-950: #052e16;
   --brand-900: #14532d;
-  --brand-800: #14532d;
+  --brand-800: #166534;
   --brand-700: #15803d;
   --brand-600: #16a34a;
   --brand-500: #22c55e;
@@ -12,10 +12,10 @@
   --brand-200: #bbf7d0;
   --brand-100: #dcfce7;
   --brand-50: #f0fdf4;
-  --ink: #17221b;
-  --muted: #647067;
+  --ink: #0f1a12;
+  --muted: #5b6b60;
   --line: #dce5de;
-  --canvas: #f7faf7;
+  --canvas: #fafcfa;
 }
 
 @theme inline {
@@ -34,53 +34,160 @@
   --color-muted: var(--muted);
   --color-line: var(--line);
   --color-canvas: var(--canvas);
+  --font-serif: var(--font-serif);
 }
 
-* {
-  box-sizing: border-box;
-}
-html {
-  background: var(--canvas);
-}
+* { box-sizing: border-box; }
+html { background: var(--canvas); scroll-behavior: smooth; }
+
 body {
   margin: 0;
   background: var(--canvas);
   color: var(--ink);
-}
-button,
-input,
-select,
-textarea {
-  font: inherit;
+  font-family: var(--font-sans), system-ui, -apple-system, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  letter-spacing: -0.011em;
 }
 
+button, input, select, textarea { font: inherit; }
+
+/* ─── Premium serif headline class ─── */
+.font-display {
+  font-family: var(--font-serif), Georgia, "Times New Roman", serif;
+  font-style: italic;
+}
+
+/* ─── Animated gradient text ─── */
+.gradient-text {
+  background: linear-gradient(135deg, #15803d 0%, #059669 30%, #0d9488 60%, #16a34a 100%);
+  background-size: 200% 200%;
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+  animation: gradientShift 6s ease-in-out infinite;
+}
+
+@keyframes gradientShift {
+  0%, 100% { background-position: 0% 50%; }
+  50% { background-position: 100% 50%; }
+}
+
+/* ─── Reveal on scroll ─── */
+.reveal {
+  opacity: 0;
+  transform: translateY(24px);
+  animation: revealUp 0.8s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+.reveal-d1 { animation-delay: 0.1s; }
+.reveal-d2 { animation-delay: 0.2s; }
+.reveal-d3 { animation-delay: 0.3s; }
+.reveal-d4 { animation-delay: 0.45s; }
+
+@keyframes revealUp {
+  to { opacity: 1; transform: translateY(0); }
+}
+
+/* ─── Floating badges ─── */
+@keyframes floatSlow {
+  0%, 100% { transform: translateY(0) rotate(0deg); }
+  50% { transform: translateY(-8px) rotate(0.5deg); }
+}
+@keyframes floatReverse {
+  0%, 100% { transform: translateY(0) rotate(0deg); }
+  50% { transform: translateY(6px) rotate(-0.5deg); }
+}
+
+.animate-float { animation: floatSlow 6s ease-in-out infinite; }
+.animate-float-reverse { animation: floatReverse 7s ease-in-out infinite; }
+
+/* ─── Paper feed ─── */
 @keyframes feedPaper {
-  0% {
-    transform: translateY(-20px);
-    opacity: 0.2;
-  }
-  30% {
-    opacity: 1;
-  }
-  100% {
-    transform: translateY(6px);
-    opacity: 1;
-  }
+  0% { transform: translateY(-20px); opacity: 0.2; }
+  30% { opacity: 1; }
+  100% { transform: translateY(6px); opacity: 1; }
+}
+.animate-paper-feed { animation: feedPaper 1.2s cubic-bezier(0.4, 0, 0.2, 1) infinite; }
+
+/* ─── Laser scan ─── */
+@keyframes scanLaser {
+  0% { top: 0%; opacity: 0.8; }
+  50% { top: 96%; opacity: 1; }
+  100% { top: 0%; opacity: 0.8; }
+}
+.animate-laser { animation: scanLaser 3s ease-in-out infinite; }
+
+/* ─── Shimmer sweep for badges ─── */
+@keyframes shimmerSweep {
+  0% { transform: translateX(-100%) skewX(-15deg); }
+  100% { transform: translateX(200%) skewX(-15deg); }
+}
+.animate-shimmer { animation: shimmerSweep 3.5s ease-in-out infinite; }
+
+/* ─── Glow pulse ─── */
+@keyframes pulseGlow {
+  0%, 100% { opacity: 0.4; transform: scale(1); }
+  50% { opacity: 0.7; transform: scale(1.05); }
+}
+.animate-pulse-glow { animation: pulseGlow 4s ease-in-out infinite; }
+
+/* ─── Marquee for logo strip ─── */
+@keyframes marquee {
+  0% { transform: translateX(0); }
+  100% { transform: translateX(-50%); }
+}
+.animate-marquee { animation: marquee 30s linear infinite; }
+
+/* ─── Tactile 3D Button Shadows ─── */
+.btn-tactile-primary {
+  box-shadow: 0 4px 0 #0f5b33, 0 8px 16px -2px rgba(16, 185, 129, 0.35);
+  transition: all 0.15s cubic-bezier(0.4, 0, 0.2, 1);
+}
+.btn-tactile-primary:hover {
+  box-shadow: 0 5px 0 #0f5b33, 0 12px 20px -2px rgba(16, 185, 129, 0.45);
+  transform: translateY(-1px);
+}
+.btn-tactile-primary:active {
+  box-shadow: 0 1px 0 #0f5b33, 0 3px 6px -1px rgba(16, 185, 129, 0.3);
+  transform: translateY(3px);
+}
+.btn-tactile-secondary {
+  box-shadow: 0 3px 0 #cde0d3, 0 6px 12px -2px rgba(15, 23, 42, 0.08);
+  transition: all 0.15s cubic-bezier(0.4, 0, 0.2, 1);
+}
+.btn-tactile-secondary:hover {
+  box-shadow: 0 4px 0 #cde0d3, 0 10px 16px -2px rgba(15, 23, 42, 0.12);
+  transform: translateY(-1px);
+}
+.btn-tactile-secondary:active {
+  box-shadow: 0 1px 0 #cde0d3, 0 2px 4px -1px rgba(15, 23, 42, 0.08);
+  transform: translateY(2px);
 }
 
-@keyframes printLines {
-  0% {
-    width: 0%;
-  }
-  100% {
-    width: 100%;
-  }
+.btn-tactile-emerald {
+  background: linear-gradient(180deg, #059669 0%, #047857 100%);
+  border-top: 1px solid rgba(110, 231, 183, 0.5);
+  box-shadow: 0 4px 0 #065f46, 0 10px 20px -2px rgba(5, 150, 105, 0.38);
+  transition: all 0.15s cubic-bezier(0.4, 0, 0.2, 1);
+}
+.btn-tactile-emerald:hover {
+  background: linear-gradient(180deg, #10b981 0%, #059669 100%);
+  box-shadow: 0 5px 0 #065f46, 0 14px 24px -2px rgba(5, 150, 105, 0.48);
+  transform: translateY(-1px);
+}
+.btn-tactile-emerald:active {
+  box-shadow: 0 1px 0 #065f46, 0 3px 6px -1px rgba(5, 150, 105, 0.3);
+  transform: translateY(3px);
 }
 
-.animate-paper-feed {
-  animation: feedPaper 1.2s cubic-bezier(0.4, 0, 0.2, 1) infinite;
+@keyframes pulseSubtle {
+  0%, 100% { transform: scale(1); }
+  50% { transform: scale(1.015); }
 }
+.animate-pulse-subtle { animation: pulseSubtle 2.5s ease-in-out infinite; }
 
-.animate-print-lines {
-  animation: printLines 1.2s ease-out infinite;
+/* ─── Section divider ─── */
+.section-glow-divider {
+  height: 1px;
+  background: linear-gradient(90deg, transparent, #16a34a33, #22c55e55, #16a34a33, transparent);
 }

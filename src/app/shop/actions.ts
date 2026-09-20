@@ -165,6 +165,7 @@ export async function updateShopSettings(formData: FormData) {
       address: z.string().trim().max(300),
       isActive: z.enum(["true", "false"]),
       acceptingOrders: z.enum(["true", "false"]),
+      paymentMode: z.enum(["online", "counter", "both"]).default("both"),
     })
     .safeParse(Object.fromEntries(formData.entries()));
   if (!parsed.success) redirect("/shop/settings?error=Check+the+settings+fields");
@@ -191,7 +192,10 @@ export async function updateShopSettings(formData: FormData) {
   if (existingSettings) {
     const { error } = await context.client
       .from("shop_settings")
-      .update({ accepting_orders: parsed.data.acceptingOrders === "true" })
+      .update({
+        accepting_orders: parsed.data.acceptingOrders === "true",
+        payment_mode: parsed.data.paymentMode,
+      })
       .eq("shop_id", context.shop.id);
     settingsError = error;
   } else {
@@ -201,14 +205,22 @@ export async function updateShopSettings(formData: FormData) {
       const { error } = await admin
         .from("shop_settings")
         .upsert(
-          { shop_id: context.shop.id, accepting_orders: parsed.data.acceptingOrders === "true" },
+          {
+            shop_id: context.shop.id,
+            accepting_orders: parsed.data.acceptingOrders === "true",
+            payment_mode: parsed.data.paymentMode,
+          },
           { onConflict: "shop_id" }
         );
       settingsError = error;
     } else {
       const { error } = await context.client
         .from("shop_settings")
-        .insert({ shop_id: context.shop.id, accepting_orders: parsed.data.acceptingOrders === "true" });
+        .insert({
+          shop_id: context.shop.id,
+          accepting_orders: parsed.data.acceptingOrders === "true",
+          payment_mode: parsed.data.paymentMode,
+        });
       settingsError = error;
     }
   }

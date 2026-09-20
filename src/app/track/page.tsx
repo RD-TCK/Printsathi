@@ -22,6 +22,9 @@ type TrackResult = {
   shopName: string;
   totalAmount: number;
   totalPages: number;
+  paymentMode?: string;
+  tokenNumber?: number | null;
+  expiresAt?: string | null;
   createdAt: string;
   paymentStatus: string;
   paymentTxnId?: string | null;
@@ -162,10 +165,33 @@ export default function PublicTrackPage() {
 function TrackResultCard({ data }: { data: TrackResult }) {
   const isVerified = data.paymentStatus === "verified";
   const isFailed = data.paymentStatus === "failed";
+  const isCounter = data.paymentMode === "counter";
   const allDone = data.jobs.every((j) => j.status === "completed");
 
   return (
     <div className="space-y-4">
+      {/* Counter Token Banner if applicable */}
+      {isCounter && data.tokenNumber ? (
+        <div className="rounded-2xl border-2 border-emerald-300 bg-emerald-50/80 p-5 text-emerald-950 shadow-xs">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div>
+              <span className="text-xs font-bold uppercase tracking-wider text-emerald-700">
+                Pay at Counter Token
+              </span>
+              <p className="mt-0.5 text-3xl font-black font-mono text-emerald-800">
+                #{data.tokenNumber}
+              </p>
+            </div>
+            <div className="text-right text-xs text-emerald-800">
+              <span className="block font-semibold">Show Token #{data.tokenNumber} at counter</span>
+              <span className="text-[11px] opacity-80">
+                {isVerified ? "Payment Collected & Approved" : "Awaiting Shopkeeper Approval"}
+              </span>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
       {/* Big status */}
       <div
         className={`flex items-center gap-4 rounded-2xl border px-6 py-5 ${
@@ -175,6 +201,8 @@ function TrackResultCard({ data }: { data: TrackResult }) {
               ? "border-red-200 bg-red-50"
               : isVerified
                 ? "border-blue-200 bg-blue-50"
+                : isCounter
+                ? "border-amber-200 bg-amber-50"
                 : "border-amber-200 bg-amber-50"
         }`}
       >
@@ -195,10 +223,13 @@ function TrackResultCard({ data }: { data: TrackResult }) {
                 ? "Payment was not completed"
                 : isVerified
                   ? "Printing in progress…"
+                  : isCounter
+                  ? "Waiting for shopkeeper at counter"
                   : "Awaiting payment confirmation"}
           </p>
           <p className="text-sm text-slate-500">
             Order #{data.publicId} · {data.shopName}
+            {isCounter && data.tokenNumber ? ` · Token #${data.tokenNumber}` : ""}
           </p>
         </div>
       </div>
@@ -211,7 +242,15 @@ function TrackResultCard({ data }: { data: TrackResult }) {
             { label: "Pages", value: String(data.totalPages) },
             {
               label: "Payment",
-              value: isVerified ? "Verified ✓" : isFailed ? "Failed" : "Pending",
+              value: isVerified
+                ? isCounter
+                  ? "Paid at Counter ✓"
+                  : "Verified ✓"
+                : isFailed
+                ? "Failed"
+                : isCounter
+                ? "Pay at Counter"
+                : "Pending",
               highlight: isVerified ? "text-emerald-700" : isFailed ? "text-red-700" : "text-amber-700",
             },
             { label: "Date", value: new Date(data.createdAt).toLocaleDateString("en-IN", { dateStyle: "medium" }) },

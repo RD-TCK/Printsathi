@@ -23,6 +23,7 @@ export type PublicShop = {
   bw_printer_status: "ready" | "offline" | "not_connected";
   color_printer_status: "ready" | "offline" | "not_connected";
   online_printers: OnlinePrinterInfo[];
+  payment_mode: "online" | "counter" | "both";
 };
 
 export type PublicPricingRule = {
@@ -40,7 +41,7 @@ export async function getPublicShop(
   if (!client) return { shop: null, configured: false };
   const { data, error } = await client
     .from("public_shop_directory")
-    .select("public_id, name, is_active, accepting_orders, status")
+    .select("public_id, name, is_active, accepting_orders, status, payment_mode")
     .eq("public_id", publicIdentifier)
     .maybeSingle();
   if (error) throw new Error("Unable to load shop directory");
@@ -138,6 +139,7 @@ export async function getPublicShop(
     bw_printer_status: bwStatus,
     color_printer_status: colorStatus,
     online_printers: onlinePrinters,
+    payment_mode: (data.payment_mode as "online" | "counter" | "both") || "both",
   };
 
   return { shop, configured: true };

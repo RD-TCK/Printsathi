@@ -22,7 +22,7 @@ export async function GET(request: Request) {
   const { data: order, error: orderError } = await adminClient
     .from("orders")
     .select(
-      "id, public_id, shop_id, customer_id, status, total_amount, currency, total_pages, color_pages, black_and_white_pages, guest_access_token_hash, created_at",
+      "id, public_id, shop_id, customer_id, status, total_amount, currency, total_pages, color_pages, black_and_white_pages, guest_access_token_hash, created_at, payment_mode, token_number, expires_at",
     )
     .eq("id", orderId)
     .maybeSingle();
@@ -85,6 +85,9 @@ export async function GET(request: Request) {
       totalPages: order.total_pages,
       colorPages: order.color_pages,
       blackAndWhitePages: order.black_and_white_pages,
+      paymentMode: order.payment_mode,
+      tokenNumber: order.token_number,
+      expiresAt: order.expires_at,
       createdAt: order.created_at,
     },
     shop: shop ? { name: shop.name, publicId: shop.public_id } : null,

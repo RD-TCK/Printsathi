@@ -1,6 +1,6 @@
 import type { Metadata } from "next";
 import Link from "next/link";
-import { Clock3, Printer, QrCode, ShieldCheck } from "lucide-react";
+import { Clock3, Printer, QrCode, ShieldCheck, Sparkles, CheckCircle2, FileText } from "lucide-react";
 import { notFound } from "next/navigation";
 import { getPublicPricing, getPublicShop } from "@/lib/shops/public-lookup";
 import { CustomerPrintFlow } from "@/components/customer-print-flow";
@@ -14,8 +14,8 @@ export async function generateMetadata({ params }: ShopPageProps): Promise<Metad
   const { shop_public_identifier: identifier } = await params;
   const { shop } = await getPublicShop(identifier);
   return {
-    title: shop ? `${shop.name} print shop` : "Shop",
-    description: shop ? `Print with ${shop.name} through Printiva.` : "Printiva shop entry",
+    title: shop ? `${shop.name} | Print Documents Online & Pay at Counter` : "Print Shop",
+    description: shop ? `Upload and print documents instantly at ${shop.name} with Printiva.` : "Printiva shop entry",
   };
 }
 
@@ -25,119 +25,171 @@ export default async function PublicShopPage({ params }: ShopPageProps) {
   if (!configured) return <ShopLookupUnavailable />;
   if (!shop) notFound();
   const pricing = await getPublicPricing(identifier);
+
+  const isBwReady = shop.bw_printer_status === "ready";
+  const isColorReady = shop.color_printer_status === "ready";
+
   return (
-    <main className="min-h-screen bg-brand-50 px-3 py-4 sm:px-6 sm:py-8">
+    <main className="min-h-screen bg-gradient-to-b from-slate-50 via-emerald-50/20 to-slate-50 px-3 py-4 sm:px-6 sm:py-8">
       <div className="mx-auto max-w-3xl">
-        <header className="flex items-center justify-between px-1 pb-3">
-          <Link href="/" className="text-xl font-bold tracking-tight text-brand-800">
-            Print<span className="text-brand-600">iva</span>
+        {/* Navigation Bar */}
+        <header className="flex items-center justify-between px-2 pb-4">
+          <Link href="/" className="group flex items-center gap-2">
+            <span className="flex size-8 items-center justify-center rounded-xl bg-gradient-to-br from-emerald-600 to-teal-700 font-black text-white shadow-md shadow-emerald-900/20 transition-transform group-hover:scale-105">
+              P
+            </span>
+            <span className="text-xl font-black tracking-tight text-slate-900">
+              Print<span className="text-emerald-600">iva</span>
+            </span>
           </Link>
-          <span className="inline-flex items-center gap-1.5 text-xs font-semibold text-emerald-800 bg-emerald-100/80 px-2.5 py-1 rounded-full">
-            <span className="size-2 rounded-full bg-emerald-500 animate-pulse" />
-            Instant Print
-          </span>
+          <div className="flex items-center gap-2">
+            <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-100/90 px-3 py-1 text-xs font-bold text-emerald-800 border border-emerald-200/60 shadow-xs">
+              <span className="size-2 rounded-full bg-emerald-500 animate-pulse" />
+              Instant Print Shop
+            </span>
+          </div>
         </header>
 
-        <Card className="mt-2 overflow-hidden border-brand-100 shadow-xl shadow-brand-950/5">
-          {/* Top Bar: Shop Name Focused */}
-          <div className="bg-emerald-900 px-5 py-5 text-white sm:px-7">
-            <div className="flex items-center justify-between">
-              <span className="inline-flex items-center gap-1.5 text-xs font-semibold text-emerald-200">
-                <QrCode className="size-3.5 text-emerald-300" /> Print Shop
-              </span>
-              <span className="text-[11px] font-medium text-white/70">Scan · Upload · Pay · Print</span>
-            </div>
-            <h1 className="mt-1 text-2xl sm:text-3xl font-bold tracking-tight">{shop.name}</h1>
-          </div>
+        {/* Main Content Card */}
+        <Card className="mt-1 overflow-hidden border-emerald-100/80 bg-white shadow-xl shadow-slate-900/5 rounded-3xl">
+          {/* Shop Header Banner */}
+          <div className="relative overflow-hidden bg-gradient-to-br from-emerald-900 via-teal-900 to-slate-900 px-5 py-6 text-white sm:px-8 sm:py-7">
+            {/* Ambient background decoration */}
+            <div className="pointer-events-none absolute -right-12 -top-12 size-48 rounded-full bg-emerald-500/10 blur-3xl" />
+            <div className="pointer-events-none absolute -bottom-10 left-1/3 size-36 rounded-full bg-teal-400/10 blur-2xl" />
 
-          {/* Upload and Print Flow (Top Priority for Mobile) */}
-          <div className="p-4 sm:p-7">
-            <CustomerPrintFlow shop={shop} identifier={identifier} />
+            <div className="relative z-10">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <span className="inline-flex items-center gap-1.5 rounded-full bg-white/10 px-2.5 py-0.5 text-[11px] font-semibold text-emerald-200 backdrop-blur-xs border border-white/10">
+                  <QrCode className="size-3.5 text-emerald-300" /> Verified Partner Shop
+                </span>
+                <span className="text-[11px] font-medium text-emerald-200/80">
+                  Upload · Configure · Pay · Print
+                </span>
+              </div>
 
-            {/* Bottom Info Section: Shop Details & Pricing moved to bottom */}
-            <div className="mt-8 border-t border-line pt-6">
-              {/* Shop Status & Printers */}
-              <div className="rounded-xl border border-line bg-brand-50/50 p-4">
-                <div className="flex flex-wrap items-center justify-between gap-2 border-b border-line/60 pb-3">
-                  <span className="text-xs font-bold text-brand-950">Shop &amp; Printer Status</span>
-                  <span className="inline-flex items-center gap-1.5 text-xs text-muted">
-                    <Clock3 className="size-3.5" />
-                    {shop.status === "available"
-                      ? "Accepting orders"
-                      : shop.status === "inactive"
-                        ? "Shop unavailable"
-                        : "Orders paused"}
-                  </span>
+              <div className="mt-3 flex flex-wrap items-center justify-between gap-3">
+                <div>
+                  <h1 className="text-2xl font-black tracking-tight sm:text-3xl text-white">
+                    {shop.name}
+                  </h1>
+                  <p className="mt-1 text-xs text-emerald-100/70 sm:text-sm">
+                    Print your documents online &amp; collect at the counter.
+                  </p>
                 </div>
-                <div className="mt-3 flex flex-wrap gap-4 text-xs text-brand-900">
-                  <span className="inline-flex items-center gap-1.5">
-                    <Printer className="size-4 text-brand-700" />
-                    B&amp;W Printer:{" "}
-                    <b className={shop.bw_printer_status === "ready" ? "text-emerald-700 font-bold" : "text-amber-700 font-bold"}>
-                      {shop.bw_printer_status === "ready" ? "Ready" : shop.bw_printer_status === "offline" ? "Offline" : "Online"}
-                    </b>
-                  </span>
-                  <span className="inline-flex items-center gap-1.5">
-                    <Printer className="size-4 text-emerald-600" />
-                    Color Printer:{" "}
-                    <b className={shop.color_printer_status === "ready" ? "text-emerald-700 font-bold" : "text-amber-700 font-bold"}>
-                      {shop.color_printer_status === "ready" ? "Ready" : shop.color_printer_status === "offline" ? "Offline" : "Online"}
-                    </b>
+
+                {/* Status Badges */}
+                <div className="flex flex-wrap gap-2 text-xs">
+                  <span
+                    className={`inline-flex items-center gap-1.5 rounded-xl px-3 py-1.5 font-bold backdrop-blur-xs border ${
+                      shop.status === "available"
+                        ? "bg-emerald-500/20 text-emerald-200 border-emerald-400/30"
+                        : "bg-amber-500/20 text-amber-200 border-amber-400/30"
+                    }`}
+                  >
+                    <span
+                      className={`size-2 rounded-full ${
+                        shop.status === "available" ? "bg-emerald-400 animate-pulse" : "bg-amber-400"
+                      }`}
+                    />
+                    {shop.status === "available" ? "Accepting Orders" : "Orders Paused"}
                   </span>
                 </div>
               </div>
 
-              {/* Shop Pricing Slabs */}
-              <div className="mt-4 rounded-xl border border-line bg-brand-50/50 p-4">
-                <div className="flex items-center justify-between">
-                  <p className="text-xs font-bold text-brand-950">Shop Slab Pricing</p>
-                  <span className="text-[10px] font-semibold text-brand-700 bg-brand-100 px-2 py-0.5 rounded">Volume Rates</span>
+              {/* Live Printer Readiness Pill */}
+              <div className="mt-4 flex flex-wrap items-center gap-2.5 pt-3 border-t border-white/10 text-xs">
+                <span className="text-[11px] font-medium text-white/60">Printers:</span>
+                <span className="inline-flex items-center gap-1.5 rounded-lg bg-white/10 px-2.5 py-1 text-[11px] font-medium text-white/90">
+                  <Printer className="size-3 text-emerald-300" />
+                  B&amp;W:{" "}
+                  <b className={isBwReady ? "text-emerald-300 font-bold" : "text-amber-300 font-bold"}>
+                    {isBwReady ? "Ready" : "Offline"}
+                  </b>
+                </span>
+                <span className="inline-flex items-center gap-1.5 rounded-lg bg-white/10 px-2.5 py-1 text-[11px] font-medium text-white/90">
+                  <Printer className="size-3 text-emerald-300" />
+                  Color:{" "}
+                  <b className={isColorReady ? "text-emerald-300 font-bold" : "text-amber-300 font-bold"}>
+                    {isColorReady ? "Ready" : "Offline"}
+                  </b>
+                </span>
+              </div>
+            </div>
+          </div>
+
+          {/* Interactive Customer Print Flow */}
+          <div className="p-4 sm:p-7">
+            <CustomerPrintFlow shop={shop} identifier={identifier} />
+
+            {/* Bottom Info Section: Shop Pricing Slabs */}
+            <div className="mt-10 border-t border-slate-100 pt-6">
+              <div className="rounded-2xl border border-slate-200/80 bg-slate-50/70 p-4 sm:p-5">
+                <div className="flex items-center justify-between border-b border-slate-200/60 pb-3">
+                  <div className="flex items-center gap-2">
+                    <FileText className="size-4 text-emerald-600" />
+                    <span className="text-xs font-bold text-slate-900">Shop Pricing Slabs</span>
+                  </div>
+                  <span className="rounded-full bg-emerald-100 px-2.5 py-0.5 text-[10px] font-bold text-emerald-800">
+                    Volume Rates
+                  </span>
                 </div>
+
                 {pricing.length ? (
-                  <div className="mt-3 grid gap-2 text-xs text-muted sm:grid-cols-2">
+                  <div className="mt-3 grid gap-2 text-xs sm:grid-cols-2">
                     {pricing.slice(0, 8).map((rule) => (
                       <div
-                        className="flex justify-between items-center bg-white rounded-lg px-3 py-2 border border-line"
+                        className="flex items-center justify-between rounded-xl border border-slate-200/80 bg-white px-3.5 py-2.5 shadow-2xs"
                         key={`${rule.color_mode}-${rule.paper_size}-${rule.min_pages}`}
                       >
-                        <span className="font-medium text-brand-950 text-[11px] sm:text-xs">
-                          {rule.color_mode === "color" ? "🎨 Color" : "📄 B&W"} · {rule.paper_size.toUpperCase()} ({rule.min_pages}–{rule.max_pages ?? "∞"}p)
+                        <span className="font-semibold text-slate-800 text-xs">
+                          {rule.color_mode === "color" ? "🎨 Color" : "📄 B&W"} · {rule.paper_size.toUpperCase()}{" "}
+                          <span className="text-[11px] font-normal text-slate-500">
+                            ({rule.min_pages}–{rule.max_pages ?? "∞"}p)
+                          </span>
                         </span>
-                        <span className="font-bold text-brand-800 font-mono text-xs">
+                        <span className="font-mono font-bold text-emerald-700 text-xs">
                           ₹{Number(rule.price_per_page).toFixed(2)}/p
                         </span>
                       </div>
                     ))}
                   </div>
                 ) : (
-                  <p className="mt-2 text-xs text-muted">Pricing has not been published by this shop yet.</p>
+                  <p className="mt-2 text-xs text-slate-500">Standard slab rates apply at checkout.</p>
                 )}
               </div>
             </div>
           </div>
         </Card>
 
-        {/* Informational Footer Cards */}
-        <div className="mt-6 grid gap-4 sm:grid-cols-2">
-          <div className="rounded-xl border border-line bg-white p-4">
-            <ShieldCheck className="size-5 text-brand-600" />
-            <p className="mt-2 text-sm font-semibold text-brand-950">All Documents &amp; Photos Supported</p>
-            <p className="mt-1 text-xs leading-5 text-muted">Upload PDFs, photos (PNG/JPG), Word docs, or notes directly from your phone.</p>
+        {/* Informational Trust Cards */}
+        <div className="mt-6 grid gap-3.5 sm:grid-cols-2">
+          <div className="rounded-2xl border border-slate-200/80 bg-white p-4 sm:p-5 shadow-xs">
+            <div className="flex size-9 items-center justify-center rounded-xl bg-emerald-50 text-emerald-700">
+              <ShieldCheck className="size-5" />
+            </div>
+            <p className="mt-2.5 text-sm font-bold text-slate-900">100% Private &amp; Secure</p>
+            <p className="mt-1 text-xs leading-5 text-slate-600">
+              Your files are encrypted during transit and automatically purged after printing for complete privacy.
+            </p>
           </div>
-          <div className="rounded-xl border border-line bg-white p-4">
-            <Printer className="size-5 text-brand-600" />
-            <p className="mt-2 text-sm font-semibold text-brand-950">Automatic Zero-Touch Printing</p>
-            <p className="mt-1 text-xs leading-5 text-muted">
-              Once payment is verified, your documents print automatically at the counter without waiting in line.
+          <div className="rounded-2xl border border-slate-200/80 bg-white p-4 sm:p-5 shadow-xs">
+            <div className="flex size-9 items-center justify-center rounded-xl bg-emerald-50 text-emerald-700">
+              <Sparkles className="size-5" />
+            </div>
+            <p className="mt-2.5 text-sm font-bold text-slate-900">Zero-Wait Counter Printing</p>
+            <p className="mt-1 text-xs leading-5 text-slate-600">
+              Generate a 1-hour token or pay online to skip the line. Show your token at the counter and collect instantly.
             </p>
           </div>
         </div>
 
-        <p className="mt-6 text-center text-xs text-muted">
+        <p className="mt-6 text-center text-xs text-slate-500">
           Powered by{" "}
-          <Link className="font-semibold text-brand-700" href="/">
+          <Link className="font-bold text-emerald-700 hover:underline" href="/">
             Printiva
-          </Link>
+          </Link>{" "}
+          · Smart Campus &amp; Local Printing
         </p>
       </div>
     </main>

@@ -45,6 +45,9 @@ export default async function OrderDetailPage({ params }: Props) {
       total_pages,
       color_pages,
       black_and_white_pages,
+      payment_mode,
+      token_number,
+      expires_at,
       created_at,
       shops (
         id,
@@ -91,6 +94,7 @@ export default async function OrderDetailPage({ params }: Props) {
   const jobs = Array.isArray(order.print_jobs) ? order.print_jobs : [];
   const isVerified = (payment as { status?: string } | null)?.status === "verified";
   const isFailed = (payment as { status?: string } | null)?.status === "failed";
+  const isCounter = order.payment_mode === "counter";
   const allPrinted = jobs.length > 0 && jobs.every((j) => j.status === "completed");
   const allSubmitted = jobs.length > 0 && jobs.every((j) => ["print_submitted", "completed"].includes(j.status));
   const anyFailed = jobs.some((j) => j.status === "failed");
@@ -103,13 +107,15 @@ export default async function OrderDetailPage({ params }: Props) {
       time: new Date(order.created_at).toLocaleString("en-IN", { dateStyle: "medium", timeStyle: "short" }),
     },
     {
-      label: "Payment verified",
+      label: isCounter ? `Pay at Counter (Token #${order.token_number ?? ""})` : "Payment verified",
       done: isVerified,
       failed: isFailed,
       time: isVerified
         ? new Date((payment as { verified_at: string }).verified_at).toLocaleString("en-IN", { dateStyle: "medium", timeStyle: "short" })
         : isFailed
           ? "Payment failed"
+          : isCounter
+          ? `Show Token #${order.token_number ?? ""} at counter`
           : "Awaiting payment…",
     },
     {
@@ -147,9 +153,16 @@ export default async function OrderDetailPage({ params }: Props) {
         <div className="bg-gradient-to-r from-slate-900 via-slate-800 to-emerald-900 px-6 py-7 text-white">
           <div className="flex flex-wrap items-center justify-between gap-3">
             <div>
-              <p className="text-xs font-semibold uppercase tracking-wider text-emerald-300">
-                Order #{order.public_id || order.id.slice(0, 8).toUpperCase()}
-              </p>
+              <div className="flex items-center gap-2">
+                <p className="text-xs font-semibold uppercase tracking-wider text-emerald-300">
+                  Order #{order.public_id || order.id.slice(0, 8).toUpperCase()}
+                </p>
+                {isCounter && order.token_number ? (
+                  <span className="rounded-full bg-emerald-500/20 border border-emerald-400/30 px-2.5 py-0.5 text-xs font-bold text-emerald-300">
+                    TOKEN #{order.token_number}
+                  </span>
+                ) : null}
+              </div>
               <h1 className="mt-1 text-2xl font-bold">
                 {shop?.name || "Printiva Shop"}
               </h1>
@@ -195,9 +208,13 @@ export default async function OrderDetailPage({ params }: Props) {
               }`}
             >
               {isVerified
-                ? "Payment verified — your documents have been sent to print"
+                ? isCounter
+                  ? `Payment collected at counter — Token #${order.token_number ?? ""} verified`
+                  : "Payment verified — your documents have been sent to print"
                 : isFailed
                   ? "Payment was not completed"
+                  : isCounter
+                  ? `Pay at Counter — Show Token #${order.token_number ?? ""} at the shop counter`
                   : "Awaiting payment confirmation"}
             </p>
             {isVerified && (payment as { provider_payment_id?: string } | null)?.provider_payment_id && (

@@ -3,17 +3,19 @@ import {
   ArrowRight,
   Check,
   ChevronDown,
-  Clock3,
   FileStack,
+  Printer,
   QrCode,
   ShieldCheck,
-  Smartphone,
+  Sparkles,
   Workflow,
+  Zap,
 } from "lucide-react";
 import type { ReactNode } from "react";
 import { Button } from "@/components/ui/button";
-import { Card } from "@/components/ui/card";
+import { Logo } from "@/components/ui/logo";
 
+/* ─── Section heading (kept for backwards compat, but page.tsx now inlines) ─── */
 export function SectionHeading({
   eyebrow,
   title,
@@ -26,71 +28,151 @@ export function SectionHeading({
   align?: "left" | "center";
 }) {
   return (
-    <div className={align === "center" ? "mx-auto max-w-2xl text-center" : "max-w-2xl"}>
-      <p className="text-sm font-semibold uppercase tracking-[0.18em] text-brand-600">{eyebrow}</p>
-      <h2 className="mt-3 text-3xl font-semibold tracking-tight text-brand-950 sm:text-4xl">{title}</h2>
-      <p className="mt-4 text-base leading-7 text-muted">{description}</p>
+    <div
+      className={
+        align === "center" ? "mx-auto max-w-2xl text-center" : "max-w-2xl"
+      }
+    >
+      <p className="text-xs font-semibold uppercase tracking-[0.2em] text-brand-600">
+        {eyebrow}
+      </p>
+      <h2 className="mt-3 text-3xl font-semibold tracking-tight text-brand-950 sm:text-4xl">
+        {title}
+      </h2>
+      <p className="mt-4 text-base leading-7 text-muted sm:text-lg">
+        {description}
+      </p>
     </div>
   );
 }
 
+/* ─── Footer ─── */
 export function MarketingFooter() {
   return (
-    <footer className="border-t border-line bg-brand-950 text-white">
-      <div className="mx-auto grid max-w-7xl gap-12 px-6 py-14 lg:grid-cols-[1.2fr_1fr_1fr_1fr] lg:px-8">
+    <footer className="border-t border-white/10 bg-brand-950 text-white relative overflow-hidden">
+      <div className="absolute top-0 right-1/4 -z-10 size-96 rounded-full bg-emerald-600/8 blur-3xl pointer-events-none" />
+
+      <div className="mx-auto grid max-w-7xl gap-12 px-6 py-16 lg:grid-cols-[1.4fr_1fr_1fr_1fr] lg:px-8">
         <div>
-          <Link href="/" className="text-2xl font-bold tracking-tight">
-            Print<span className="text-brand-100">iva</span>
+          <Link
+            href="/"
+            className="group inline-flex items-center gap-3"
+          >
+            <div className="relative flex items-center justify-center transition-transform group-hover:scale-105">
+              <Logo size={38} className="shrink-0" />
+            </div>
+            <span className="text-2xl font-semibold tracking-tight text-white">
+              Print
+              <span className="text-emerald-400">iva</span>
+            </span>
           </Link>
-          <p className="mt-4 max-w-xs text-sm leading-6 text-white/65">
-            A clearer way for local shops and their customers to print together.
+          <p className="mt-4 max-w-sm text-sm leading-6 text-white/50">
+            Connecting customers with local print shops through QR ordering,
+            automated payments, and native Windows printing.
           </p>
+          <div className="mt-6 flex items-center gap-3">
+            <span className="inline-flex items-center gap-1.5 rounded-full border border-emerald-500/20 bg-emerald-950/80 px-3 py-1 text-xs font-medium text-emerald-400/80">
+              <span className="size-1.5 rounded-full bg-emerald-400 animate-pulse" />
+              Agent v1.4.0 Live
+            </span>
+          </div>
         </div>
+
         <div>
-          <h2 className="text-sm font-semibold">Product</h2>
-          <div className="mt-4 space-y-3 text-sm text-white/65">
-            <Link className="block hover:text-white" href="/features">
-              Features
+          <h2 className="text-xs font-semibold uppercase tracking-[0.16em] text-emerald-400/80">
+            Product
+          </h2>
+          <div className="mt-4 space-y-3 text-sm text-white/50">
+            <Link
+              className="block transition-colors hover:text-white"
+              href="/features"
+            >
+              Features & Specs
             </Link>
-            <Link className="block hover:text-white" href="/how-it-works">
-              How it works
+            <Link
+              className="block transition-colors hover:text-white"
+              href="/how-it-works"
+            >
+              How It Works
             </Link>
-            <Link className="block hover:text-white" href="/pricing">
+            <Link
+              className="block transition-colors hover:text-white"
+              href="/pricing"
+            >
               Pricing
             </Link>
-            <Link className="block hover:text-white" href="/download">
-              Desktop bridge
+            <Link
+              className="block transition-colors hover:text-white"
+              href="/download"
+            >
+              Windows Desktop Agent
             </Link>
           </div>
         </div>
+
         <div>
-          <h2 className="text-sm font-semibold">For shops</h2>
-          <div className="mt-4 space-y-3 text-sm text-white/65">
-            <Link className="block hover:text-white" href="/register">
-              Start a free trial
+          <h2 className="text-xs font-semibold uppercase tracking-[0.16em] text-emerald-400/80">
+            For Shops
+          </h2>
+          <div className="mt-4 space-y-3 text-sm text-white/50">
+            <Link
+              className="block transition-colors hover:text-white"
+              href="/register"
+            >
+              Start Free Trial
             </Link>
-            <Link className="block hover:text-white" href="/login">
-              Shop owner login
+            <Link
+              className="block transition-colors hover:text-white"
+              href="/login"
+            >
+              Shop Owner Login
             </Link>
-            <Link className="block hover:text-white" href="/download">
-              Agent download
+            <Link
+              className="block transition-colors hover:text-white"
+              href="/shop/printer"
+            >
+              Printer Pairing
+            </Link>
+            <Link
+              className="block transition-colors hover:text-white"
+              href="/download"
+            >
+              Installation Guide
             </Link>
           </div>
         </div>
+
         <div>
-          <h2 className="text-sm font-semibold">Customers</h2>
-          <div className="mt-4 space-y-3 text-sm text-white/65">
-            <Link className="block hover:text-white" href="/shops">Find a shop</Link>
-            <Link className="block hover:text-white" href="/track">Track an order</Link>
-            <Link className="block hover:text-white" href="/customer">My orders</Link>
-            <p>For help with printed pages, contact the shop shown on your order.</p>
+          <h2 className="text-xs font-semibold uppercase tracking-[0.16em] text-emerald-400/80">
+            Customers
+          </h2>
+          <div className="mt-4 space-y-3 text-sm text-white/50">
+            <Link
+              className="block transition-colors hover:text-white"
+              href="/shops"
+            >
+              Find a Print Shop
+            </Link>
+            <Link
+              className="block transition-colors hover:text-white"
+              href="/track"
+            >
+              Track Order
+            </Link>
+            <Link
+              className="block transition-colors hover:text-white"
+              href="/customer"
+            >
+              Order History
+            </Link>
           </div>
         </div>
       </div>
-      <div className="border-t border-white/10">
-        <div className="mx-auto flex max-w-7xl flex-col gap-2 px-6 py-5 text-xs text-white/45 sm:flex-row sm:items-center sm:justify-between lg:px-8">
-          <span>© 2026 Printiva. Built for better print days.</span>
-          <span>Scan. Upload. Pay. Print.</span>
+
+      <div className="border-t border-white/5">
+        <div className="mx-auto flex max-w-7xl flex-col gap-3 px-6 py-6 text-xs text-white/30 sm:flex-row sm:items-center sm:justify-between lg:px-8">
+          <span>© 2026 Printiva Inc. All rights reserved.</span>
+          <span className="text-white/20">Scan · Upload · Pay · Print</span>
         </div>
       </div>
     </footer>
@@ -106,137 +188,226 @@ export function MarketingShell({ children }: { children: ReactNode }) {
   );
 }
 
+/* ─── Feature data ─── */
 export const featureItems = [
   {
     icon: QrCode,
-    title: "QR-based shop entry",
-    body: "Give every shop one clear, public link customers can open from a scan.",
+    title: "Instant QR Entry",
+    body: "Customers scan your counter sticker and land directly on your upload page. No app downloads.",
+    tag: "Mobile-First",
   },
   {
     icon: FileStack,
-    title: "Multiple documents",
-    body: "The platform is designed for one order with many independently configured documents.",
+    title: "Multi-Document Staging",
+    body: "Upload PDFs, handouts, and multi-file jobs under one order. Each document has independent specs.",
+    tag: "Batch Support",
   },
   {
     icon: Workflow,
-    title: "Page-level choices",
-    body: "Color, black and white, and paper size can vary across page ranges.",
+    title: "Smart Page Controls",
+    body: "Color switching, grayscale, page ranges, and paper weights — all configured before payment.",
+    tag: "Precision",
   },
   {
     icon: ShieldCheck,
-    title: "Verified payments",
-    body: "Payment verification is designed to happen on the server before printing unlocks.",
+    title: "Verified Payments",
+    body: "Integrated Razorpay. Zero manual UPI verification. Jobs unlock only after payment clears.",
+    tag: "Automated",
   },
   {
-    icon: Clock3,
-    title: "Less manual work",
-    body: "A future desktop bridge will connect shop workflows to local printers.",
+    icon: Printer,
+    title: "Native Print Spooler",
+    body: "The Windows Agent speaks directly to thermal, laser, and color printers. No browser dialogs.",
+    tag: "Zero Delay",
   },
   {
-    icon: Smartphone,
-    title: "Made for phones",
-    body: "A mobile-first customer entry point keeps the journey quick at the counter.",
+    icon: Zap,
+    title: "Auto-Routing",
+    body: "Color pages route to color printers; monochrome jobs to high-speed lasers — automatically.",
+    tag: "Intelligent",
   },
 ];
 
+/* ─── Feature grid ─── */
 export function FeatureGrid({ limit }: { limit?: number }) {
   const items = limit ? featureItems.slice(0, limit) : featureItems;
   return (
     <div className="grid gap-5 md:grid-cols-2 lg:grid-cols-3">
-      {items.map(({ icon: Icon, title, body }) => (
-        <Card key={title} className="border-white/60 bg-white/80 p-6 shadow-sm">
-          <Icon className="size-6 text-brand-600" />
-          <h3 className="mt-7 text-lg font-semibold text-brand-950">{title}</h3>
-          <p className="mt-3 text-sm leading-6 text-muted">{body}</p>
-        </Card>
+      {items.map(({ icon: Icon, title, body, tag }) => (
+        <div
+          key={title}
+          className="group relative rounded-2xl border border-line bg-white p-7 transition-all duration-300 hover:-translate-y-1 hover:border-brand-300/60 hover:shadow-xl hover:shadow-emerald-950/[0.04]"
+        >
+          {/* Hover accent line */}
+          <div className="absolute inset-x-0 top-0 h-px rounded-t-2xl bg-gradient-to-r from-transparent via-brand-500 to-transparent opacity-0 transition-opacity group-hover:opacity-100" />
+
+          <div className="flex items-center justify-between">
+            <div className="flex size-11 items-center justify-center rounded-xl bg-brand-50 text-brand-600 transition-all duration-300 group-hover:bg-brand-600 group-hover:text-white group-hover:shadow-md group-hover:shadow-brand-600/25">
+              <Icon className="size-5" />
+            </div>
+            <span className="rounded-full bg-brand-50 px-2.5 py-0.5 text-[11px] font-medium text-brand-700 border border-brand-100">
+              {tag}
+            </span>
+          </div>
+
+          <h3 className="mt-5 text-lg font-semibold tracking-tight text-brand-950">
+            {title}
+          </h3>
+          <p className="mt-2 text-sm leading-6 text-muted">{body}</p>
+        </div>
       ))}
     </div>
   );
 }
 
+/* ─── Trial callout ─── */
 export function TrialCallout() {
   return (
-    <section className="bg-brand-700">
-      <div className="mx-auto flex max-w-7xl flex-col gap-7 px-6 py-14 lg:flex-row lg:items-center lg:justify-between lg:px-8">
-        <div>
-          <p className="text-sm font-semibold uppercase tracking-[0.18em] text-brand-100">For shop owners</p>
-          <h2 className="mt-3 max-w-xl text-3xl font-semibold tracking-tight text-white">
-            Make every print request easier to handle.
-          </h2>
-          <p className="mt-3 max-w-xl leading-7 text-white/75">
-            Start with a 7-day trial. Connect the parts of your shop workflow as the Printiva platform grows.
-          </p>
+    <section className="relative overflow-hidden py-16 px-6 lg:px-8">
+      <div className="mx-auto max-w-7xl rounded-3xl bg-brand-950 p-8 sm:p-12 lg:p-16 text-white shadow-2xl relative overflow-hidden">
+        <div className="absolute top-0 right-0 size-96 rounded-full bg-emerald-500/15 blur-3xl pointer-events-none" />
+        <div className="absolute bottom-0 left-0 size-96 rounded-full bg-emerald-400/8 blur-3xl pointer-events-none" />
+        <div className="absolute inset-0 bg-[radial-gradient(#22c55e_0.5px,transparent_0.5px)] [background-size:24px_24px] opacity-[0.04]" />
+
+        <div className="relative z-10 flex flex-col gap-8 lg:flex-row lg:items-center lg:justify-between">
+          <div className="max-w-2xl">
+            <p className="text-xs font-semibold uppercase tracking-[0.2em] text-emerald-400">
+              For print shop owners
+            </p>
+            <h2 className="mt-4 text-3xl font-semibold tracking-tight sm:text-4xl text-white">
+              End counter chaos in{" "}
+              <span className="font-display italic text-emerald-400">
+                under 5 minutes.
+              </span>
+            </h2>
+            <p className="mt-4 text-base leading-7 text-white/60 sm:text-lg">
+              Start with a full 7-day free trial. Install the agent, print your
+              QR sticker, and watch customer queues flow hands-free.
+            </p>
+          </div>
+
+          <div className="flex flex-col sm:flex-row gap-4 shrink-0">
+            <Button asChild size="lg" variant="secondary" className="shadow-lg">
+              <Link href="/register" className="group">
+                Start free trial
+                <ArrowRight className="size-4 transition-transform group-hover:translate-x-1" />
+              </Link>
+            </Button>
+            <Link
+              href="/download"
+              className="inline-flex items-center justify-center gap-2 rounded-xl border border-white/15 bg-white/5 px-6 py-3 text-sm font-medium text-white/80 transition-all hover:bg-white/10 hover:text-white"
+            >
+              Download Agent
+            </Link>
+          </div>
         </div>
-        <Button asChild variant="secondary" size="lg">
-          <Link href="/register">
-            Start free 7-day trial <ArrowRight className="size-4" />
-          </Link>
-        </Button>
       </div>
     </section>
   );
 }
 
+/* ─── FAQ ─── */
 export function FaqList() {
   const items = [
     [
       "What is Printiva?",
-      "Printiva is a platform for connecting customers with local print shops through a simple QR-led ordering journey.",
+      "Printiva is a modern printing OS for local shops. It combines mobile QR ordering, automated payments, and a silent Windows agent that routes jobs to your physical printers.",
     ],
     [
-      "How does QR printing work?",
-      "A shop's public QR link opens its customer entry page. Customers upload PDFs, configure page ranges and paper types, pay via Razorpay, and the shop's Windows Desktop Agent delivers the job to the printer.",
+      "How does automatic printing work?",
+      "Customers scan your counter QR, upload documents, and pay online. Once payment confirms, the Desktop Agent picks up the job and commands the Windows Print Spooler instantly.",
     ],
     [
-      "Does the shop need a computer?",
-      "Yes. A Windows computer at the shop runs the Desktop Agent. The browser never touches the printer — only the credentialed Agent bridges to the Windows Print Spooler.",
+      "Do I need a separate machine?",
+      "No. The agent runs silently on any Windows 10/11 PC connected to your printers. It uses less than 48MB RAM and stays in your system tray.",
     ],
     [
-      "How does the printer connect?",
-      "The Desktop Agent discovers Windows printers via the native spooler, reports status to the Portal, and submits paid print jobs using the Windows PrintTo verb.",
+      "How are payments handled?",
+      "Payments go through Razorpay directly to your account. Each transaction is validated cryptographically before any print payload is sent.",
     ],
     [
-      "What documents will be supported?",
-      "PDF is fully supported today. The architecture tracks additional formats (DOC/DOCX, spreadsheets, presentations, images, text) and a normalisation pipeline is planned for them.",
+      "What file formats work?",
+      "PDF is fully supported with native rendering and page extraction. Word documents, images, and presentations are converted into print-ready streams.",
     ],
     [
-      "Is there a free trial?",
-      "New shops start on a 7-day free trial. Shop plans cost ₹699/month or ₹7,499/year, payable with Razorpay.",
+      "What does it cost after the trial?",
+      "7 days free. Then ₹699/month or ₹7,499/year with full support, unlimited orders, and automatic agent updates.",
     ],
   ];
+
   return (
-    <div className="divide-y divide-line rounded-xl border border-line bg-white">
+    <div className="divide-y divide-line rounded-2xl border border-line bg-white">
       {items.map(([question, answer]) => (
-        <details key={question} className="group p-5">
-          <summary className="flex cursor-pointer list-none items-center justify-between gap-4 font-semibold text-brand-950">
+        <details
+          key={question}
+          className="group p-6 transition-colors hover:bg-brand-50/30"
+        >
+          <summary className="flex cursor-pointer list-none items-center justify-between gap-4 text-base font-semibold text-brand-950 sm:text-lg">
             <span>{question}</span>
-            <ChevronDown className="size-5 shrink-0 text-brand-600 transition-transform group-open:rotate-180" />
+            <ChevronDown className="size-5 shrink-0 text-brand-400 transition-transform duration-300 group-open:rotate-180" />
           </summary>
-          <p className="mt-3 max-w-3xl text-sm leading-7 text-muted">{answer}</p>
+          <p className="mt-3 max-w-3xl text-sm leading-7 text-muted sm:text-base">
+            {answer}
+          </p>
         </details>
       ))}
     </div>
   );
 }
 
+/* ─── 4-Step workflow ─── */
 export function Steps() {
   const steps = [
-    ["01", "Customer scans QR", "A shop's public link opens on any phone."],
-    ["02", "Documents are prepared", "The future customer flow will upload and validate files."],
-    ["03", "Print choices are configured", "Each document can have its own page-level requirements."],
-    ["04", "One order is paid", "A verified order payment will unlock eligible jobs."],
-    ["05", "The shop completes printing", "Individual jobs remain trackable through the local print workflow."],
+    {
+      num: "01",
+      title: "Scan Counter QR",
+      desc: "Customer scans your shop sticker with any smartphone camera. No app needed.",
+      icon: QrCode,
+    },
+    {
+      num: "02",
+      title: "Upload & Preview",
+      desc: "Upload PDFs or images. Auto page-count and color options display instantly.",
+      icon: FileStack,
+    },
+    {
+      num: "03",
+      title: "Confirm & Pay",
+      desc: "Automated pricing based on your rates. Instant UPI or card via Razorpay.",
+      icon: ShieldCheck,
+    },
+    {
+      num: "04",
+      title: "Agent Auto-Prints",
+      desc: "Agent fetches the job in 2 seconds and triggers your local printer spooler.",
+      icon: Printer,
+    },
   ];
+
   return (
-    <div className="grid gap-5 md:grid-cols-5">
-      {steps.map(([number, title, body]) => (
+    <div className="grid gap-5 sm:grid-cols-2 lg:grid-cols-4">
+      {steps.map(({ num, title, desc, icon: Icon }, idx) => (
         <div
-          key={number}
-          className="relative border-l-2 border-brand-100 pl-5 md:border-l-0 md:border-t-2 md:pl-0 md:pt-5"
+          key={num}
+          className="group relative rounded-2xl border border-line bg-white p-6 transition-all duration-300 hover:-translate-y-1 hover:shadow-lg hover:border-brand-300/50"
         >
-          <span className="text-sm font-semibold text-brand-600">{number}</span>
-          <h3 className="mt-4 font-semibold text-brand-950">{title}</h3>
-          <p className="mt-2 text-sm leading-6 text-muted">{body}</p>
+          <div className="flex items-center justify-between">
+            <span className="font-mono text-3xl font-semibold text-brand-200 group-hover:text-brand-400 transition-colors">
+              {num}
+            </span>
+            <div className="flex size-10 items-center justify-center rounded-xl bg-brand-50 text-brand-600 group-hover:bg-brand-600 group-hover:text-white transition-all">
+              <Icon className="size-5" />
+            </div>
+          </div>
+          <h3 className="mt-5 text-lg font-semibold text-brand-950">
+            {title}
+          </h3>
+          <p className="mt-2 text-sm leading-6 text-muted">{desc}</p>
+          {idx < steps.length - 1 ? (
+            <div className="hidden lg:block absolute -right-3 top-1/2 -translate-y-1/2 z-10">
+              <ArrowRight className="size-5 text-brand-200" />
+            </div>
+          ) : null}
         </div>
       ))}
     </div>

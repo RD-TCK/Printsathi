@@ -43,17 +43,20 @@ export class AgentWebServer {
   private async handleRequest(req: http.IncomingMessage, res: http.ServerResponse): Promise<void> {
     const url = new URL(req.url || "/", `http://127.0.0.1:${this.port}`);
 
-    // CORS headers for local loopback
+    // CORS headers for local loopback and web dashboard
     const origin = req.headers.origin;
-    const allowed = [`http://127.0.0.1:${this.port}`, `http://localhost:${this.port}`];
-    if (origin && !allowed.includes(origin)) {
+    const isAllowedOrigin =
+      !origin ||
+      /^https?:\/\/(127\.0\.0\.1|localhost)(:\d+)?$/.test(origin) ||
+      origin.includes("printsathi.vercel.app");
+    if (!isAllowedOrigin) {
       res.writeHead(403);
       res.end("Origin not allowed");
       return;
     }
     if (origin) res.setHeader("Access-Control-Allow-Origin", origin);
     res.setHeader("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
-    res.setHeader("Access-Control-Allow-Headers", "Content-Type");
+    res.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization, x-agent-token");
 
     if (req.method === "OPTIONS") {
       res.writeHead(204);
@@ -64,6 +67,32 @@ export class AgentWebServer {
     if (url.pathname === "/api/status" && req.method === "GET") {
       res.writeHead(200, { "Content-Type": "application/json" });
       res.end(JSON.stringify(agentDaemon.getStatus()));
+      return;
+    }
+
+    if (url.pathname === "/api/trigger-poll" && (req.method === "POST" || req.method === "GET")) {
+      void agentDaemon.triggerPoll();
+      res.writeHead(200, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({ success: true, message: "Poll triggered" }));
+      return;
+    }
+
+    if (url.pathname === "/api/set-server-url" && req.method === "POST") {
+      const body = await this.readJsonBody(req);
+      const serverUrl = String(body?.serverUrl || "").trim();
+      if (!serverUrl) {
+        res.writeHead(400, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({ error: "Missing serverUrl" }));
+        return;
+      }
+      try {
+        agentDaemon.setServerUrl(serverUrl);
+        res.writeHead(200, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({ success: true, serverUrl: agentDaemon.getStatus().serverUrl }));
+      } catch (err) {
+        res.writeHead(400, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({ error: err instanceof Error ? err.message : "Invalid URL" }));
+      }
       return;
     }
 
@@ -135,6 +164,63 @@ export class AgentWebServer {
       agentDaemon.selectPrinter(printer);
       res.writeHead(200, { "Content-Type": "application/json" });
       res.end(JSON.stringify({ success: true, selectedPrinter: printer }));
+      return;
+    }
+
+    if (url.pathname === "/api/counter-queue" && req.method === "GET") {
+      try {
+        const data = await agentDaemon.getCounterQueue();
+        res.writeHead(200, { "Content-Type": "application/json" });
+        res.end(JSON.stringify(data));
+      } catch (err) {
+        res.writeHead(200, { "Content-Type": "application/json" });
+        res.end(
+          JSON.stringify({
+            queue: [],
+            pendingCount: 0,
+            error: err instanceof Error ? err.message : "Failed to load queue",
+            serverUrl: agentDaemon.getStatus().serverUrl,
+          })
+        );
+      }
+      return;
+    }
+
+    if (url.pathname === "/api/approve-counter-order" && req.method === "POST") {
+      const body = await this.readJsonBody(req);
+      const orderId = String(body?.orderId || "");
+      if (!orderId) {
+        res.writeHead(400, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({ error: "Missing orderId" }));
+        return;
+      }
+      try {
+        const data = await agentDaemon.approveCounterOrder(orderId);
+        res.writeHead(200, { "Content-Type": "application/json" });
+        res.end(JSON.stringify(data));
+      } catch (err) {
+        res.writeHead(500, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({ error: err instanceof Error ? err.message : "Failed to approve order" }));
+      }
+      return;
+    }
+
+    if (url.pathname === "/api/cancel-counter-order" && req.method === "POST") {
+      const body = await this.readJsonBody(req);
+      const orderId = String(body?.orderId || "");
+      if (!orderId) {
+        res.writeHead(400, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({ error: "Missing orderId" }));
+        return;
+      }
+      try {
+        const data = await agentDaemon.cancelCounterOrder(orderId);
+        res.writeHead(200, { "Content-Type": "application/json" });
+        res.end(JSON.stringify(data));
+      } catch (err) {
+        res.writeHead(500, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({ error: err instanceof Error ? err.message : "Failed to cancel order" }));
+      }
       return;
     }
 
@@ -539,6 +625,20 @@ export class AgentWebServer {
           </div>
         </div>
       </div>
+
+      <!-- Counter Print Request Queue Card -->
+      <div class="card" id="counterQueueCard" style="display:none; grid-column: 1 / -1;">
+        <div class="card-header">
+          <span class="card-title"><span>🏷️</span> Counter Print Request Queue</span>
+          <span id="counterQueueBadge" class="badge" style="background:#fef3c7; color:#92400e; border:1px solid #fde68a;">0 waiting</span>
+        </div>
+        <p style="font-size:12px; color:var(--text-muted); margin-bottom:12px;">
+          Customers paying cash at the counter. Click <b>Print &amp; Approve</b> to dispatch to the default Windows printer, or <b>Cancel</b> if uncollected. Valid for 1 hour.
+        </p>
+        <div id="counterQueueList">
+          <p style="font-size:13px; color:var(--text-muted); padding:10px 0;">No active counter requests.</p>
+        </div>
+      </div>
     </div>
   </div>
 
@@ -737,8 +837,7 @@ export class AgentWebServer {
               </form>
             </div>
           \`;
-          switchAuthTab(activeAuthTab);
-        } else {
+             } else {
           connDiv.innerHTML = \`
             <div class="status-panel-paired">
               <div style="display:flex; align-items:center; gap:8px;">
@@ -749,7 +848,13 @@ export class AgentWebServer {
             </div>
             <div class="info-row"><span class="info-label">Shop Name</span><span class="info-val">\${escapeHtml(status.shopName || 'Connected')}</span></div>
             <div class="info-row"><span class="info-label">Station Name</span><span class="info-val">\${escapeHtml(status.agentName || 'Windows PC')}</span></div>
-            <div class="info-row"><span class="info-label">Cloud Server</span><span class="info-val" style="font-size:12px; color:#065f46;">\${escapeHtml(activeServerUrl)}</span></div>
+            <div class="info-row">
+              <span class="info-label">Cloud Server</span>
+              <span class="info-val" style="font-size:12px; color:#065f46; display:flex; align-items:center; gap:6px;">
+                <span>\${escapeHtml(activeServerUrl)}</span>
+                <button type="button" class="btn-secondary" style="padding:2px 8px; font-size:10px;" onclick="changeServerUrl()">Switch</button>
+              </span>
+            </div>
             <div class="info-row"><span class="info-label">Last Heartbeat</span><span class="info-val" style="font-size:12px;">\${status.lastHeartbeat ? new Date(status.lastHeartbeat).toLocaleTimeString() : 'Active'}</span></div>
             <button class="btn-danger" onclick="unpairAgent()">Disconnect Agent</button>
           \`;
@@ -809,10 +914,192 @@ export class AgentWebServer {
       } else {
         jobSec.innerHTML = '<div style="font-size:12px; color:var(--text-muted); padding:4px 0;">🟢 Idle &bull; Ready &amp; listening for paid customer print jobs...</div>';
       }
+
+      // Counter Queue Section
+      const qCard = document.getElementById('counterQueueCard');
+      if (qCard) {
+        if (qCard.style) qCard.style.display = status.isPaired ? 'flex' : 'none';
+        if (status.isPaired) void refreshCounterQueue();
+      }
+    }
+
+    async function switchToLocal() {
+      await changeServerUrl('http://localhost:3000');
+    }
+
+    async function changeServerUrl(targetUrl) {
+      const url = targetUrl || prompt('Enter website server address (e.g. http://localhost:3000 or https://printsathi.vercel.app):');
+      if (!url) return;
+      try {
+        const res = await fetch('/api/set-server-url', {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({ serverUrl: url })
+        });
+        const data = await res.json();
+        if (res.ok) {
+          lastRenderedPairedState = null;
+          await refreshStatus(true);
+          await refreshCounterQueue();
+        } else {
+          alert('Failed to change server: ' + (data.error || 'Invalid URL'));
+        }
+      } catch (err) {
+        alert('Network error updating server URL');
+      }
+    }
+
+    async function fetchCounterQueue() {
+      try {
+        const res = await fetch('/api/counter-queue');
+        if (!res.ok) return null;
+        return await res.json();
+      } catch (err) {
+        return null;
+      }
+    }
+
+    async function approveCounterOrder(orderId, btnEl) {
+      if (btnEl) {
+        btnEl.disabled = true;
+        btnEl.innerHTML = '🔄 Printing...';
+      }
+      try {
+        const res = await fetch('/api/approve-counter-order', {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({ orderId })
+        });
+        const data = await res.json();
+        if (res.ok) {
+          if (btnEl) {
+            btnEl.innerHTML = '✅ Sent to Printer!';
+          }
+          await refreshCounterQueue();
+          await refreshStatus(false);
+        } else {
+          alert('Approval failed: ' + (data.error || 'Server error'));
+          if (btnEl) {
+            btnEl.disabled = false;
+            btnEl.innerHTML = '🖨️ Print &amp; Approve';
+          }
+        }
+      } catch (e) {
+        alert('Failed to approve order');
+        if (btnEl) {
+          btnEl.disabled = false;
+          btnEl.innerHTML = '🖨️ Print &amp; Approve';
+        }
+      }
+    }
+
+    async function cancelCounterOrder(orderId, btnEl) {
+      if (!confirm('Cancel this counter print request?')) return;
+      if (btnEl) btnEl.disabled = true;
+      try {
+        const res = await fetch('/api/cancel-counter-order', {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({ orderId })
+        });
+        const data = await res.json();
+        if (res.ok) {
+          await refreshCounterQueue();
+        } else {
+          alert('Cancel failed: ' + (data.error || 'Server error'));
+          if (btnEl) btnEl.disabled = false;
+        }
+      } catch (e) {
+        alert('Failed to cancel order');
+        if (btnEl) btnEl.disabled = false;
+      }
+    }
+
+    async function refreshCounterQueue() {
+      const qCard = document.getElementById('counterQueueCard');
+      if (!qCard) return;
+      const data = await fetchCounterQueue();
+      const list = document.getElementById('counterQueueList');
+      if (!list) return;
+
+      if (data && data.error) {
+        list.innerHTML = [
+          '<div style="background:#fffbeb; border:1px solid #fde68a; border-radius:10px; padding:12px; font-size:12px; color:#92400e; line-height:1.5;">',
+            '<b>⚠️ Connection Notice:</b> ' + escapeHtml(data.error) + ' (Server: ' + escapeHtml(data.serverUrl || '') + ')<br/>',
+            '<span style="font-size:11px; color:#b45309;">If running locally, switch this agent to connect to http://localhost:3000:</span><br/>',
+            '<button type="button" class="btn-secondary" style="margin-top:6px; font-size:11px;" onclick="switchToLocal()">Switch to Localhost:3000</button>',
+          '</div>'
+        ].join("");
+        return;
+      }
+
+      if (!data || !Array.isArray(data.queue)) return;
+
+      const active = data.queue.filter(i => i.status === 'awaiting_payment' && !i.isExpired);
+      const badge = document.getElementById('counterQueueBadge');
+      if (badge) {
+        badge.innerText = active.length + ' waiting';
+        if (badge.style) {
+          badge.style.background = active.length > 0 ? '#fef3c7' : '#f1f5f9';
+          badge.style.color = active.length > 0 ? '#92400e' : '#475569';
+        }
+      }
+
+      if (data.queue.length === 0) {
+        list.innerHTML = '<p style="font-size:13px; color:var(--text-muted); padding:10px 0;">No active counter requests right now.</p>';
+        return;
+      }
+
+      list.innerHTML = data.queue.map(function(item) {
+        var minutesLeft = Math.floor(item.remainingSeconds / 60);
+        var isPaid = item.status === "paid" || item.status === "completed" || item.status === "printing";
+        var docNames = item.documents.map(function(d) { return escapeHtml(d.filename); }).join(", ");
+        var tokenLabel = item.tokenNumber ? ("#" + item.tokenNumber) : ("#" + item.publicId.slice(0, 4));
+        var statusText = isPaid ? "Approved / Printed" : item.isExpired ? "Expired (1 hr)" : (minutesLeft + "m valid");
+        var statusColor = item.isExpired ? "#dc2626" : isPaid ? "#059669" : "#d97706";
+        var borderCol = isPaid ? "#a7f3d0" : item.isExpired ? "#e2e8f0" : "#fde68a";
+        var bgCol = isPaid ? "#ecfdf5" : item.isExpired ? "#f8fafc" : "#fffbeb";
+        var tokenCol = isPaid ? "#065f46" : item.isExpired ? "#64748b" : "#b45309";
+
+        var actionHtml = "";
+        if (!isPaid && !item.isExpired) {
+          actionHtml = [
+            '<button type="button" class="btn-primary" style="width:auto; padding:7px 14px; font-size:12px;" onclick="approveCounterOrder(',
+            "'", item.id, "', this",
+            ')">🖨️ Print &amp; Approve</button>',
+            '<button type="button" class="btn-secondary" style="color:#dc2626; border-color:#fca5a5;" onclick="cancelCounterOrder(',
+            "'", item.id, "', this",
+            ')">Cancel</button>'
+          ].join("");
+        } else if (isPaid) {
+          actionHtml = '<span style="font-size:12px; font-weight:700; color:#059669; padding:6px 10px;">✅ Printed via Agent</span>';
+        } else {
+          actionHtml = '<span style="font-size:12px; color:var(--text-muted); padding:6px 10px;">Expired</span>';
+        }
+
+        return [
+          '<div style="display:flex; align-items:center; justify-content:space-between; padding:12px; margin-bottom:8px; border-radius:10px; border:1px solid ' + borderCol + '; background:' + bgCol + ';">',
+            '<div style="display:flex; align-items:center; gap:12px;">',
+              '<div style="font-family:monospace; font-weight:800; font-size:18px; color:' + tokenCol + '; background:#ffffff; padding:6px 12px; border-radius:8px; border:1px solid #e2e8f0;">' + tokenLabel + '</div>',
+              '<div>',
+                '<div style="font-size:13px; font-weight:700; color:var(--text-main);">',
+                  'Token ' + tokenLabel + ' &bull; ' + item.totalPages + ' Pages (' + item.blackAndWhitePages + ' B&amp;W, ' + item.colorPages + ' Color)',
+                '</div>',
+                '<div style="font-size:11px; color:var(--text-muted); margin-top:2px;">',
+                  '₹' + Number(item.totalAmount).toFixed(2) + ' &bull; ' + docNames + ' &bull; ',
+                  '<span style="font-weight:600; color:' + statusColor + ';">' + statusText + '</span>',
+                '</div>',
+              '</div>',
+            '</div>',
+            '<div style="display:flex; gap:8px;">' + actionHtml + '</div>',
+          '</div>'
+        ].join("");
+      }).join("");
     }
 
     refreshStatus(true);
     setInterval(() => refreshStatus(false), 3000);
+    setInterval(() => refreshCounterQueue(), 2500);
   </script>
 </body>
 </html>`;

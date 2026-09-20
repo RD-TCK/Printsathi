@@ -33,6 +33,8 @@ export default async function ShopJobsPage() {
         id,
         public_id,
         status,
+        token_number,
+        payment_mode,
         payments (
           id,
           status,
@@ -66,7 +68,7 @@ export default async function ShopJobsPage() {
         <div className="overflow-x-auto rounded-xl border border-line bg-white">
           <Table
             headers={[
-              "Job ID",
+              "Job ID / Token",
               "Document & Pages",
               "Amount",
               "Payment",
@@ -85,7 +87,7 @@ export default async function ShopJobsPage() {
 
               if (isVerified) {
                 paymentBadgeTone = "success";
-                paymentLabel = "PAID (VERIFIED)";
+                paymentLabel = order?.payment_mode === "counter" ? "PAID (COUNTER)" : "PAID (VERIFIED)";
               } else if (payment?.status === "failed") {
                 paymentBadgeTone = "danger";
                 paymentLabel = "FAILED";
@@ -95,9 +97,14 @@ export default async function ShopJobsPage() {
               const pageCount = (doc as { page_count?: number } | null)?.page_count ?? job.total_pages;
 
               return [
-                <span className="font-mono text-xs" key="job">
-                  #{job.id.slice(0, 8)}
-                </span>,
+                <div key="job" className="flex flex-col gap-1">
+                  <span className="font-mono text-xs">#{job.id.slice(0, 8)}</span>
+                  {order?.token_number ? (
+                    <span className="inline-flex items-center gap-1 font-mono text-[11px] font-black text-emerald-800 bg-emerald-100 px-1.5 py-0.5 rounded w-fit">
+                      Token #{order.token_number}
+                    </span>
+                  ) : null}
+                </div>,
                 <div key="doc" className="min-w-0">
                   <div className="flex items-center gap-1.5">
                     <FileText className="size-3.5 shrink-0 text-brand-500" />

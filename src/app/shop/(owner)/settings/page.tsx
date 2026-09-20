@@ -20,7 +20,7 @@ export default async function ShopSettingsPage({
   const params = await searchParams;
   const { data: settings } = await context.client
     .from("shop_settings")
-    .select("accepting_orders")
+    .select("accepting_orders, payment_mode")
     .eq("shop_id", context.shop.id)
     .maybeSingle();
   return (
@@ -35,7 +35,7 @@ export default async function ShopSettingsPage({
       <Card className="max-w-3xl">
         <CardHeader>
           <h2 className="font-semibold text-brand-950">Shop details</h2>
-          <p className="mt-1 text-sm text-muted">Shop active and accepting orders are separate controls.</p>
+          <p className="mt-1 text-sm text-muted">Shop active, accepting orders, and payment collection mode.</p>
         </CardHeader>
         <CardContent>
           <form action={updateShopSettings} className="space-y-5">
@@ -71,6 +71,26 @@ export default async function ShopSettingsPage({
                 <option value="false">No</option>
               </Select>
             </div>
+
+            <div className="pt-3 border-t border-line">
+              <label className="text-sm font-semibold text-brand-950 block mb-1">
+                Payment Collection Mode
+              </label>
+              <p className="text-xs text-muted mb-3">
+                Choose how customers pay: cash at the counter with a sequential token, online via Razorpay, or both.
+              </p>
+              <Select
+                id="paymentMode"
+                name="paymentMode"
+                label="Payment Mode"
+                defaultValue={settings?.payment_mode ?? "both"}
+              >
+                <option value="both">Both (Customer Choice: Online or Pay at Counter)</option>
+                <option value="counter">Pay at Counter Only (Generate Token; cash at counter)</option>
+                <option value="online">Accept Payment Online Only (Razorpay)</option>
+              </Select>
+            </div>
+
             <SubmitButton pendingLabel="Saving settings...">Save settings</SubmitButton>
           </form>
         </CardContent>

@@ -3,11 +3,28 @@ import { agentDaemon } from "./daemon";
 import { AgentWebServer } from "./ui";
 import { logger } from "./logger";
 
+// Prevent Windows Chromium GPU shader disk cache errors and access-denied locks
+app.commandLine.appendSwitch("disable-gpu-shader-disk-cache");
+
+const gotTheLock = app.requestSingleInstanceLock();
+if (!gotTheLock) {
+  app.quit();
+  process.exit(0);
+}
+
 let mainWindow: BrowserWindow | null = null;
 let tray: Tray | null = null;
 let webServer: AgentWebServer | null = null;
 let dashboardUrl = "";
 let isQuitting = false;
+
+app.on("second-instance", () => {
+  if (mainWindow) {
+    if (mainWindow.isMinimized()) mainWindow.restore();
+    mainWindow.show();
+    mainWindow.focus();
+  }
+});
 
 async function startDesktopAgent() {
   await app.whenReady();
