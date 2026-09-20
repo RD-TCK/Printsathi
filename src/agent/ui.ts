@@ -580,14 +580,25 @@ export class AgentWebServer {
 
     <!-- Counter Print Request Queue Card (Prominently Placed at the Top) -->
     <div class="card" id="counterQueueCard" style="margin-bottom: 24px; border: 2px solid #a7f3d0; background: #ffffff;">
-      <div class="card-header">
-        <span class="card-title" style="font-size:16px;"><span>🏷️</span> Counter Print Request Queue</span>
-        <span id="counterQueueBadge" class="badge" style="background:#fef3c7; color:#92400e; border:1px solid #fde68a;">0 waiting</span>
+      <div class="card-header" style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:8px;">
+        <div style="display:flex; align-items:center; gap:8px;">
+          <span class="card-title" style="font-size:16px;"><span>🏷️</span> Counter Print Request Queue</span>
+          <span id="counterQueueBadge" class="badge" style="background:#fef3c7; color:#92400e; border:1px solid #fde68a;">0 waiting</span>
+        </div>
+        <div style="display:flex; align-items:center; gap:6px;">
+          <input
+            type="text"
+            id="agentTokenSearchInput"
+            placeholder="Search token # (e.g. 5)..."
+            oninput="renderAgentQueueWithFilter()"
+            style="padding:6px 10px; font-size:12px; border:1px solid #cbd5e1; border-radius:8px; outline:none; background:#f8fafc; width:180px;"
+          />
+        </div>
       </div>
       <p style="font-size:12px; color:var(--text-muted); margin-bottom:12px;">
-        Customers paying cash at the counter. Click <b>Print &amp; Approve</b> to dispatch to the default Windows printer, or <b>Cancel</b> if uncollected. Valid for 1 hour.
+        Showing today&apos;s requests (cleared daily at midnight). Click <b>Print &amp; Approve</b> to dispatch to default Windows printer.
       </p>
-      <div id="counterQueueList">
+      <div id="counterQueueList" style="max-height:520px; overflow-y:auto; padding-right:4px;">
         <p style="font-size:13px; color:var(--text-muted); padding:10px 0;">No active counter requests.</p>
       </div>
     </div>
@@ -1015,42 +1026,33 @@ export class AgentWebServer {
       }
     }
 
-    async function refreshCounterQueue() {
-      const qCard = document.getElementById('counterQueueCard');
-      if (!qCard) return;
-      const data = await fetchCounterQueue();
+    let cachedCounterQueue = [];
+
+    function renderAgentQueueWithFilter() {
       const list = document.getElementById('counterQueueList');
       if (!list) return;
+      const searchInput = document.getElementById('agentTokenSearchInput');
+      const query = (searchInput ? searchInput.value : '').trim().replace(/^#+/, '').toLowerCase();
 
-      if (data && data.error) {
-        list.innerHTML = [
-          '<div style="background:#fffbeb; border:1px solid #fde68a; border-radius:10px; padding:12px; font-size:12px; color:#92400e; line-height:1.5;">',
-            '<b>⚠️ Connection Notice:</b> ' + escapeHtml(data.error) + ' (Server: ' + escapeHtml(data.serverUrl || '') + ')<br/>',
-            '<span style="font-size:11px; color:#b45309;">If running locally, switch this agent to connect to http://localhost:3000:</span><br/>',
-            '<button type="button" class="btn-secondary" style="margin-top:6px; font-size:11px;" onclick="switchToLocal()">Switch to Localhost:3000</button>',
-          '</div>'
-        ].join("");
-        return;
+      let items = cachedCounterQueue;
+      if (query) {
+        items = items.filter(function(item) {
+          var tokenStr = String(item.tokenNumber || '');
+          var publicIdStr = String(item.publicId || '').toLowerCase();
+          return tokenStr === query || tokenStr.startsWith(query) || publicIdStr.includes(query);
+        });
       }
 
-      if (!data || !Array.isArray(data.queue)) return;
-
-      const active = data.queue.filter(i => i.status === 'awaiting_payment' && !i.isExpired);
-      const badge = document.getElementById('counterQueueBadge');
-      if (badge) {
-        badge.innerText = active.length + ' waiting';
-        if (badge.style) {
-          badge.style.background = active.length > 0 ? '#fef3c7' : '#f1f5f9';
-          badge.style.color = active.length > 0 ? '#92400e' : '#475569';
+      if (items.length === 0) {
+        if (query) {
+          list.innerHTML = '<p style="font-size:13px; color:var(--text-muted); padding:10px 0;">No counter orders found matching Token #' + escapeHtml(query) + '.</p>';
+        } else {
+          list.innerHTML = '<p style="font-size:13px; color:var(--text-muted); padding:10px 0;">No active counter requests right now.</p>';
         }
-      }
-
-      if (data.queue.length === 0) {
-        list.innerHTML = '<p style="font-size:13px; color:var(--text-muted); padding:10px 0;">No active counter requests right now.</p>';
         return;
       }
 
-      list.innerHTML = data.queue.map(function(item) {
+      list.innerHTML = items.map(function(item) {
         var minutesLeft = Math.floor(item.remainingSeconds / 60);
         var isPaid = item.status === "paid" || item.status === "completed" || item.status === "printing";
         var docNames = item.documents.map(function(d) { return escapeHtml(d.filename); }).join(", ");
@@ -1095,6 +1097,41 @@ export class AgentWebServer {
           '</div>'
         ].join("");
       }).join("");
+    }
+
+    async function refreshCounterQueue() {
+      const qCard = document.getElementById('counterQueueCard');
+      if (!qCard) return;
+      const data = await fetchCounterQueue();
+      const list = document.getElementById('counterQueueList');
+      if (!list) return;
+
+      if (data && data.error) {
+        list.innerHTML = [
+          '<div style="background:#fffbeb; border:1px solid #fde68a; border-radius:10px; padding:12px; font-size:12px; color:#92400e; line-height:1.5;">',
+            '<b>⚠️ Connection Notice:</b> ' + escapeHtml(data.error) + ' (Server: ' + escapeHtml(data.serverUrl || '') + ')<br/>',
+            '<span style="font-size:11px; color:#b45309;">If running locally, switch this agent to connect to http://localhost:3000:</span><br/>',
+            '<button type="button" class="btn-secondary" style="margin-top:6px; font-size:11px;" onclick="switchToLocal()">Switch to Localhost:3000</button>',
+          '</div>'
+        ].join("");
+        return;
+      }
+
+      if (!data || !Array.isArray(data.queue)) return;
+
+      cachedCounterQueue = data.queue;
+
+      const active = data.queue.filter(i => i.status === 'awaiting_payment' && !i.isExpired);
+      const badge = document.getElementById('counterQueueBadge');
+      if (badge) {
+        badge.innerText = active.length + ' waiting';
+        if (badge.style) {
+          badge.style.background = active.length > 0 ? '#fef3c7' : '#f1f5f9';
+          badge.style.color = active.length > 0 ? '#92400e' : '#475569';
+        }
+      }
+
+      renderAgentQueueWithFilter();
     }
 
     refreshStatus(true);

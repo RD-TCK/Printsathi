@@ -168,14 +168,17 @@ export function CounterQueueCenter({ shopName }: { shopName: string }) {
   );
   const popupOrders = activePendingOrders.filter((item) => !dismissedPopups.has(item.id));
 
-  // Search filter for the sequential queue
+  // Search filter for the sequential queue: shop owner types token number (e.g., '1', '5', '#5')
   const filteredQueue = queue.filter((item) => {
     if (!searchQuery.trim()) return true;
-    const q = searchQuery.toLowerCase().trim();
+    const cleanQuery = searchQuery.replace(/^#/, "").trim().toLowerCase();
+    const tokenStr = item.tokenNumber != null ? String(item.tokenNumber) : "";
+    const publicIdStr = item.publicId.toLowerCase();
     return (
-      (item.tokenNumber && String(item.tokenNumber).includes(q)) ||
-      item.publicId.toLowerCase().includes(q) ||
-      item.documents.some((d) => d.filename.toLowerCase().includes(q))
+      tokenStr === cleanQuery ||
+      tokenStr.includes(cleanQuery) ||
+      publicIdStr.startsWith(cleanQuery) ||
+      item.documents.some((d) => d.filename.toLowerCase().includes(cleanQuery))
     );
   });
 
@@ -291,7 +294,7 @@ export function CounterQueueCenter({ shopName }: { shopName: string }) {
               <div>
                 <h2 className="text-lg font-bold text-brand-950">Counter Print Queue</h2>
                 <p className="text-xs text-muted">
-                  Sequential requests from customers paying at the counter. Valid for 1 hour; print in any order.
+                  Showing today&apos;s requests (resets daily at midnight). Valid for 1 hour; print in any order.
                 </p>
               </div>
             </div>
@@ -306,7 +309,7 @@ export function CounterQueueCenter({ shopName }: { shopName: string }) {
                 <Search className="absolute left-2.5 top-1/2 size-3.5 -translate-y-1/2 text-muted" />
                 <input
                   type="text"
-                  placeholder="Search token #..."
+                  placeholder="Enter token # (e.g. 5)..."
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
                   className="w-full rounded-lg border border-line bg-brand-50/50 py-1.5 pl-8 pr-3 text-xs font-medium text-brand-950 focus:border-brand-600 focus:bg-white focus:outline-none"
@@ -325,10 +328,10 @@ export function CounterQueueCenter({ shopName }: { shopName: string }) {
           ) : filteredQueue.length === 0 ? (
             <div className="py-12 text-center text-sm text-muted">
               <Ticket className="size-8 mx-auto mb-2 text-slate-300" />
-              {searchQuery ? `No counter orders matching "${searchQuery}".` : "No counter requests queued right now."}
+              {searchQuery ? `No counter orders matching token #${searchQuery}.` : "No counter requests queued for today."}
             </div>
           ) : (
-            <div className="divide-y divide-line/60">
+            <div className="divide-y divide-line/60 max-h-[540px] overflow-y-auto pr-1">
               {filteredQueue.map((item) => {
                 const minutesLeft = Math.floor(item.remainingSeconds / 60);
                 const isPaid = item.status === "paid" || item.status === "completed" || item.status === "printing";

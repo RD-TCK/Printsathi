@@ -43,8 +43,11 @@ export async function GET(request: Request) {
     return NextResponse.json({ error: "Database service unavailable." }, { status: 503 });
   }
 
-  const startOfToday = new Date();
-  startOfToday.setHours(0, 0, 0, 0);
+  // Calculate midnight (00:00:00) of today in Indian Standard Time (Asia/Kolkata)
+  const now = new Date();
+  const istOffset = 5.5 * 60 * 60 * 1000;
+  const istNow = new Date(now.getTime() + istOffset);
+  const istStartOfDay = new Date(Date.UTC(istNow.getUTCFullYear(), istNow.getUTCMonth(), istNow.getUTCDate(), 0, 0, 0) - istOffset);
 
   // Fetch shop settings for payment mode
   const { data: settings } = await adminClient
@@ -53,7 +56,7 @@ export async function GET(request: Request) {
     .eq("shop_id", shopId)
     .maybeSingle();
 
-  // Fetch counter orders created today
+  // Fetch counter orders created today (IST)
   const { data: orders, error } = await adminClient
     .from("orders")
     .select(
@@ -84,6 +87,7 @@ export async function GET(request: Request) {
     )
     .eq("shop_id", shopId)
     .eq("payment_mode", "counter")
+    .gte("created_at", istStartOfDay.toISOString())
     .order("token_number", { ascending: false, nullsFirst: false })
     .order("created_at", { ascending: false });
 

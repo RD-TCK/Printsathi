@@ -143,12 +143,18 @@ export async function POST(request: Request) {
     if (!tokenError && typeof generatedToken === "number" && generatedToken > 0) {
       tokenNumber = generatedToken;
     } else {
-      // Robust Fallback: query highest token ever created for this shop
+      // Daily Fallback (IST Midnight reset): query highest token created today
+      const now = new Date();
+      const istOffset = 5.5 * 60 * 60 * 1000;
+      const istNow = new Date(now.getTime() + istOffset);
+      const istStartOfDay = new Date(Date.UTC(istNow.getUTCFullYear(), istNow.getUTCMonth(), istNow.getUTCDate(), 0, 0, 0) - istOffset);
+
       const { data: existingTokens } = await client
         .from("orders")
         .select("token_number")
         .eq("shop_id", shop.id)
         .eq("payment_mode", "counter")
+        .gte("created_at", istStartOfDay.toISOString())
         .not("token_number", "is", null)
         .order("token_number", { ascending: false })
         .limit(1);
