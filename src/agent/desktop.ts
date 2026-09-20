@@ -83,10 +83,10 @@ function createWindow() {
   const appIcon = iconPath ? nativeImage.createFromPath(iconPath) : undefined;
 
   mainWindow = new BrowserWindow({
-    width: 1100,
-    height: 740,
+    width: 1120,
+    height: 860,
     minWidth: 800,
-    minHeight: 580,
+    minHeight: 600,
     show: false,
     autoHideMenuBar: true,
     title: "Printiva Desktop Agent",
@@ -130,7 +130,7 @@ function createTray() {
         label: "Shop Dashboard (Web)",
         click: () =>
           void shell.openExternal(
-            `${agentDaemon.getStatus().serverUrl || "https://printsathi.vercel.app"}/shop/dashboard`
+            `${agentDaemon.getStatus().serverUrl || "https://printiva.co.in"}/shop/dashboard`
           ),
       },
       { type: "separator" },

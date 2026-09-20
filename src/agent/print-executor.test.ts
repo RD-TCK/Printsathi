@@ -64,7 +64,8 @@ describe("PDF print submission", () => {
     });
     const pending = prepareAndPrintDocument(source, job, printerName);
     await vi.waitFor(() => expect(finish).toBeTypeOf("function"));
-    expect((await PDFDocument.load(fs.readFileSync(sliced))).getPageCount()).toBe(1);
+    // 1 customer page + 1 blank separator page = 2 pages in spooled output
+    expect((await PDFDocument.load(fs.readFileSync(sliced))).getPageCount()).toBe(2);
     finish();
     expect(await pending).toMatchObject({ success: true, status: "PRINT_SUBMITTED", pagesSubmitted: 1 });
     expect(fs.existsSync(sliced)).toBe(false);

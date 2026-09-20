@@ -84,8 +84,8 @@ export async function GET(request: Request) {
     )
     .eq("shop_id", shopId)
     .eq("payment_mode", "counter")
-    .gte("created_at", startOfToday.toISOString())
-    .order("token_number", { ascending: true, nullsFirst: false });
+    .order("token_number", { ascending: false, nullsFirst: false })
+    .order("created_at", { ascending: false });
 
   if (error) {
     return NextResponse.json({ error: error.message }, { status: 500 });

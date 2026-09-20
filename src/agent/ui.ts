@@ -48,7 +48,7 @@ export class AgentWebServer {
     const isAllowedOrigin =
       !origin ||
       /^https?:\/\/(127\.0\.0\.1|localhost)(:\d+)?$/.test(origin) ||
-      origin.includes("printsathi.vercel.app");
+      origin.includes("printiva.co.in");
     if (!isAllowedOrigin) {
       res.writeHead(403);
       res.end("Origin not allowed");
@@ -247,7 +247,7 @@ export class AgentWebServer {
 
   private getDashboardHtml(): string {
     const status = agentDaemon.getStatus();
-    const serverUrl = status.serverUrl || "https://printsathi.vercel.app";
+    const serverUrl = status.serverUrl || "https://printiva.co.in";
     const shopPortalUrl = `${serverUrl}/shop/dashboard`;
 
     return `<!DOCTYPE html>
@@ -578,6 +578,20 @@ export class AgentWebServer {
       </div>
     </header>
 
+    <!-- Counter Print Request Queue Card (Prominently Placed at the Top) -->
+    <div class="card" id="counterQueueCard" style="margin-bottom: 24px; border: 2px solid #a7f3d0; background: #ffffff;">
+      <div class="card-header">
+        <span class="card-title" style="font-size:16px;"><span>🏷️</span> Counter Print Request Queue</span>
+        <span id="counterQueueBadge" class="badge" style="background:#fef3c7; color:#92400e; border:1px solid #fde68a;">0 waiting</span>
+      </div>
+      <p style="font-size:12px; color:var(--text-muted); margin-bottom:12px;">
+        Customers paying cash at the counter. Click <b>Print &amp; Approve</b> to dispatch to the default Windows printer, or <b>Cancel</b> if uncollected. Valid for 1 hour.
+      </p>
+      <div id="counterQueueList">
+        <p style="font-size:13px; color:var(--text-muted); padding:10px 0;">No active counter requests.</p>
+      </div>
+    </div>
+
     <div class="grid">
       <!-- Connection & Authentication Card -->
       <div class="card" id="connectionCard">
@@ -625,20 +639,6 @@ export class AgentWebServer {
           </div>
         </div>
       </div>
-
-      <!-- Counter Print Request Queue Card -->
-      <div class="card" id="counterQueueCard" style="display:none; grid-column: 1 / -1;">
-        <div class="card-header">
-          <span class="card-title"><span>🏷️</span> Counter Print Request Queue</span>
-          <span id="counterQueueBadge" class="badge" style="background:#fef3c7; color:#92400e; border:1px solid #fde68a;">0 waiting</span>
-        </div>
-        <p style="font-size:12px; color:var(--text-muted); margin-bottom:12px;">
-          Customers paying cash at the counter. Click <b>Print &amp; Approve</b> to dispatch to the default Windows printer, or <b>Cancel</b> if uncollected. Valid for 1 hour.
-        </p>
-        <div id="counterQueueList">
-          <p style="font-size:13px; color:var(--text-muted); padding:10px 0;">No active counter requests.</p>
-        </div>
-      </div>
     </div>
   </div>
 
@@ -684,7 +684,7 @@ export class AgentWebServer {
       const email = document.getElementById('loginEmailInput').value.trim();
       const password = document.getElementById('loginPasswordInput').value;
       const name = document.getElementById('loginAgentNameInput').value;
-      const serverUrl = document.getElementById('serverUrlInput').value.trim() || 'https://printsathi.vercel.app';
+      const serverUrl = document.getElementById('serverUrlInput').value.trim() || 'https://printiva.co.in';
       const btn = document.getElementById('loginBtn');
       if (btn) {
         btn.disabled = true;
@@ -729,7 +729,7 @@ export class AgentWebServer {
       event.preventDefault();
       const code = document.getElementById('pairingCodeInput').value.trim().toUpperCase().replace(/\\s+/g, '');
       const name = document.getElementById('agentNameInput').value;
-      const serverUrl = document.getElementById('serverUrlInput').value.trim() || 'https://printsathi.vercel.app';
+      const serverUrl = document.getElementById('serverUrlInput').value.trim() || 'https://printiva.co.in';
       const btn = document.getElementById('pairBtn');
       if (btn) {
         btn.disabled = true;
@@ -773,7 +773,7 @@ export class AgentWebServer {
         return;
       }
 
-      const activeServerUrl = status.serverUrl || 'https://printsathi.vercel.app';
+      const activeServerUrl = status.serverUrl || 'https://printiva.co.in';
       const portalLink = document.getElementById('headerPortalLink');
       if (portalLink) portalLink.href = \`\${activeServerUrl}/shop/dashboard\`;
 
@@ -800,7 +800,7 @@ export class AgentWebServer {
         if (!status.isPaired) {
           connDiv.innerHTML = \`
             <label for="serverUrlInput" style="font-size:12px; font-weight:700; color:var(--text-main);">Printiva Website Address</label>
-            <input type="url" id="serverUrlInput" class="input-field" value="\${escapeHtml(activeServerUrl)}" placeholder="https://printsathi.vercel.app" />
+            <input type="url" id="serverUrlInput" class="input-field" value="\${escapeHtml(activeServerUrl)}" placeholder="https://printiva.co.in" />
             
             <div class="tab-group">
               <button type="button" id="tabBtnPair" class="tab-btn active" onclick="switchAuthTab('pair')">Pairing Key</button>
@@ -918,8 +918,8 @@ export class AgentWebServer {
       // Counter Queue Section
       const qCard = document.getElementById('counterQueueCard');
       if (qCard) {
-        if (qCard.style) qCard.style.display = status.isPaired ? 'flex' : 'none';
-        if (status.isPaired) void refreshCounterQueue();
+        if (qCard.style) qCard.style.display = 'block';
+        void refreshCounterQueue();
       }
     }
 
@@ -928,7 +928,7 @@ export class AgentWebServer {
     }
 
     async function changeServerUrl(targetUrl) {
-      const url = targetUrl || prompt('Enter website server address (e.g. http://localhost:3000 or https://printsathi.vercel.app):');
+      const url = targetUrl || prompt('Enter website server address (e.g. http://localhost:3000 or https://printiva.co.in):');
       if (!url) return;
       try {
         const res = await fetch('/api/set-server-url', {

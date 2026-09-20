@@ -88,23 +88,13 @@ export async function prepareAndPrintDocument(
         throw new Error("Invalid print page range; no pages were submitted.");
       }
     }
-    // 1. Process page ranges if necessary
-    const isSubset =
-      activeConfigs &&
-      activeConfigs.length > 0 &&
-      !(
-        activeConfigs.length === 1 &&
-        activeConfigs[0].startPage === 1 &&
-        activeConfigs[0].endPage === sourcePdf.getPageCount()
-      );
+    // 1. Process page ranges and append a blank separator page at the end of customer print request
+    logger.info(`Extracting configured page ranges and appending separator page for Job #${job.id.slice(0, 8)}...`);
+    const outputPdf = await PDFDocument.create();
+    let effectivePagesCount = 0;
 
-    let effectivePagesCount = sourcePdf.getPageCount();
-
-    if (isSubset) {
-      logger.info(`Extracting configured page ranges for Job #${job.id.slice(0, 8)}...`);
-      const outputPdf = await PDFDocument.create();
-
-      let calculatedPages = 0;
+    let calculatedPages = 0;
+    if (activeConfigs && activeConfigs.length > 0) {
       for (const config of activeConfigs) {
         const start = Math.max(1, config.startPage);
         const end = Math.min(sourcePdf.getPageCount(), config.endPage);
@@ -118,17 +108,32 @@ export async function prepareAndPrintDocument(
           copiedPages.forEach((p) => outputPdf.addPage(p));
         }
       }
-      effectivePagesCount = calculatedPages;
-
-      const outputBytes = await outputPdf.save();
-      const tempDir = path.join(os.tmpdir(), "printsaathi_spool");
-      if (!fs.existsSync(tempDir)) {
-        fs.mkdirSync(tempDir, { recursive: true });
-      }
-      tempExtractedPath = path.join(tempDir, `job_${job.id}_${Date.now()}_sliced.pdf`);
-      fs.writeFileSync(tempExtractedPath, outputBytes);
-      finalPdfPath = tempExtractedPath;
+    } else {
+      const allIndices = Array.from({ length: sourcePdf.getPageCount() }, (_, i) => i);
+      const copiedPages = await outputPdf.copyPages(sourcePdf, allIndices);
+      copiedPages.forEach((p) => outputPdf.addPage(p));
+      calculatedPages = sourcePdf.getPageCount();
     }
+
+    // Add 1 blank page at the very end as a job separator
+    const firstPage = outputPdf.getPageCount() > 0 ? outputPdf.getPage(0) : null;
+    if (firstPage) {
+      const { width, height } = firstPage.getSize();
+      outputPdf.addPage([width, height]);
+    } else {
+      outputPdf.addPage([595.28, 841.89]); // Standard A4 points
+    }
+
+    effectivePagesCount = calculatedPages;
+
+    const outputBytes = await outputPdf.save();
+    const tempDir = path.join(os.tmpdir(), "printsaathi_spool");
+    if (!fs.existsSync(tempDir)) {
+      fs.mkdirSync(tempDir, { recursive: true });
+    }
+    tempExtractedPath = path.join(tempDir, `job_${job.id}_${Date.now()}_spooled.pdf`);
+    fs.writeFileSync(tempExtractedPath, outputBytes);
+    finalPdfPath = tempExtractedPath;
 
     const settings = ["fit", "simplex"];
     const config = activeConfigs?.[0];
