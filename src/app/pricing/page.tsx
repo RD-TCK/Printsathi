@@ -31,7 +31,7 @@ export default function PricingPage() {
               </div>
               <p className="mt-5 max-w-xl leading-7 text-muted">
                 Pay ₹699 monthly or ₹7,499 yearly (₹889 less than twelve monthly payments).
-                Subscription plans waive customer platform fees. After expiry, Take from Customer billing keeps printing available.
+                Subscription plans waive customer platform fees and unlock full shop features.
               </p>
               <ul className="mt-7 grid gap-3 sm:grid-cols-2">
                 {[

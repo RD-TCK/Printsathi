@@ -88,7 +88,7 @@ export default async function ShopDashboardPage() {
 
       {warningDays !== null ? (
         <Alert tone="warning" className="py-3 text-sm">
-          Your subscription ends in {warningDays} {warningDays === 1 ? "day" : "days"}. Renew to keep customer platform fees at zero; after expiry your shop switches to Take from Customer. {" "}
+          Your subscription ends in {warningDays} {warningDays === 1 ? "day" : "days"}. Renew now to maintain uninterrupted printing. {" "}
           <Link href="/shop/subscription" className="font-semibold underline">Renew subscription</Link>
         </Alert>
       ) : null}

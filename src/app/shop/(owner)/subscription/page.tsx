@@ -60,7 +60,7 @@ export default async function SubscriptionPage({
       <ShopPageHeader
         eyebrow="Plan & access"
         title="Subscription & Billing"
-        description="Manage your shop plan and choose between customer-funded platform convenience fees or standard subscription billing."
+        description="Manage your shop subscription plan and activate direct instant printing."
       />
 
       {params?.success ? (
@@ -74,9 +74,6 @@ export default async function SubscriptionPage({
           {params.error}
         </Alert>
       ) : null}
-
-      {/* Interactive Billing Mode Toggle */}
-      <BillingModeToggle currentMode={currentBillingMode} />
 
       {/* Subscription Plan Details */}
       <Card className="max-w-4xl border-line">

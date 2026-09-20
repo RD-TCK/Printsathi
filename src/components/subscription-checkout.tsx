@@ -331,12 +331,6 @@ export function SubscriptionCheckout({ shopName, shopId }: { shopName: string; s
           </CardContent>
         </Card>
       </div>
-
-      <div className="max-w-4xl rounded-lg border border-line bg-surface-muted/50 p-4 text-xs text-muted leading-relaxed">
-        <p>
-          <strong>Automatic Model Switching:</strong> If your active subscription expires, your shop will automatically shift to the <em>Take from Customer</em> platform fee model (₹0.50 for ≤5 pages, ₹1.50 for ≥6 pages) so your customers can continue printing without any disruption. You can upgrade or renew your plan at any time.
-        </p>
-      </div>
     </div>
   );
 }
