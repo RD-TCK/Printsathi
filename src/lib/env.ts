@@ -60,10 +60,10 @@ export function getAgentDownloadUrl(): string {
 }
 
 export function getAppUrl(): string {
-  if (process.env.NEXT_PUBLIC_APP_URL && !process.env.NEXT_PUBLIC_APP_URL.includes("localhost")) {
+  if (process.env.NEXT_PUBLIC_APP_URL && !process.env.NEXT_PUBLIC_APP_URL.includes("localhost") && !process.env.NEXT_PUBLIC_APP_URL.includes("vercel.app")) {
     return process.env.NEXT_PUBLIC_APP_URL.replace(/\/+$/, "");
   }
-  if (process.env.NODE_ENV === "production") {
+  if (process.env.NODE_ENV === "production" || process.env.VERCEL) {
     return "https://printiva.co.in";
   }
   return (process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000").replace(/\/+$/, "");
