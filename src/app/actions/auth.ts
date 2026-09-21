@@ -36,27 +36,48 @@ function loginError(message: string): never {
   redirect(`/login?error=${encodeURIComponent(message)}`);
 }
 
+function registerError(message: string): never {
+  redirect(`/register?error=${encodeURIComponent(message)}`);
+}
+
 export async function signIn(formData: FormData) {
   const parsed = credentialsSchema.safeParse(readFields(formData));
   if (!parsed.success) {
     const errorMsg = parsed.error.issues[0]?.message || "Enter a valid email and password.";
     loginError(errorMsg);
   }
+
   const client = await createSupabaseServerClient();
-  if (!client) loginError("Authentication is not configured yet.");
-  const { error } = await client.auth.signInWithPassword(parsed.data);
-  if (error) loginError("Email or password is incorrect.");
-  const {
-    data: { user },
-  } = await client.auth.getUser();
-  const metadata = user?.user_metadata ?? {};
-  if (metadata.shop_name && metadata.shop_slug) {
-    await client.rpc("register_shop", {
-      shop_name: metadata.shop_name,
-      shop_slug: metadata.shop_slug,
-      shop_phone: metadata.shop_phone || null,
-    });
+  if (!client) loginError("Authentication service is not configured yet.");
+
+  const { data: authData, error } = await client.auth.signInWithPassword(parsed.data);
+  if (error) {
+    const msg = (error.message || "").toLowerCase();
+    if (msg.includes("email not confirmed")) {
+      loginError("Please check your email inbox to confirm your account before signing in.");
+    } else if (msg.includes("invalid login credentials") || msg.includes("invalid_grant")) {
+      loginError("Invalid email address or password.");
+    } else {
+      loginError(error.message || "Sign in failed. Please try again.");
+    }
   }
+
+  const user = authData?.user;
+  if (user) {
+    const metadata = user.user_metadata ?? {};
+    if (metadata.shop_name && metadata.shop_slug) {
+      try {
+        await client.rpc("register_shop", {
+          shop_name: metadata.shop_name,
+          shop_slug: metadata.shop_slug,
+          shop_phone: metadata.shop_phone || null,
+        });
+      } catch {
+        // Non-blocking: shop might already exist or getShopContext will handle it
+      }
+    }
+  }
+
   const { data: profile } = await client.from("profiles").select("role").eq("id", user?.id ?? "").maybeSingle();
   redirect(profile?.role === "customer" ? "/customer" : profile?.role === "admin" ? "/admin" : "/shop");
 }
@@ -64,21 +85,28 @@ export async function signIn(formData: FormData) {
 export async function signUpShopOwner(formData: FormData) {
   const fields = readFields(formData);
   if (typeof fields.shopSlug === "string") {
-    fields.shopSlug = fields.shopSlug.trim().toLowerCase().replace(/\s+/g, "-");
+    fields.shopSlug = fields.shopSlug
+      .trim()
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, "-")
+      .replace(/^-+|-+$/g, "");
   }
 
   const parsed = registrationSchema.safeParse(fields);
   if (!parsed.success) {
     const errorMsg = parsed.error.issues[0]?.message || "Please check the form fields and try again.";
-    redirect(`/register?error=${encodeURIComponent(errorMsg)}`);
+    registerError(errorMsg);
   }
+
   const client = await createSupabaseServerClient();
-  if (!client) redirect("/register?error=Authentication+is+not+configured+yet.");
+  if (!client) registerError("Authentication service is not configured yet.");
+
+  const appUrl = getAppUrl();
   const { data, error } = await client.auth.signUp({
     email: parsed.data.email,
     password: parsed.data.password,
     options: {
-      emailRedirectTo: `${getAppUrl()}/auth/callback?next=/shop`,
+      emailRedirectTo: `${appUrl}/auth/callback?next=/shop`,
       data: {
         full_name: parsed.data.fullName,
         shop_name: parsed.data.shopName,
@@ -87,15 +115,43 @@ export async function signUpShopOwner(formData: FormData) {
       },
     },
   });
-  if (error || !data.user)
-    redirect(`/register?error=${encodeURIComponent(error?.message ?? "Unable to create account.")}`);
-  if (!data.session) redirect("/login?message=Check+your+email+to+confirm+your+account+before+continuing.");
-  const { error: shopError } = await client.rpc("register_shop", {
-    shop_name: parsed.data.shopName,
-    shop_slug: parsed.data.shopSlug,
-    shop_phone: parsed.data.shopPhone || null,
-  });
-  if (shopError) redirect(`/register?error=${encodeURIComponent(shopError.message)}`);
+
+  if (error) {
+    const msg = error.message.toLowerCase();
+    if (msg.includes("already registered") || msg.includes("already exists")) {
+      registerError("An account with this email already exists. Please sign in instead.");
+    } else {
+      registerError(error.message || "Unable to create account. Please try again.");
+    }
+  }
+
+  if (!data?.user) {
+    registerError("Account creation could not be completed. Please try again.");
+  }
+
+  // If email confirmation is required by Supabase:
+  if (!data.session) {
+    redirect("/login?message=Account+created!+Please+check+your+email+to+confirm+your+account+before+signing+in.");
+  }
+
+  // If session is immediately active (email confirmation disabled or auto-confirmed):
+  try {
+    const { error: shopError } = await client.rpc("register_shop", {
+      shop_name: parsed.data.shopName,
+      shop_slug: parsed.data.shopSlug,
+      shop_phone: parsed.data.shopPhone || null,
+    });
+    if (shopError) {
+      if (shopError.message.toLowerCase().includes("already in use")) {
+        registerError("This shop name or URL slug is already in use. Please choose another one.");
+      } else {
+        registerError(shopError.message || "Failed to initialize your shop profile.");
+      }
+    }
+  } catch (e) {
+    console.error("register_shop exception on signup:", e);
+  }
+
   redirect("/shop");
 }
 
@@ -117,7 +173,7 @@ export async function requestPasswordReset(formData: FormData) {
     redirect(`/forgot-password?error=${encodeURIComponent(error.message)}`);
   }
 
-  redirect("/forgot-password?success=Password+reset+link+has+been+sent+to+your+email.");
+  redirect("/forgot-password?success=Password+reset+link+has+been+sent+to+your+email.+Please+check+your+inbox.");
 }
 
 export async function updateUserPassword(formData: FormData) {
@@ -140,7 +196,7 @@ export async function updateUserPassword(formData: FormData) {
     redirect(`/reset-password?error=${encodeURIComponent(error.message)}`);
   }
 
-  redirect("/login?message=Password+updated+successfully.+Please+sign+in+with+your+new+password.");
+  redirect("/login?message=Password+updated+successfully!+Please+sign+in+with+your+new+password.");
 }
 
 export async function signOut() {

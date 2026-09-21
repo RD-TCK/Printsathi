@@ -1,7 +1,6 @@
 import Link from "next/link";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
-import { Button } from "@/components/ui/button";
 import { SubmitButton } from "@/components/ui/submit-button";
 import { Alert } from "@/components/ui/alert";
 import { signIn } from "@/app/actions/auth";
@@ -13,12 +12,12 @@ export default async function LoginPage({
 }) {
   const params = await searchParams;
   return (
-    <main className="flex min-h-screen items-center justify-center px-6 py-12">
-      <Card className="w-full max-w-md">
+    <main className="flex min-h-screen items-center justify-center px-4 py-12 sm:px-6">
+      <Card className="w-full max-w-md shadow-xl border-slate-200">
         <CardHeader>
-          <p className="text-sm font-bold text-brand-600">Printiva</p>
-          <h1 className="mt-2 text-2xl font-semibold text-brand-950">Welcome back</h1>
-          <p className="mt-1 text-sm text-muted">Sign in to manage your printing workspace.</p>
+          <p className="text-sm font-bold text-brand-600 tracking-wide uppercase">Printiva</p>
+          <h1 className="mt-2 text-2xl font-bold text-brand-950">Welcome back</h1>
+          <p className="mt-1 text-sm text-muted">Sign in to manage your shop, orders, and printers.</p>
         </CardHeader>
         <CardContent>
           {params.error ? (
@@ -31,15 +30,24 @@ export default async function LoginPage({
               {params.message}
             </Alert>
           ) : null}
-          <form action={signIn} className="space-y-5">
-            <Input id="email" name="email" label="Email address" type="email" autoComplete="email" required />
-            <div className="space-y-1">
+          <form action={signIn} className="space-y-4">
+            <Input
+              id="email"
+              name="email"
+              label="Email address"
+              type="email"
+              autoComplete="email"
+              placeholder="you@example.com"
+              required
+            />
+            <div className="space-y-1.5">
               <Input
                 id="password"
                 name="password"
                 label="Password"
                 type="password"
                 autoComplete="current-password"
+                placeholder="••••••••"
                 required
               />
               <div className="flex justify-end">
@@ -51,14 +59,14 @@ export default async function LoginPage({
                 </Link>
               </div>
             </div>
-            <SubmitButton className="w-full" pendingLabel="Signing in...">
+            <SubmitButton className="w-full mt-2" pendingLabel="Signing in...">
               Sign in
             </SubmitButton>
           </form>
           <p className="mt-6 text-center text-sm text-muted">
             New to Printiva?{" "}
             <Link className="font-semibold text-brand-700 hover:underline" href="/register">
-              Create an account
+              Create a shop account
             </Link>
           </p>
         </CardContent>

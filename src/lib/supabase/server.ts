@@ -49,6 +49,34 @@ export async function getCurrentProfile() {
   if (!client) return null;
   const user = await getCurrentUser();
   if (!user) return null;
+
   const { data } = await client.from("profiles").select("id, role, full_name").eq("id", user.id).maybeSingle();
-  return data;
+  if (data) return data;
+
+  // Fallback: If profile row is missing or being initialized
+  const { data: membership } = await client
+    .from("shop_members")
+    .select("role")
+    .eq("user_id", user.id)
+    .limit(1)
+    .maybeSingle();
+
+  const inferredRole = membership?.role || (user.user_metadata?.shop_name ? "shop_owner" : "customer");
+  const inferredName = (user.user_metadata?.full_name as string) || null;
+
+  try {
+    await client.from("profiles").upsert({
+      id: user.id,
+      role: inferredRole,
+      full_name: inferredName,
+    });
+  } catch {
+    // Non-blocking
+  }
+
+  return {
+    id: user.id,
+    role: inferredRole,
+    full_name: inferredName,
+  };
 }

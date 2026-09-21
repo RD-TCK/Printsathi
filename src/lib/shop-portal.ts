@@ -21,6 +21,7 @@ export async function getShopContext(): Promise<ShopContext | null> {
   const user = await getCurrentUser();
   const profile = await getCurrentProfile();
   if (!client || !user || !profile || !["shop_owner", "shop_staff", "admin"].includes(profile.role)) return null;
+
   const { data: membership } = await client
     .from("shop_members")
     .select("shop_id, role")
@@ -28,12 +29,39 @@ export async function getShopContext(): Promise<ShopContext | null> {
     .order("created_at", { ascending: true })
     .limit(1)
     .maybeSingle();
-  if (!membership) return null;
+
+  if (!membership) {
+    // If user has shop metadata from registration, auto-register their shop
+    const metadata = user.user_metadata ?? {};
+    if (metadata.shop_name && metadata.shop_slug) {
+      try {
+        const { data: newShop } = await client.rpc("register_shop", {
+          shop_name: metadata.shop_name,
+          shop_slug: metadata.shop_slug,
+          shop_phone: metadata.shop_phone || null,
+        });
+        if (newShop) {
+          return {
+            client,
+            userId: user.id,
+            profile: { id: user.id, role: "shop_owner", full_name: profile.full_name },
+            shop: newShop,
+            membership: { role: "shop_owner" },
+          };
+        }
+      } catch (e) {
+        console.error("Auto-register shop in getShopContext failed:", e);
+      }
+    }
+    return null;
+  }
+
   const { data: shop } = await client
     .from("shops")
     .select("id, public_id, name, phone, email, address, is_active")
     .eq("id", membership.shop_id)
     .maybeSingle();
+
   if (!shop) return null;
   return { client, userId: user.id, profile, shop, membership: { role: membership.role } };
 }
