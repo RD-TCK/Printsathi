@@ -1,4 +1,5 @@
 import { createSupabaseServerClient, getCurrentProfile, getCurrentUser } from "@/lib/supabase/server";
+import { ensureShopForUser } from "@/lib/ensure-shop";
 
 export type ShopContext = {
   client: NonNullable<Awaited<ReturnType<typeof createSupabaseServerClient>>>;
@@ -20,9 +21,9 @@ export async function getShopContext(): Promise<ShopContext | null> {
   const client = await createSupabaseServerClient();
   const user = await getCurrentUser();
   const profile = await getCurrentProfile();
-  if (!client || !user || !profile || !["shop_owner", "shop_staff", "admin"].includes(profile.role)) return null;
+  if (!client || !user || !profile) return null;
 
-  const { data: membership } = await client
+  let { data: membership } = await client
     .from("shop_members")
     .select("shop_id, role")
     .eq("user_id", user.id)
@@ -31,30 +32,20 @@ export async function getShopContext(): Promise<ShopContext | null> {
     .maybeSingle();
 
   if (!membership) {
-    // If user has shop metadata from registration, auto-register their shop
-    const metadata = user.user_metadata ?? {};
-    if (metadata.shop_name && metadata.shop_slug) {
-      try {
-        const { data: newShop } = await client.rpc("register_shop", {
-          shop_name: metadata.shop_name,
-          shop_slug: metadata.shop_slug,
-          shop_phone: metadata.shop_phone || null,
-        });
-        if (newShop) {
-          return {
-            client,
-            userId: user.id,
-            profile: { id: user.id, role: "shop_owner", full_name: profile.full_name },
-            shop: newShop,
-            membership: { role: "shop_owner" },
-          };
-        }
-      } catch (e) {
-        console.error("Auto-register shop in getShopContext failed:", e);
-      }
+    // Auto-register shop if metadata exists
+    if (user.user_metadata?.shop_name) {
+      await ensureShopForUser(client, user);
+      const { data: newMembership } = await client
+        .from("shop_members")
+        .select("shop_id, role")
+        .eq("user_id", user.id)
+        .limit(1)
+        .maybeSingle();
+      membership = newMembership;
     }
-    return null;
   }
+
+  if (!membership) return null;
 
   const { data: shop } = await client
     .from("shops")

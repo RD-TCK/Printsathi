@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
+import { ensureShopForUser } from "@/lib/ensure-shop";
 import type { EmailOtpType } from "@supabase/supabase-js";
 
 export async function GET(request: Request) {
@@ -44,16 +45,11 @@ export async function GET(request: Request) {
       const {
         data: { user },
       } = await supabase.auth.getUser();
-      const metadata = user?.user_metadata ?? {};
-      if (metadata.shop_name && metadata.shop_slug) {
-        await supabase.rpc("register_shop", {
-          shop_name: metadata.shop_name,
-          shop_slug: metadata.shop_slug,
-          shop_phone: metadata.shop_phone || null,
-        });
+      if (user?.user_metadata?.shop_name) {
+        await ensureShopForUser(supabase, user);
       }
     } catch {
-      // Non-blocking: getShopContext will also auto-register if missing
+      // Non-blocking
     }
 
     return NextResponse.redirect(`${origin}${next}`);

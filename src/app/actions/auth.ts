@@ -4,6 +4,7 @@ import { redirect } from "next/navigation";
 import { z } from "zod";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { getAppUrl } from "@/lib/env";
+import { ensureShopForUser } from "@/lib/ensure-shop";
 
 const credentialsSchema = z.object({
   email: z.string().trim().email("Please enter a valid email address."),
@@ -63,23 +64,23 @@ export async function signIn(formData: FormData) {
   }
 
   const user = authData?.user;
-  if (user) {
-    const metadata = user.user_metadata ?? {};
-    if (metadata.shop_name && metadata.shop_slug) {
-      try {
-        await client.rpc("register_shop", {
-          shop_name: metadata.shop_name,
-          shop_slug: metadata.shop_slug,
-          shop_phone: metadata.shop_phone || null,
-        });
-      } catch {
-        // Non-blocking: shop might already exist or getShopContext will handle it
-      }
-    }
+  if (!user) loginError("User account not found.");
+
+  // If user has shop metadata, ensure their shop is registered and ready
+  if (user.user_metadata?.shop_name) {
+    await ensureShopForUser(client, user);
   }
 
-  const { data: profile } = await client.from("profiles").select("role").eq("id", user?.id ?? "").maybeSingle();
-  redirect(profile?.role === "customer" ? "/customer" : profile?.role === "admin" ? "/admin" : "/shop");
+  const { data: profile } = await client.from("profiles").select("role").eq("id", user.id).maybeSingle();
+  const { data: membership } = await client.from("shop_members").select("shop_id").eq("user_id", user.id).limit(1).maybeSingle();
+
+  if (profile?.role === "admin") {
+    redirect("/admin");
+  } else if (profile?.role === "shop_owner" || profile?.role === "shop_staff" || membership || user.user_metadata?.shop_name) {
+    redirect("/shop");
+  } else {
+    redirect("/customer");
+  }
 }
 
 export async function signUpShopOwner(formData: FormData) {
@@ -131,26 +132,15 @@ export async function signUpShopOwner(formData: FormData) {
 
   // If email confirmation is required by Supabase:
   if (!data.session) {
-    redirect("/login?message=Account+created!+Please+check+your+email+to+confirm+your+account+before+signing+in.");
+    redirect("/login?message=Account+created+successfully!+Please+check+your+email+to+confirm+your+account+before+signing+in.");
   }
 
-  // If session is immediately active (email confirmation disabled or auto-confirmed):
-  try {
-    const { error: shopError } = await client.rpc("register_shop", {
-      shop_name: parsed.data.shopName,
-      shop_slug: parsed.data.shopSlug,
-      shop_phone: parsed.data.shopPhone || null,
-    });
-    if (shopError) {
-      if (shopError.message.toLowerCase().includes("already in use")) {
-        registerError("This shop name or URL slug is already in use. Please choose another one.");
-      } else {
-        registerError(shopError.message || "Failed to initialize your shop profile.");
-      }
-    }
-  } catch (e) {
-    console.error("register_shop exception on signup:", e);
-  }
+  // If session is immediately active, ensure shop is created with collision fallback
+  await ensureShopForUser(client, data.user, {
+    shopName: parsed.data.shopName,
+    shopSlug: parsed.data.shopSlug,
+    shopPhone: parsed.data.shopPhone,
+  });
 
   redirect("/shop");
 }
