@@ -18,6 +18,7 @@ import {
 } from "lucide-react";
 import { useState, type ReactNode } from "react";
 import { signOut } from "@/app/actions/auth";
+import { AcceptingOrdersSwitch } from "@/components/accepting-orders-switch";
 
 import { cn } from "@/lib/utils";
 
@@ -38,12 +39,14 @@ export function ShopPortalShell({
   userName,
   membershipRole,
   publicId,
+  initialAcceptingOrders = true,
 }: {
   children: ReactNode;
   shopName: string;
   userName: string | null;
   membershipRole: string;
   publicId: string;
+  initialAcceptingOrders?: boolean;
 }) {
   const pathname = usePathname();
   const [open, setOpen] = useState(false);
@@ -115,17 +118,29 @@ export function ShopPortalShell({
       ) : null}
       <div className="lg:pl-72">
         <header className="sticky top-0 z-20 flex h-16 items-center justify-between border-b border-line bg-white/95 px-4 backdrop-blur lg:px-8">
-          <button
-            className="rounded-md p-2 text-brand-800 lg:hidden"
-            aria-label="Open navigation"
-            onClick={() => setOpen(true)}
-          >
-            <Menu className="size-5" />
-          </button>
-          <div className="hidden text-sm text-muted lg:block">Shop control plane</div>
-          <Link className="text-sm font-semibold text-brand-700" href={`/shop/${publicId}`}>
-            View public site
-          </Link>
+          <div className="flex items-center gap-3">
+            <button
+              className="rounded-md p-2 text-brand-800 lg:hidden"
+              aria-label="Open navigation"
+              onClick={() => setOpen(true)}
+            >
+              <Menu className="size-5" />
+            </button>
+            <div className="hidden text-sm text-muted lg:block">Shop control plane</div>
+          </div>
+
+          <div className="flex items-center gap-3 sm:gap-5">
+            <AcceptingOrdersSwitch initialAccepting={initialAcceptingOrders} />
+            <div className="h-4 w-px bg-line" />
+            <Link
+              className="text-xs sm:text-sm font-semibold text-brand-700 hover:text-brand-900 transition whitespace-nowrap"
+              href={`/shop/${publicId}`}
+              target="_blank"
+              rel="noopener noreferrer"
+            >
+              View public site &rarr;
+            </Link>
+          </div>
         </header>
         <main className="mx-auto max-w-7xl px-5 py-8 lg:px-8 lg:py-10">{children}</main>
       </div>

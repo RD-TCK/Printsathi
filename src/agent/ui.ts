@@ -1055,16 +1055,47 @@ export class AgentWebServer {
       list.innerHTML = items.map(function(item) {
         var minutesLeft = Math.floor(item.remainingSeconds / 60);
         var isPaid = item.status === "paid" || item.status === "completed" || item.status === "printing";
+        var isCancelled = item.status === "cancelled";
         var docNames = item.documents.map(function(d) { return escapeHtml(d.filename); }).join(", ");
         var tokenLabel = item.tokenNumber ? ("#" + item.tokenNumber) : ("#" + item.publicId.slice(0, 4));
-        var statusText = isPaid ? "Approved / Printed" : item.isExpired ? "Expired (1 hr)" : (minutesLeft + "m valid");
-        var statusColor = item.isExpired ? "#dc2626" : isPaid ? "#059669" : "#d97706";
-        var borderCol = isPaid ? "#a7f3d0" : item.isExpired ? "#e2e8f0" : "#fde68a";
-        var bgCol = isPaid ? "#ecfdf5" : item.isExpired ? "#f8fafc" : "#fffbeb";
-        var tokenCol = isPaid ? "#065f46" : item.isExpired ? "#64748b" : "#b45309";
+        var statusText = isPaid
+          ? "Approved / Printed"
+          : isCancelled
+          ? "Cancelled"
+          : item.isExpired
+          ? "Expired (1 hr)"
+          : (minutesLeft + "m valid");
+        var statusColor = isPaid
+          ? "#059669"
+          : isCancelled
+          ? "#dc2626"
+          : item.isExpired
+          ? "#dc2626"
+          : "#d97706";
+        var borderCol = isPaid
+          ? "#a7f3d0"
+          : isCancelled
+          ? "#fee2e2"
+          : item.isExpired
+          ? "#e2e8f0"
+          : "#fde68a";
+        var bgCol = isPaid
+          ? "#ecfdf5"
+          : isCancelled
+          ? "#fef2f2"
+          : item.isExpired
+          ? "#f8fafc"
+          : "#fffbeb";
+        var tokenCol = isPaid
+          ? "#065f46"
+          : isCancelled
+          ? "#991b1b"
+          : item.isExpired
+          ? "#64748b"
+          : "#b45309";
 
         var actionHtml = "";
-        if (!isPaid && !item.isExpired) {
+        if (!isPaid && !isCancelled && !item.isExpired) {
           actionHtml = [
             '<button type="button" class="btn-primary" style="width:auto; padding:7px 14px; font-size:12px;" onclick="approveCounterOrder(',
             "'", item.id, "', this",
@@ -1075,6 +1106,8 @@ export class AgentWebServer {
           ].join("");
         } else if (isPaid) {
           actionHtml = '<span style="font-size:12px; font-weight:700; color:#059669; padding:6px 10px;">✅ Printed via Agent</span>';
+        } else if (isCancelled) {
+          actionHtml = '<span style="font-size:12px; font-weight:700; color:#dc2626; padding:6px 10px;">❌ Cancelled</span>';
         } else {
           actionHtml = '<span style="font-size:12px; color:var(--text-muted); padding:6px 10px;">Expired</span>';
         }

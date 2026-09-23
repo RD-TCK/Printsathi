@@ -354,3 +354,36 @@ export async function updateShopBillingMode(formData: FormData) {
   redirect("/shop/subscription?success=Billing+mode+updated");
 }
 
+export async function toggleAcceptingOrders(accepting: boolean): Promise<{ success: boolean; error?: string }> {
+  const context = await getShopContext();
+  if (!context || !canManageShop(context)) {
+    return { success: false, error: "Permission denied" };
+  }
+
+  const admin = createSupabaseAdminClient();
+  if (admin) {
+    const { error } = await admin
+      .from("shop_settings")
+      .upsert(
+        {
+          shop_id: context.shop.id,
+          accepting_orders: accepting,
+        },
+        { onConflict: "shop_id" }
+      );
+    if (error) return { success: false, error: error.message };
+  } else {
+    const { error } = await context.client
+      .from("shop_settings")
+      .update({ accepting_orders: accepting })
+      .eq("shop_id", context.shop.id);
+    if (error) return { success: false, error: error.message };
+  }
+
+  revalidatePath("/shop", "layout");
+  revalidatePath("/shop/settings");
+  revalidatePath("/shop/dashboard");
+  revalidatePath(`/shop/${context.shop.public_id}`);
+  return { success: true };
+}
+

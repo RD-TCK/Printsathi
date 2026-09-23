@@ -33,8 +33,16 @@ export async function proxy(request: NextRequest) {
     },
   });
 
-  // Refresh auth token so the session persists continuously in browser cache
-  await client.auth.getUser();
+  // Refresh auth token safely without blocking requests indefinitely
+  try {
+    const authPromise = client.auth.getUser();
+    const timeoutPromise = new Promise<{ data: { user: null }; error: Error }>((resolve) =>
+      setTimeout(() => resolve({ data: { user: null }, error: new Error("Auth timeout") }), 2500)
+    );
+    await Promise.race([authPromise, timeoutPromise]);
+  } catch {
+    // Ignore refresh failures in proxy
+  }
   return response;
 }
 
