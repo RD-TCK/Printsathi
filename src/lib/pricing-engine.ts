@@ -57,13 +57,10 @@ const ruleKey = (rule: PricingRule) =>
   `${rule.color_mode}:${rule.paper_size}:${rule.min_pages}:${rule.max_pages ?? "plus"}`;
 
 export function calculatePlatformFee(
-  totalPages: number,
-  billingMode: BillingMode = "customer_fee",
+  _totalPages: number,
+  _billingMode: BillingMode = "customer_fee",
 ): number {
-  if (billingMode === "shop_subscription") return 0;
-  if (totalPages <= 0) return 0;
-  // If customer prints <= 5 pages: add ₹0.50. If >= 6 pages: add ₹1.50.
-  return totalPages <= 5 ? 0.5 : 1.5;
+  return 0;
 }
 
 function validateRules(rules: PricingRule[]) {
