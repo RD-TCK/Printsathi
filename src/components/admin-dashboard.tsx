@@ -3,7 +3,7 @@
 import { useEffect, useState, useTransition, type ReactNode } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
-import { RefreshCw, Search, Store } from "lucide-react";
+import { AlertTriangle, CheckCircle2, RefreshCw, Search, Store, Trash2 } from "lucide-react";
 import type { AdminData } from "@/lib/admin-data";
 import { summarizeJobs, agentOnline } from "@/lib/admin-metrics";
 import {
@@ -18,6 +18,8 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Table } from "@/components/ui/table";
 import { Alert } from "@/components/ui/alert";
+import { Modal } from "@/components/ui/modal";
+import { clearShopDataAction, type ClearShopDataResult } from "@/app/admin/actions";
 
 const money = (value: number | string) =>
   new Intl.NumberFormat("en-IN", { style: "currency", currency: "INR" }).format(Number(value));
@@ -31,7 +33,7 @@ function status(value: string) {
       : "warning";
   return <Badge tone={tone}>{value.replaceAll("_", " ")}</Badge>;
 }
-const tabs = ["Shops", "Jobs", "Orders", "Payments", "Subscriptions", "Devices", "Payment events"] as const;
+const tabs = ["Shops", "Jobs", "Orders", "Payments", "Subscriptions", "Devices", "Payment events", "Maintenance"] as const;
 
 function Records({ headers, rows }: { headers: string[]; rows: ReactNode[][] }) {
   const [page, setPage] = useState(0);
@@ -77,6 +79,14 @@ export function AdminDashboard({ data }: { data: AdminData }) {
   const [days, setDays] = useState("30");
   const [tab, setTab] = useState<(typeof tabs)[number]>("Shops");
   const [jobStatus, setJobStatus] = useState("");
+
+  // Clear data modal state
+  const [clearModalOpen, setClearModalOpen] = useState(false);
+  const [targetShopId, setTargetShopId] = useState<string>("all");
+  const [confirmInput, setConfirmInput] = useState("");
+  const [clearing, setClearing] = useState(false);
+  const [clearResult, setClearResult] = useState<ClearShopDataResult | null>(null);
+
   useEffect(() => {
     if (!automatic) return;
     const timer = setInterval(() => {
@@ -136,6 +146,48 @@ export function AdminDashboard({ data }: { data: AdminData }) {
   const filterKey = `${shopId}-${search}-${days}-${jobStatus}`;
   const control = "rounded-lg border border-line bg-white px-3 py-2 text-sm";
 
+  const openClearModal = (targetId: string = shopId || "all") => {
+    setTargetShopId(targetId);
+    setConfirmInput("");
+    setClearResult(null);
+    setClearModalOpen(true);
+  };
+
+  const handleExecuteClear = async () => {
+    if (confirmInput.trim().toUpperCase() !== "CLEAR") return;
+    setClearing(true);
+    setClearResult(null);
+    try {
+      const res = await clearShopDataAction({
+        shopId: targetShopId,
+        confirmationText: confirmInput,
+      });
+      setClearResult(res);
+      if (res.success) {
+        startTransition(() => {
+          router.refresh();
+        });
+      }
+    } catch (err) {
+      setClearResult({
+        success: false,
+        error: err instanceof Error ? err.message : "Failed to clear shop data.",
+      });
+    } finally {
+      setClearing(false);
+    }
+  };
+
+  const targetShopObj = targetShopId !== "all" ? data.shops.find((s) => s.id === targetShopId) : null;
+  const targetOrdersCount =
+    targetShopId === "all"
+      ? data.orders.length
+      : data.orders.filter((o) => o.shop_id === targetShopId).length;
+  const targetJobsCount =
+    targetShopId === "all"
+      ? data.jobs.length
+      : data.jobs.filter((j) => j.shop_id === targetShopId).length;
+
   return (
     <div className="space-y-6">
       <Card className="p-4">
@@ -180,6 +232,14 @@ export function AdminDashboard({ data }: { data: AdminData }) {
             <RefreshCw className={`size-4 ${refreshing ? "animate-spin" : ""}`} />
             Refresh
           </Button>
+          <Button
+            variant="danger"
+            onClick={() => openClearModal(shopId || "all")}
+            title="Clear shop jobs and analytics"
+          >
+            <Trash2 className="size-4" />
+            Clear Data
+          </Button>
         </div>
         <div className="mt-3 flex flex-wrap justify-between gap-2 text-xs text-muted">
           <span>
@@ -205,14 +265,24 @@ export function AdminDashboard({ data }: { data: AdminData }) {
             </p>
             <p className="mt-1 text-xs text-muted">Joined {date(selected.created_at)} IST</p>
           </div>
-          <Link
-            href={`/shop/${selected.public_id}`}
-            target="_blank"
-            rel="noreferrer"
-            className="text-sm font-semibold text-brand-700 underline"
-          >
-            Open customer page
-          </Link>
+          <div className="flex flex-wrap items-center gap-3">
+            <Button
+              variant="danger"
+              size="sm"
+              onClick={() => openClearModal(selected.id)}
+            >
+              <Trash2 className="size-3.5" />
+              Clear this shop&apos;s data
+            </Button>
+            <Link
+              href={`/shop/${selected.public_id}`}
+              target="_blank"
+              rel="noreferrer"
+              className="text-sm font-semibold text-brand-700 underline"
+            >
+              Open customer page
+            </Link>
+          </div>
         </Card>
       )}
 
@@ -292,6 +362,7 @@ export function AdminDashboard({ data }: { data: AdminData }) {
             "Print revenue",
             "Failed / pending",
             "Devices",
+            "Actions",
           ]}
           rows={shops.map((shop) => {
             const stats = summarizeJobs(jobs.filter((job) => job.shop_id === shop.id));
@@ -316,6 +387,20 @@ export function AdminDashboard({ data }: { data: AdminData }) {
               money(stats.revenue),
               `${stats.failed} / ${stats.pending}`,
               `${online.filter((agent) => agent.shop_id === shop.id).length} agents · ${printers.filter((printer) => printer.shop_id === shop.id && printerOnline(printer)).length} printers online`,
+              <Button
+                key="clear"
+                variant="ghost"
+                size="sm"
+                className="text-red-600 hover:bg-red-50 hover:text-red-700"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  openClearModal(shop.id);
+                }}
+                title="Clear analytics & jobs for this shop"
+              >
+                <Trash2 className="size-3.5" />
+                Clear data
+              </Button>,
             ];
           })}
         />
@@ -323,26 +408,36 @@ export function AdminDashboard({ data }: { data: AdminData }) {
 
       {tab === "Jobs" && (
         <div className="space-y-4">
-          <label className="text-sm">
-            Job status{" "}
-            <select className={control} value={jobStatus} onChange={(event) => setJobStatus(event.target.value)}>
-              <option value="">All statuses</option>
-              {[
-                "completed",
-                "failed",
-                "print_submitted",
-                "printing",
-                "queued",
-                "claimed",
-                "paid",
-                "awaiting_payment",
-                "draft",
-                "cancelled",
-              ].map((value) => (
-                <option key={value}>{value}</option>
-              ))}
-            </select>
-          </label>
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <label className="text-sm">
+              Job status{" "}
+              <select className={control} value={jobStatus} onChange={(event) => setJobStatus(event.target.value)}>
+                <option value="">All statuses</option>
+                {[
+                  "completed",
+                  "failed",
+                  "print_submitted",
+                  "printing",
+                  "queued",
+                  "claimed",
+                  "paid",
+                  "awaiting_payment",
+                  "draft",
+                  "cancelled",
+                ].map((value) => (
+                  <option key={value}>{value}</option>
+                ))}
+              </select>
+            </label>
+            <Button
+              variant="danger"
+              size="sm"
+              onClick={() => openClearModal(shopId || "all")}
+            >
+              <Trash2 className="size-3.5" />
+              Clear {shopId ? `${shopName(shopId)} jobs` : "all platform jobs"}
+            </Button>
+          </div>
           <Records
             key={`jobs-${filterKey}`}
             headers={["Job", "Shop", "Status", "Selected pages", "Amount", "Failure reason", "Created (IST)"]}
@@ -361,17 +456,29 @@ export function AdminDashboard({ data }: { data: AdminData }) {
         </div>
       )}
       {tab === "Orders" && (
-        <Records
-          key={`orders-${filterKey}`}
-          headers={["Order", "Shop", "Status", "Amount", "Created (IST)"]}
-          rows={recent(orders).map((order) => [
-            order.public_id,
-            shopName(order.shop_id),
-            status(order.status),
-            money(order.total_amount),
-            date(order.created_at),
-          ])}
-        />
+        <div className="space-y-4">
+          <div className="flex justify-end">
+            <Button
+              variant="danger"
+              size="sm"
+              onClick={() => openClearModal(shopId || "all")}
+            >
+              <Trash2 className="size-3.5" />
+              Clear {shopId ? `${shopName(shopId)} orders` : "all platform orders"}
+            </Button>
+          </div>
+          <Records
+            key={`orders-${filterKey}`}
+            headers={["Order", "Shop", "Status", "Amount", "Created (IST)"]}
+            rows={recent(orders).map((order) => [
+              order.public_id,
+              shopName(order.shop_id),
+              status(order.status),
+              money(order.total_amount),
+              date(order.created_at),
+            ])}
+          />
+        </div>
       )}
       {tab === "Payments" && (
         <Records
@@ -470,6 +577,166 @@ export function AdminDashboard({ data }: { data: AdminData }) {
           ])}
         />
       )}
+
+      {tab === "Maintenance" && (
+        <div className="space-y-6">
+          <Card className="space-y-4 p-6">
+            <div>
+              <h2 className="text-lg font-semibold text-brand-950">Shop Analytics & Jobs Data Management</h2>
+              <p className="mt-1 text-sm text-muted">
+                Administrators can clear print jobs, token queues, customer orders, uploaded documents, and reset shop analytics back to zero for testing or maintenance.
+              </p>
+            </div>
+
+            <div className="rounded-xl border border-line bg-surface p-4">
+              <h3 className="text-sm font-semibold text-brand-900">What gets cleared:</h3>
+              <ul className="mt-2 list-inside list-disc space-y-1 text-xs text-muted">
+                <li>All print jobs, page range configurations, and print statuses</li>
+                <li>All customer orders, pay-at-counter queue tokens, and active token states</li>
+                <li>All uploaded customer PDF records and private storage files</li>
+                <li>Customer payment records and transaction logs for the cleared orders</li>
+                <li>All aggregated analytics figures (daily/monthly orders, revenue, total pages printed)</li>
+              </ul>
+              <h3 className="mt-4 text-sm font-semibold text-brand-900">What is safely preserved:</h3>
+              <ul className="mt-2 list-inside list-disc space-y-1 text-xs text-muted">
+                <li>Shop profile, name, phone, address, and business configuration</li>
+                <li>Shop pricing rules and tiered rate configurations</li>
+                <li>Registered printers, desktop agents, and pairing credentials</li>
+                <li>Shop subscription status, trial licenses, and subscription payments</li>
+              </ul>
+            </div>
+
+            <div className="flex flex-wrap items-center gap-4 pt-2">
+              <Button
+                variant="danger"
+                onClick={() => openClearModal(shopId || "all")}
+              >
+                <Trash2 className="size-4" />
+                Launch Data Cleaner
+              </Button>
+            </div>
+          </Card>
+        </div>
+      )}
+
+      {/* Confirmation & Execution Modal */}
+      <Modal
+        open={clearModalOpen}
+        onClose={() => {
+          if (!clearing) {
+            setClearModalOpen(false);
+            setClearResult(null);
+          }
+        }}
+        title="Clear Shop Analytics & Jobs Data"
+        className="max-w-xl"
+      >
+        <div className="space-y-4">
+          <div className="flex items-start gap-3 rounded-lg border border-red-200 bg-red-50/80 p-3 text-red-800">
+            <AlertTriangle className="mt-0.5 size-5 shrink-0 text-red-600" />
+            <div className="text-xs leading-relaxed">
+              <strong className="font-semibold block text-sm text-red-950">Warning: Permanent Deletion</strong>
+              This action permanently wipes all jobs, customer orders, queue tokens, uploaded documents, and associated analytics for the target selection. This operation cannot be undone.
+            </div>
+          </div>
+
+          <div className="space-y-2">
+            <label className="block text-xs font-semibold text-muted">
+              Target Scope
+            </label>
+            <select
+              className="w-full rounded-lg border border-line bg-white px-3 py-2 text-sm"
+              value={targetShopId}
+              disabled={clearing}
+              onChange={(e) => {
+                setTargetShopId(e.target.value);
+                setClearResult(null);
+              }}
+            >
+              <option value="all">⚠️ ALL SHOPS (Entire Platform Data)</option>
+              {data.shops.map((s) => (
+                <option key={s.id} value={s.id}>
+                  {s.name} ({s.public_id})
+                </option>
+              ))}
+            </select>
+          </div>
+
+          <div className="rounded-lg border border-line bg-brand-50/40 p-3 text-xs text-muted">
+            <p className="font-semibold text-brand-950">
+              Selected Target:{" "}
+              <span className="text-brand-700 font-bold">
+                {targetShopObj ? targetShopObj.name : "All shops across the platform"}
+              </span>
+            </p>
+            <p className="mt-1">
+              Current records found: <strong>{targetOrdersCount}</strong> orders · <strong>{targetJobsCount}</strong> print jobs
+            </p>
+          </div>
+
+          {clearResult?.success && (
+            <div className="flex items-start gap-2.5 rounded-lg border border-emerald-200 bg-emerald-50 p-3 text-xs text-emerald-900">
+              <CheckCircle2 className="mt-0.5 size-4 shrink-0 text-emerald-600" />
+              <div>
+                <p className="font-semibold">{clearResult.message}</p>
+                {clearResult.deleted && (
+                  <p className="mt-1 text-muted">
+                    Deleted {clearResult.deleted.orders} orders, {clearResult.deleted.jobs} jobs, {clearResult.deleted.documents} documents, and {clearResult.deleted.payments} payment records.
+                  </p>
+                )}
+              </div>
+            </div>
+          )}
+
+          {clearResult && !clearResult.success && (
+            <Alert tone="error" title="Operation failed">
+              {clearResult.error || "An unexpected error occurred."}
+            </Alert>
+          )}
+
+          {!clearResult?.success && (
+            <div className="space-y-2 pt-2">
+              <label className="block text-xs font-semibold text-muted">
+                To confirm, type <span className="font-mono font-bold text-red-600">CLEAR</span> in the box below:
+              </label>
+              <input
+                type="text"
+                className="w-full rounded-lg border border-line bg-white px-3 py-2 text-sm font-mono uppercase tracking-wider"
+                placeholder="CLEAR"
+                value={confirmInput}
+                disabled={clearing}
+                onChange={(e) => setConfirmInput(e.target.value)}
+              />
+            </div>
+          )}
+
+          <div className="flex items-center justify-end gap-3 pt-3 border-t border-line">
+            <Button
+              variant="secondary"
+              size="sm"
+              disabled={clearing}
+              onClick={() => {
+                setClearModalOpen(false);
+                setClearResult(null);
+              }}
+            >
+              {clearResult?.success ? "Close" : "Cancel"}
+            </Button>
+            {!clearResult?.success && (
+              <Button
+                variant="danger"
+                size="sm"
+                loading={clearing}
+                disabled={clearing || confirmInput.trim().toUpperCase() !== "CLEAR"}
+                onClick={handleExecuteClear}
+              >
+                <Trash2 className="size-4" />
+                Confirm &amp; Clear Data
+              </Button>
+            )}
+          </div>
+        </div>
+      </Modal>
     </div>
   );
 }
