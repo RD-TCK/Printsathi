@@ -39,7 +39,7 @@ export async function POST(request: Request) {
   }
 
   const body = await request.json().catch(() => ({}));
-  const { orderId } = body;
+  const { orderId, duplexStep } = body;
 
   if (typeof orderId !== "string" || !/^[0-9a-f-]{36}$/i.test(orderId)) {
     return NextResponse.json({ error: "Missing or invalid orderId." }, { status: 400 });
@@ -62,10 +62,10 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Order not found." }, { status: 404 });
   }
 
-  if (order.status === "paid" || order.status === "completed") {
+  if (order.status === "paid" && duplexStep !== "even") {
     return NextResponse.json({
       success: true,
-      message: "Order is already approved.",
+      message: "Order is already fully approved and printed.",
       order: { id: order.id, status: order.status, tokenNumber: order.token_number },
     });
   }
@@ -98,11 +98,19 @@ export async function POST(request: Request) {
       .eq("order_id", order.id);
   }
 
-  // 2. Update order status to paid
+  // Determine status and duplex step
+  const isOddStep = duplexStep === "odd";
+  const isEvenStep = duplexStep === "even";
+
+  const targetOrderStatus = isOddStep ? "partially_printed" : "paid";
+  const targetJobStatus = isOddStep ? "partially_printed" : "paid";
+  const targetDuplexStep = isOddStep ? "odd_printed" : isEvenStep ? "completed" : "none";
+
+  // 2. Update order status
   const { error: updateOrderError } = await adminClient
     .from("orders")
     .update({
-      status: "paid",
+      status: targetOrderStatus,
       updated_at: new Date().toISOString(),
     })
     .eq("id", order.id)
@@ -112,31 +120,38 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Could not update order status." }, { status: 500 });
   }
 
-  // 3. Update print jobs status to paid / queued
+  // 3. Update print jobs status to paid / queued and update duplex_step
   await adminClient
     .from("print_jobs")
     .update({
-      status: "paid",
+      status: targetJobStatus,
+      duplex_step: targetDuplexStep,
       updated_at: new Date().toISOString(),
     })
     .eq("order_id", order.id)
-    .eq("shop_id", shopId)
-    .in("status", ["draft", "awaiting_payment"]);
+    .eq("shop_id", shopId);
 
   // 4. Fetch the jobs for response
   const { data: jobs } = await adminClient
     .from("print_jobs")
-    .select("id, status, document_id, total_pages")
+    .select("id, status, document_id, total_pages, duplex_step")
     .eq("order_id", order.id);
+
+  const stepMessage = isOddStep
+    ? `Token #${order.token_number || order.public_id}: Odd pages (Front Side) printed! Flip sheets and reload in tray for back side.`
+    : isEvenStep
+    ? `Token #${order.token_number || order.public_id}: Even pages (Back Side) printed! Job complete.`
+    : `Token #${order.token_number || order.public_id} approved for printing.`;
 
   return NextResponse.json({
     success: true,
-    message: `Token #${order.token_number || order.public_id} approved for printing.`,
+    message: stepMessage,
     order: {
       id: order.id,
       publicId: order.public_id,
       tokenNumber: order.token_number,
-      status: "paid",
+      status: targetOrderStatus,
+      duplexStep: targetDuplexStep,
     },
     jobs: jobs || [],
   });

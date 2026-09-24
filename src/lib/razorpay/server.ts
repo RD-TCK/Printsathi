@@ -2,6 +2,7 @@ import "server-only";
 import crypto from "node:crypto";
 import Razorpay from "razorpay";
 import { getRazorpayServerEnv } from "@/lib/env";
+import type { SupabaseClient } from "@supabase/supabase-js";
 
 export function toPaise(rupees: number): number {
   return Math.round((rupees + Number.EPSILON) * 100);
@@ -11,35 +12,98 @@ export function fromPaise(paise: number): number {
   return Math.round(paise) / 100;
 }
 
-let razorpayInstance: Razorpay | null = null;
-let lastKeyId: string | null = null;
-let lastKeySecret: string | null = null;
+export interface RazorpayCredentials {
+  keyId: string;
+  keySecret: string;
+  webhookSecret?: string;
+  isTestMode?: boolean;
+}
 
-export function getRazorpayClient(): {
+const clientCache = new Map<string, Razorpay>();
+
+export function getRazorpayClient(credentials?: RazorpayCredentials | null): {
   client: Razorpay;
   keyId: string;
   keySecret: string;
   webhookSecret: string;
   isTestMode: boolean;
 } | null {
+  if (credentials && credentials.keyId && credentials.keySecret) {
+    const cacheKey = `${credentials.keyId}:${credentials.keySecret}`;
+    let instance = clientCache.get(cacheKey);
+    if (!instance) {
+      instance = new Razorpay({
+        key_id: credentials.keyId,
+        key_secret: credentials.keySecret,
+      });
+      clientCache.set(cacheKey, instance);
+    }
+
+    const isTest = credentials.isTestMode !== undefined 
+      ? credentials.isTestMode 
+      : credentials.keyId.startsWith("rzp_test_");
+
+    return {
+      client: instance,
+      keyId: credentials.keyId,
+      keySecret: credentials.keySecret,
+      webhookSecret: credentials.webhookSecret || "",
+      isTestMode: isTest,
+    };
+  }
+
+  // Fallback to Platform Admin environment variables
   const env = getRazorpayServerEnv();
   if (!env) return null;
 
-  if (!razorpayInstance || lastKeyId !== env.keyId || lastKeySecret !== env.keySecret) {
-    razorpayInstance = new Razorpay({
+  const cacheKey = `platform:${env.keyId}:${env.keySecret}`;
+  let instance = clientCache.get(cacheKey);
+  if (!instance) {
+    instance = new Razorpay({
       key_id: env.keyId,
       key_secret: env.keySecret,
     });
-    lastKeyId = env.keyId;
-    lastKeySecret = env.keySecret;
+    clientCache.set(cacheKey, instance);
   }
 
   return {
-    client: razorpayInstance,
+    client: instance,
     keyId: env.keyId,
     keySecret: env.keySecret,
     webhookSecret: env.webhookSecret,
     isTestMode: env.isTestMode,
+  };
+}
+
+/**
+ * Specifically returns the Platform Admin Razorpay client for subscription fee collections.
+ */
+export function getPlatformRazorpayClient() {
+  return getRazorpayClient(null);
+}
+
+/**
+ * Safely fetches custom Razorpay credentials configured by a shop owner in shop_settings.
+ * Returns null if the shop hasn't configured custom keys.
+ */
+export async function getShopRazorpayCredentials(
+  adminClient: SupabaseClient,
+  shopId: string,
+): Promise<RazorpayCredentials | null> {
+  const { data: settings, error } = await adminClient
+    .from("shop_settings")
+    .select("razorpay_key_id, razorpay_key_secret, razorpay_webhook_secret")
+    .eq("shop_id", shopId)
+    .maybeSingle();
+
+  if (error || !settings) return null;
+  if (!settings.razorpay_key_id || !settings.razorpay_key_secret) return null;
+
+  return {
+    keyId: settings.razorpay_key_id.trim(),
+    keySecret: settings.razorpay_key_secret.trim(),
+    webhookSecret: settings.razorpay_webhook_secret?.trim() || undefined,
+    isTestMode: settings.razorpay_key_id.startsWith("rzp_test_"),
   };
 }
 
@@ -60,10 +124,13 @@ export interface RazorpayOrderResult {
   notes: Record<string, string>;
 }
 
-export async function createRazorpayOrder(params: CreateOrderParams): Promise<RazorpayOrderResult> {
-  const razorpay = getRazorpayClient();
+export async function createRazorpayOrder(
+  params: CreateOrderParams,
+  credentials?: RazorpayCredentials | null,
+): Promise<RazorpayOrderResult> {
+  const razorpay = getRazorpayClient(credentials);
   if (!razorpay) {
-    throw new Error("Razorpay payment gateway is not configured on the server.");
+    throw new Error("Razorpay payment gateway is not configured for this shop.");
   }
 
   const amountPaise = toPaise(params.amountRupees);
@@ -98,11 +165,14 @@ export interface PaymentSignatureParams {
   keySecret?: string;
 }
 
-export function verifyPaymentSignature(params: PaymentSignatureParams): boolean {
+export function verifyPaymentSignature(
+  params: PaymentSignatureParams,
+  credentials?: RazorpayCredentials | null,
+): boolean {
   const { orderId, paymentId, signature } = params;
   if (!orderId || !paymentId || !signature) return false;
 
-  const secret = params.keySecret || getRazorpayServerEnv()?.keySecret;
+  const secret = params.keySecret || credentials?.keySecret || getRazorpayServerEnv()?.keySecret;
   if (!secret) return false;
 
   try {
@@ -122,11 +192,14 @@ export interface WebhookSignatureParams {
   webhookSecret?: string;
 }
 
-export function verifyWebhookSignature(params: WebhookSignatureParams): boolean {
+export function verifyWebhookSignature(
+  params: WebhookSignatureParams,
+  credentials?: RazorpayCredentials | null,
+): boolean {
   const { rawBody, signature } = params;
   if (!rawBody || !signature) return false;
 
-  const secret = params.webhookSecret || getRazorpayServerEnv()?.webhookSecret;
+  const secret = params.webhookSecret || credentials?.webhookSecret || getRazorpayServerEnv()?.webhookSecret;
   if (!secret) return false;
 
   try {
@@ -140,8 +213,11 @@ export function verifyWebhookSignature(params: WebhookSignatureParams): boolean 
   }
 }
 
-export async function fetchRazorpayPayment(paymentId: string) {
-  const razorpay = getRazorpayClient();
+export async function fetchRazorpayPayment(
+  paymentId: string,
+  credentials?: RazorpayCredentials | null,
+) {
+  const razorpay = getRazorpayClient(credentials);
   if (!razorpay) return null;
 
   try {
@@ -153,8 +229,11 @@ export async function fetchRazorpayPayment(paymentId: string) {
   }
 }
 
-export async function fetchRazorpayOrder(orderId: string) {
-  const razorpay = getRazorpayClient();
+export async function fetchRazorpayOrder(
+  orderId: string,
+  credentials?: RazorpayCredentials | null,
+) {
+  const razorpay = getRazorpayClient(credentials);
   if (!razorpay) return null;
 
   try {

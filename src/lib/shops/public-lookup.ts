@@ -24,11 +24,13 @@ export type PublicShop = {
   color_printer_status: "ready" | "offline" | "not_connected";
   online_printers: OnlinePrinterInfo[];
   payment_mode: "online" | "counter" | "both";
+  has_custom_razorpay?: boolean;
 };
 
 export type PublicPricingRule = {
   color_mode: "black_and_white" | "color";
   paper_size: "a4" | "a3" | "letter" | "legal";
+  side_mode?: "single_sided" | "double_sided";
   min_pages: number;
   max_pages: number | null;
   price_per_page: number;
@@ -41,7 +43,7 @@ export async function getPublicShop(
   if (!client) return { shop: null, configured: false };
   const { data, error } = await client
     .from("public_shop_directory")
-    .select("public_id, name, is_active, accepting_orders, status, payment_mode")
+    .select("public_id, name, is_active, accepting_orders, status, payment_mode, has_custom_razorpay")
     .eq("public_id", publicIdentifier)
     .maybeSingle();
   if (error) throw new Error("Unable to load shop directory");
@@ -140,6 +142,7 @@ export async function getPublicShop(
     color_printer_status: colorStatus,
     online_printers: onlinePrinters,
     payment_mode: (data.payment_mode as "online" | "counter" | "both") || "both",
+    has_custom_razorpay: Boolean(data.has_custom_razorpay),
   };
 
   return { shop, configured: true };
@@ -150,7 +153,7 @@ export async function getPublicPricing(publicIdentifier: string): Promise<Public
   if (!client) return [];
   const { data } = await client
     .from("public_shop_pricing")
-    .select("color_mode, paper_size, min_pages, max_pages, price_per_page")
+    .select("color_mode, paper_size, side_mode, min_pages, max_pages, price_per_page")
     .eq("public_id", publicIdentifier)
     .order("color_mode")
     .order("paper_size")

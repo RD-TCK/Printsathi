@@ -7,6 +7,9 @@ export async function GET(_request: Request, { params }: { params: Promise<{ ide
     const { identifier } = await params;
     const { shop } = await getPublicShop(identifier);
     if (!shop) return NextResponse.json({ error: "Shop unavailable" }, { status: 404 });
-    return NextResponse.json({ shop, paymentsReady: Boolean(getRazorpayServerEnv()) }, { headers: { "Cache-Control": "no-store" } });
+    return NextResponse.json(
+      { shop, paymentsReady: Boolean(shop.has_custom_razorpay || getRazorpayServerEnv()) },
+      { headers: { "Cache-Control": "no-store" } },
+    );
   } catch { return NextResponse.json({ error: "Could not refresh connection status" }, { status: 503 }); }
 }

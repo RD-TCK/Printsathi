@@ -57,7 +57,7 @@ export async function POST(request: Request) {
   // 2. Fetch page ranges / configurations for this job
   const { data: pages, error: pagesError } = await adminClient
     .from("print_job_pages")
-    .select("start_page, end_page, color_mode, paper_size")
+    .select("start_page, end_page, color_mode, paper_size, side_mode, copies")
     .eq("print_job_id", claimed.job_id)
     .order("start_page", { ascending: true });
 
@@ -70,13 +70,19 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Could not load the customer's print settings." }, { status: 503 });
   }
 
-  // 3. Fetch default printer for this shop
+  // 3. Fetch default printer and duplex_step for this job
   const { data: defaultPrinter } = await adminClient
     .from("printers")
     .select("name, system_identifier")
     .eq("shop_id", auth.shop.id)
     .eq("desktop_agent_id", auth.agent.id)
     .eq("is_default", true)
+    .maybeSingle();
+
+  const { data: jobDetails } = await adminClient
+    .from("print_jobs")
+    .select("duplex_step")
+    .eq("id", claimed.job_id)
     .maybeSingle();
 
   return NextResponse.json({
@@ -94,6 +100,7 @@ export async function POST(request: Request) {
       claimedAt: claimed.claimed_at,
       claimExpiresAt: claimed.claim_expires_at,
       defaultPrinter: defaultPrinter?.name || null,
+      duplexStep: jobDetails?.duplex_step || "none",
       document: {
         id: claimed.document_id,
         storagePath: claimed.document_storage_path,
@@ -107,6 +114,8 @@ export async function POST(request: Request) {
         endPage: p.end_page,
         colorMode: p.color_mode,
         paperSize: p.paper_size,
+        sideMode: p.side_mode as "single_sided" | "double_sided",
+        copies: p.copies ?? 1,
       })),
     },
   });

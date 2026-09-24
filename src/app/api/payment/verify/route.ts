@@ -54,11 +54,6 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Database service is not configured." }, { status: 503 });
   }
 
-  const razorpayConfig = getRazorpayClient();
-  if (!razorpayConfig) {
-    return NextResponse.json({ error: "Razorpay payment gateway is not configured on the server." }, { status: 503 });
-  }
-
   // 1. Fetch order and verify authorization
   const { data: order, error: orderError } = await adminClient
     .from("orders")
@@ -68,6 +63,27 @@ export async function POST(request: Request) {
 
   if (orderError || !order) {
     return NextResponse.json({ error: "Order not found." }, { status: 404 });
+  }
+
+  // Load the shop's Razorpay credentials
+  const { data: shopSettings } = await adminClient
+    .from("shop_settings")
+    .select("razorpay_key_id, razorpay_key_secret, razorpay_webhook_secret")
+    .eq("shop_id", order.shop_id)
+    .maybeSingle();
+
+  const shopCredentials = (shopSettings?.razorpay_key_id && shopSettings?.razorpay_key_secret)
+    ? {
+        keyId: shopSettings.razorpay_key_id.trim(),
+        keySecret: shopSettings.razorpay_key_secret.trim(),
+        webhookSecret: shopSettings.razorpay_webhook_secret?.trim() || undefined,
+        isTestMode: shopSettings.razorpay_key_id.startsWith("rzp_test_"),
+      }
+    : null;
+
+  const razorpayConfig = getRazorpayClient(shopCredentials);
+  if (!razorpayConfig) {
+    return NextResponse.json({ error: "Razorpay payment gateway is not configured for this shop." }, { status: 503 });
   }
 
   let isAuthorized = false;
@@ -202,12 +218,15 @@ export async function POST(request: Request) {
   }
 
   // 6. Cryptographic Signature Verification (HMAC SHA256)
-  const isValidSignature = verifyPaymentSignature({
-    orderId: razorpayOrderId,
-    paymentId: razorpayPaymentId,
-    signature: razorpaySignature,
-    keySecret: razorpayConfig.keySecret,
-  });
+  const isValidSignature = verifyPaymentSignature(
+    {
+      orderId: razorpayOrderId,
+      paymentId: razorpayPaymentId,
+      signature: razorpaySignature,
+      keySecret: razorpayConfig.keySecret,
+    },
+    shopCredentials,
+  );
 
   if (!isValidSignature) {
     // Record verification failure
@@ -234,7 +253,7 @@ export async function POST(request: Request) {
   let paymentMethod = "razorpay";
   let razorpayPaymentData: Record<string, unknown> = {};
 
-  const fetchedPayment = await fetchRazorpayPayment(razorpayPaymentId);
+  const fetchedPayment = await fetchRazorpayPayment(razorpayPaymentId, shopCredentials);
   if (!fetchedPayment) return NextResponse.json({ error: "Payment verification is temporarily unavailable. Your order stays unpaid until Razorpay confirms capture. Please check order status shortly." }, { status: 503 });
   if (!capturedPaymentMatches(fetchedPayment, { providerOrderId: payment.provider_order_id, amountPaise: toPaise(Number(payment.amount)), currency: payment.currency })) {
     return NextResponse.json({ error: "Payment is not captured or does not match this order. Printing remains locked." }, { status: 409 });

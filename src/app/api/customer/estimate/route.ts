@@ -77,7 +77,7 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Order access could not be verified." }, { status: 403 });
   const { data: rules } = await client
     .from("pricing_rules")
-    .select("color_mode, paper_size, min_pages, max_pages, price_per_page")
+    .select("color_mode, paper_size, side_mode, min_pages, max_pages, price_per_page")
     .eq("shop_id", shop.id)
     .eq("is_active", true);
   if (!rules?.length)

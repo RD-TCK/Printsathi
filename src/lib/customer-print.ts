@@ -5,6 +5,8 @@ export const rangeSchema = z.object({
   endPage: z.number().int().min(1),
   colorMode: z.enum(["black_and_white", "color"]),
   paperSize: z.enum(["a4", "a3", "letter", "legal"]),
+  sideMode: z.enum(["single_sided", "double_sided"]).default("single_sided"),
+  copies: z.coerce.number().int().min(1).max(100).default(1),
 });
 
 export const configurationSchema = z.object({
@@ -24,6 +26,8 @@ export function validateRanges(ranges: PrintRange[], pageCount: number) {
       return `Range ${index + 1}: start page must be between 1 and ${pageCount}.`;
     if (range.endPage < range.startPage || range.endPage > pageCount)
       return `Range ${index + 1}: end page must be between ${range.startPage} and ${pageCount}.`;
+    if (range.copies !== undefined && (range.copies < 1 || range.copies > 100))
+      return `Range ${index + 1}: copies must be between 1 and 100.`;
     const next = sorted[index + 1];
     if (next && range.endPage >= next.startPage)
       return "Page ranges must not overlap.";
@@ -34,7 +38,8 @@ export function validateRanges(ranges: PrintRange[], pageCount: number) {
 export function countModes(ranges: PrintRange[]) {
   return ranges.reduce(
     (result, range) => {
-      const pages = range.endPage - range.startPage + 1;
+      const copies = Math.max(1, range.copies ?? 1);
+      const pages = (range.endPage - range.startPage + 1) * copies;
       result[range.colorMode] += pages;
       return result;
     },

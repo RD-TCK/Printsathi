@@ -25,11 +25,13 @@ export default async function PricingPage({
   const params = await searchParams;
   const { data: rules, error } = await context.client
     .from("pricing_rules")
-    .select("id, color_mode, paper_size, min_pages, max_pages, price_per_page, is_active, updated_at")
+    .select("id, color_mode, paper_size, side_mode, min_pages, max_pages, price_per_page, is_active, updated_at")
     .eq("shop_id", context.shop.id)
     .order("color_mode")
     .order("paper_size")
+    .order("side_mode")
     .order("min_pages");
+
   const editRule = params.edit ? rules?.find((rule) => rule.id === params.edit) : null;
 
   return (
@@ -37,7 +39,7 @@ export default async function PricingPage({
       <ShopPageHeader
         eyebrow="Customer-facing prices"
         title="Pricing rules & Slab calculator"
-        description="Configure what customers pay for printing. Define custom page-range slabs (e.g. 1–5 pages @ ₹5, 6+ pages @ ₹2) and test with the live simulator."
+        description="Configure what customers pay for printing. Set separate rates for Single-Sided and Both-Sided (Duplex) printing and test with the live simulator."
       />
       {params.error ? <Alert tone="error">{params.error}</Alert> : null}
       {params.success ? <Alert tone="success">{params.success}</Alert> : null}
@@ -57,7 +59,7 @@ export default async function PricingPage({
                 <p className="mt-1 text-sm text-muted">
                   {editRule
                     ? "Update this pricing tier rate and save changes."
-                    : "Create page tiers (e.g. 1–5 pages @ ₹5, 6+ pages @ ₹2). Total pages within a tier are charged at that rate."}
+                    : "Create custom page tier rates for Single-Sided or Both-Sided printing (e.g. 1–5 pages @ ₹5, 6+ pages @ ₹2)."}
                 </p>
               </div>
               {editRule ? (
@@ -76,16 +78,31 @@ export default async function PricingPage({
               className="space-y-4"
             >
               {editRule ? <input type="hidden" name="id" value={editRule.id} /> : null}
-              <Select
-                key={`colorMode-${editRule?.id ?? "new"}`}
-                id="colorMode"
-                name="colorMode"
-                label="Print mode"
-                defaultValue={editRule?.color_mode ?? "black_and_white"}
-              >
-                <option value="black_and_white">Black &amp; white</option>
-                <option value="color">Color</option>
-              </Select>
+
+              <div className="grid grid-cols-2 gap-3">
+                <Select
+                  key={`colorMode-${editRule?.id ?? "new"}`}
+                  id="colorMode"
+                  name="colorMode"
+                  label="Color mode"
+                  defaultValue={editRule?.color_mode ?? "black_and_white"}
+                >
+                  <option value="black_and_white">Black &amp; white</option>
+                  <option value="color">Color</option>
+                </Select>
+
+                <Select
+                  key={`sideMode-${editRule?.id ?? "new"}`}
+                  id="sideMode"
+                  name="sideMode"
+                  label="Print sides"
+                  defaultValue={editRule?.side_mode ?? "single_sided"}
+                >
+                  <option value="single_sided">📄 Single-Sided (1 Side)</option>
+                  <option value="double_sided">📑 Both Sides (Double-Sided)</option>
+                </Select>
+              </div>
+
               <Select
                 key={`paperSize-${editRule?.id ?? "new"}`}
                 id="paperSize"
@@ -98,6 +115,7 @@ export default async function PricingPage({
                 <option value="letter">Letter</option>
                 <option value="legal">Legal</option>
               </Select>
+
               <div className="grid grid-cols-2 gap-3">
                 <Input
                   key={`minPages-${editRule?.id ?? "new"}`}
@@ -121,6 +139,7 @@ export default async function PricingPage({
                   hint="Leave blank for 6+ / no limit"
                 />
               </div>
+
               <Input
                 key={`pricePerPage-${editRule?.id ?? "new"}`}
                 id="pricePerPage"
@@ -132,6 +151,7 @@ export default async function PricingPage({
                 defaultValue={editRule ? Number(editRule.price_per_page) : 5}
                 required
               />
+
               <div className="flex gap-2">
                 <Button className="w-full" type="submit">
                   {editRule ? "Update pricing rule" : "Save pricing rule"}
@@ -145,6 +165,7 @@ export default async function PricingPage({
             </form>
           </CardContent>
         </Card>
+
         <div>
           {error ? (
             <Alert tone="error" title="Could not load pricing">
@@ -153,9 +174,12 @@ export default async function PricingPage({
           ) : rules?.length ? (
             <div className="overflow-x-auto rounded-xl border border-line bg-white">
               <Table
-                headers={["Mode", "Paper", "Page range", "Price", "State", "Action"]}
+                headers={["Mode", "Sides", "Paper", "Page range", "Price", "State", "Action"]}
                 rows={rules.map((rule) => [
                   formatStatus(rule.color_mode),
+                  <Badge key="sides" tone={(rule.side_mode ?? "single_sided") === "double_sided" ? "success" : "neutral"}>
+                    {(rule.side_mode ?? "single_sided") === "double_sided" ? "Both Sides" : "Single Side"}
+                  </Badge>,
                   formatStatus(rule.paper_size),
                   `${rule.min_pages}–${rule.max_pages ?? "∞"} pages`,
                   `₹${Number(rule.price_per_page).toFixed(2)}/p`,
@@ -203,7 +227,7 @@ export default async function PricingPage({
             <Card className="p-8">
               <h2 className="font-semibold text-brand-950">No pricing rules yet</h2>
               <p className="mt-2 text-sm leading-6 text-muted">
-                Add your first customer-facing rule above (for example: 1-5 pages @ ₹5, 6+ pages @ ₹2).
+                Add your first customer-facing rule above (for example: 1-5 pages @ ₹5 Single Sided, 1-5 pages @ ₹3 Both Sides).
               </p>
             </Card>
           )}

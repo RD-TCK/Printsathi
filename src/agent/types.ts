@@ -51,7 +51,10 @@ export interface ClaimedJob {
     endPage: number;
     colorMode: "black_and_white" | "color";
     paperSize: "a4" | "a3" | "letter" | "legal";
+    sideMode?: "single_sided" | "double_sided";
+    copies?: number;
   }>;
+  duplexStep?: "none" | "odd" | "even" | "all";
 }
 
 export interface LogEntry {

@@ -56,7 +56,11 @@ export async function POST(request: Request) {
   }
 
   const [{ data: settings }, { data: subscription }] = await Promise.all([
-    adminClient.from("shop_settings").select("accepting_orders, billing_mode").eq("shop_id", shop.id).maybeSingle(),
+    adminClient
+      .from("shop_settings")
+      .select("accepting_orders, billing_mode, razorpay_key_id, razorpay_key_secret, razorpay_webhook_secret")
+      .eq("shop_id", shop.id)
+      .maybeSingle(),
     adminClient.from("subscriptions").select("status, trial_end, current_period_end").eq("shop_id", shop.id).maybeSingle(),
   ]);
 
@@ -135,7 +139,7 @@ export async function POST(request: Request) {
   const [{ data: rules }, { data: printJobs }] = await Promise.all([
     adminClient
       .from("pricing_rules")
-      .select("color_mode, paper_size, min_pages, max_pages, price_per_page")
+      .select("color_mode, paper_size, side_mode, min_pages, max_pages, price_per_page")
       .eq("shop_id", shop.id)
       .eq("is_active", true),
     adminClient.from("print_jobs").select("id, document_id, total_pages, total_amount").eq("order_id", order.id),
@@ -151,7 +155,7 @@ export async function POST(request: Request) {
 
   const { data: pages } = await adminClient
     .from("print_job_pages")
-    .select("start_page, end_page, color_mode, paper_size, print_job_id")
+    .select("start_page, end_page, color_mode, paper_size, side_mode, copies, print_job_id")
     .in(
       "print_job_id",
       printJobs.map((j) => j.id),
@@ -166,6 +170,8 @@ export async function POST(request: Request) {
     endPage: p.end_page,
     colorMode: p.color_mode as "black_and_white" | "color",
     paperSize: p.paper_size as "a4" | "a3" | "letter" | "legal",
+    sideMode: (p.side_mode as "single_sided" | "double_sided") || "single_sided",
+    copies: p.copies ?? 1,
   }));
 
   const [inventory, agents] = await Promise.all([
@@ -227,8 +233,22 @@ export async function POST(request: Request) {
       paymentId, amountRupees: authoritativeTotal, currency: "INR" });
   }
 
-  const razorpayConfig = getRazorpayClient();
-  if (!razorpayConfig) return NextResponse.json({ error: "Payments are not configured yet. The shop owner must add Razorpay keys before checkout is available." }, { status: 503 });
+  const shopCredentials = (settings?.razorpay_key_id && settings?.razorpay_key_secret)
+    ? {
+        keyId: settings.razorpay_key_id.trim(),
+        keySecret: settings.razorpay_key_secret.trim(),
+        webhookSecret: settings.razorpay_webhook_secret?.trim() || undefined,
+        isTestMode: settings.razorpay_key_id.startsWith("rzp_test_"),
+      }
+    : null;
+
+  const razorpayConfig = getRazorpayClient(shopCredentials);
+  if (!razorpayConfig) {
+    return NextResponse.json(
+      { error: "Online payments are not configured for this shop. The shop owner must add their Razorpay keys in settings, or you may choose Pay at Counter." },
+      { status: 503 },
+    );
+  }
 
   // 5. Check existing payment records for idempotency
   const { data: existingPayment } = await adminClient
@@ -265,21 +285,24 @@ export async function POST(request: Request) {
     }
   }
 
-  // 6. Create Razorpay order on server
+  // 6. Create Razorpay order on server with shop owner's credentials
   const receipt = `order_${order.public_id || order.id.slice(0, 8)}_${Date.now()}`.slice(0, 40);
   let razorpayOrder;
   try {
-    razorpayOrder = await createRazorpayOrder({
-      amountRupees: authoritativeTotal,
-      currency: "INR",
-      receipt,
-      notes: {
-        order_id: order.id,
-        shop_id: shop.id,
-        shop_public_id: shop.public_id,
-        public_order_id: order.public_id || "",
+    razorpayOrder = await createRazorpayOrder(
+      {
+        amountRupees: authoritativeTotal,
+        currency: "INR",
+        receipt,
+        notes: {
+          order_id: order.id,
+          shop_id: shop.id,
+          shop_public_id: shop.public_id,
+          public_order_id: order.public_id || "",
+        },
       },
-    });
+      shopCredentials,
+    );
   } catch (rzpError) {
     return NextResponse.json(
       { error: rzpError instanceof Error ? rzpError.message : "Could not create payment gateway order." },

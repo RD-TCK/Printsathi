@@ -1,6 +1,13 @@
 import { describe, expect, it } from "vitest";
 import crypto from "node:crypto";
-import { fromPaise, toPaise, verifyPaymentSignature, verifyWebhookSignature } from "@/lib/razorpay/server";
+import {
+  fromPaise,
+  getPlatformRazorpayClient,
+  getRazorpayClient,
+  toPaise,
+  verifyPaymentSignature,
+  verifyWebhookSignature,
+} from "@/lib/razorpay/server";
 
 describe("Razorpay Integration & Security", () => {
   const mockSecret = "test_razorpay_secret_key_123456";
@@ -120,6 +127,52 @@ describe("Razorpay Integration & Security", () => {
           keySecret: mockSecret,
         }),
       ).toBe(false);
+    });
+  });
+
+  describe("Shop Owner Direct Gateway Credentials & Isolation", () => {
+    const shop1Credentials = {
+      keyId: "rzp_test_shop1_123456789",
+      keySecret: "sec_shop1_secret_987654321",
+    };
+    const shop2Credentials = {
+      keyId: "rzp_live_shop2_987654321",
+      keySecret: "sec_shop2_secret_123456789",
+    };
+
+    const orderId = "order_shop1_test_001";
+    const paymentId = "pay_shop1_test_001";
+
+    it("instantiates distinct client configurations for separate shop keys", () => {
+      const client1 = getRazorpayClient(shop1Credentials);
+      const client2 = getRazorpayClient(shop2Credentials);
+
+      expect(client1?.keyId).toBe("rzp_test_shop1_123456789");
+      expect(client1?.isTestMode).toBe(true);
+
+      expect(client2?.keyId).toBe("rzp_live_shop2_987654321");
+      expect(client2?.isTestMode).toBe(false);
+    });
+
+    it("verifies payment signature using the specific shop owner credentials", () => {
+      const shop1Signature = crypto
+        .createHmac("sha256", shop1Credentials.keySecret)
+        .update(`${orderId}|${paymentId}`)
+        .digest("hex");
+
+      // Verify with Shop 1 credentials (Should succeed)
+      const isShop1Valid = verifyPaymentSignature(
+        { orderId, paymentId, signature: shop1Signature },
+        shop1Credentials,
+      );
+      expect(isShop1Valid).toBe(true);
+
+      // Verify with Shop 2 credentials (Cross-shop attack / signature mismatch must fail)
+      const isShop2Valid = verifyPaymentSignature(
+        { orderId, paymentId, signature: shop1Signature },
+        shop2Credentials,
+      );
+      expect(isShop2Valid).toBe(false);
     });
   });
 

@@ -2,7 +2,7 @@ import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { getShopContext, canManageShop } from "@/lib/shop-portal";
-import { createRazorpayOrder, getRazorpayClient } from "@/lib/razorpay/server";
+import { createRazorpayOrder, getPlatformRazorpayClient } from "@/lib/razorpay/server";
 
 const createSubscriptionOrderSchema = z.object({
   plan: z.enum(["monthly", "yearly"]),
@@ -26,7 +26,7 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Invalid subscription plan selected." }, { status: 400 });
   }
 
-  const razorpayConfig = getRazorpayClient();
+  const razorpayConfig = getPlatformRazorpayClient();
   if (!razorpayConfig) {
     return NextResponse.json(
       { error: "Razorpay payment gateway is not configured on the server." },

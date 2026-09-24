@@ -29,6 +29,12 @@ export default async function ShopJobsPage() {
         original_filename,
         page_count
       ),
+      print_job_pages (
+        start_page,
+        end_page,
+        copies,
+        side_mode
+      ),
       orders (
         id,
         public_id,
@@ -81,6 +87,7 @@ export default async function ShopJobsPage() {
               const payment = Array.isArray(order?.payments) ? order?.payments[0] : order?.payments;
               const doc = Array.isArray(job.documents) ? job.documents[0] : job.documents;
               const isVerified = payment?.status === "verified";
+              const rawPages = Array.isArray(job.print_job_pages) ? job.print_job_pages : [];
 
               let paymentBadgeTone: "success" | "warning" | "danger" = "warning";
               let paymentLabel = "Awaiting Payment";
@@ -94,7 +101,13 @@ export default async function ShopJobsPage() {
               }
 
               const docName = doc?.original_filename || `Document #${job.document_id?.slice(0, 6) || "1"}`;
-              const pageCount = (doc as { page_count?: number } | null)?.page_count ?? job.total_pages;
+              const copiesSummary = (rawPages as Array<{ start_page: number; end_page: number; copies?: number }>)
+                .map((p) => {
+                  const copies = p.copies ?? 1;
+                  const rangeStr = p.start_page === p.end_page ? `p.${p.start_page}` : `p.${p.start_page}-${p.end_page}`;
+                  return copies > 1 ? `${rangeStr} (${copies} copies)` : rangeStr;
+                })
+                .join(", ");
 
               return [
                 <div key="job" className="flex flex-col gap-1">
@@ -109,15 +122,22 @@ export default async function ShopJobsPage() {
                   <div className="flex items-center gap-1.5">
                     <FileText className="size-3.5 shrink-0 text-brand-500" />
                     <span
-                      className="block max-w-40 truncate text-xs font-semibold text-brand-900"
+                      className="block max-w-44 truncate text-xs font-semibold text-brand-900"
                       title={docName}
                     >
                       {docName}
                     </span>
                   </div>
-                  <span className="mt-0.5 inline-flex items-center rounded bg-brand-50 border border-brand-100 px-1.5 py-0.5 text-[10px] font-bold text-brand-700">
-                    {pageCount} pages
-                  </span>
+                  <div className="mt-1 flex flex-wrap items-center gap-1">
+                    <span className="inline-flex items-center rounded bg-brand-50 border border-brand-100 px-1.5 py-0.5 text-[10px] font-bold text-brand-700">
+                      {job.total_pages} pages to print
+                    </span>
+                    {copiesSummary ? (
+                      <span className="text-[10px] text-muted truncate max-w-40" title={copiesSummary}>
+                        · {copiesSummary}
+                      </span>
+                    ) : null}
+                  </div>
                 </div>,
                 `₹${Number(job.total_amount).toFixed(2)}`,
                 <Badge key="payment" tone={paymentBadgeTone}>

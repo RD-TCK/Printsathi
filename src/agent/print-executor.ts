@@ -94,25 +94,43 @@ export async function prepareAndPrintDocument(
     let effectivePagesCount = 0;
 
     let calculatedPages = 0;
+    const duplexStep = job.duplexStep;
+
     if (activeConfigs && activeConfigs.length > 0) {
       for (const config of activeConfigs) {
         const start = Math.max(1, config.startPage);
         const end = Math.min(sourcePdf.getPageCount(), config.endPage);
+        const copies = Math.max(1, config.copies ?? 1);
         const pageIndices: number[] = [];
         for (let i = start; i <= end; i++) {
+          if (config.sideMode === "double_sided" && duplexStep === "odd" && i % 2 === 0) {
+            continue; // Skip even pages in odd step
+          }
+          if (config.sideMode === "double_sided" && duplexStep === "even" && i % 2 !== 0) {
+            continue; // Skip odd pages in even step
+          }
           pageIndices.push(i - 1); // 0-indexed
-          calculatedPages++;
         }
         if (pageIndices.length > 0) {
-          const copiedPages = await outputPdf.copyPages(sourcePdf, pageIndices);
-          copiedPages.forEach((p) => outputPdf.addPage(p));
+          for (let c = 0; c < copies; c++) {
+            const copiedPages = await outputPdf.copyPages(sourcePdf, pageIndices);
+            copiedPages.forEach((p) => outputPdf.addPage(p));
+            calculatedPages += pageIndices.length;
+          }
         }
       }
     } else {
-      const allIndices = Array.from({ length: sourcePdf.getPageCount() }, (_, i) => i);
-      const copiedPages = await outputPdf.copyPages(sourcePdf, allIndices);
-      copiedPages.forEach((p) => outputPdf.addPage(p));
-      calculatedPages = sourcePdf.getPageCount();
+      const allIndices: number[] = [];
+      for (let i = 1; i <= sourcePdf.getPageCount(); i++) {
+        if (duplexStep === "odd" && i % 2 === 0) continue;
+        if (duplexStep === "even" && i % 2 !== 0) continue;
+        allIndices.push(i - 1);
+        calculatedPages++;
+      }
+      if (allIndices.length > 0) {
+        const copiedPages = await outputPdf.copyPages(sourcePdf, allIndices);
+        copiedPages.forEach((p) => outputPdf.addPage(p));
+      }
     }
 
     // Add 1 blank page at the very end as a job separator
@@ -135,8 +153,13 @@ export async function prepareAndPrintDocument(
     fs.writeFileSync(tempExtractedPath, outputBytes);
     finalPdfPath = tempExtractedPath;
 
-    const settings = ["fit", "simplex"];
+    const settings = ["fit"];
     const config = activeConfigs?.[0];
+    if (config?.sideMode === "double_sided") {
+      settings.push("duplex");
+    } else {
+      settings.push("simplex");
+    }
     if (config) {
       settings.push(config.colorMode === "color" ? "color" : "monochrome");
       if (config.paperSize) {

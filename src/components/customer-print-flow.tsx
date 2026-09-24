@@ -20,8 +20,9 @@ import {
   Store,
   Banknote,
 } from "lucide-react";
-import type { PublicShop } from "@/lib/shops/public-lookup";
+import type { PublicShop, PublicPricingRule } from "@/lib/shops/public-lookup";
 import { countModes, type PrintRange, validateRanges } from "@/lib/customer-print";
+import { calculatePricing, type PricingRule } from "@/lib/pricing-engine";
 
 import { Alert } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
@@ -31,7 +32,7 @@ import { Select } from "@/components/ui/select";
 import { cn } from "@/lib/utils";
 
 type CustomerDocument = { id: string; filename: string; pageCount: number; sizeBytes: number; ranges: PrintRange[] };
-type Props = { shop: PublicShop; identifier: string };
+type Props = { shop: PublicShop; identifier: string; initialPricingRules?: PublicPricingRule[] };
 type TokenDetails = {
   tokenNumber: number;
   publicOrderId: string;
@@ -96,8 +97,17 @@ async function safeFetchJson<T = unknown>(
   }
 }
 
-export function CustomerPrintFlow({ shop: initialShop, identifier }: Props) {
+export function CustomerPrintFlow({ shop: initialShop, identifier, initialPricingRules = [] }: Props) {
   const [shop, setShop] = useState(initialShop);
+  const [pricingRules, setPricingRules] = useState<PricingRule[]>(() =>
+    (initialPricingRules || []).map((r) => ({
+      ...r,
+      side_mode: r.side_mode ?? "single_sided",
+      price_per_page: Number(r.price_per_page),
+      is_active: true,
+    }))
+  );
+
   useEffect(() => {
     const controller = new AbortController();
     const refresh = async () => {
@@ -129,6 +139,28 @@ export function CustomerPrintFlow({ shop: initialShop, identifier }: Props) {
   const allValid =
     documents.length > 0 && documents.every((document) => !validateRanges(document.ranges, document.pageCount));
 
+  // 1. Instant Synchronous Estimate Calculation (0ms perceived latency on clicks)
+  useEffect(() => {
+    if (step === 1 && documents.length > 0 && allValid && pricingRules.length > 0) {
+      const allRanges = documents.flatMap((d) => d.ranges);
+      try {
+        const instant = calculatePricing(allRanges, pricingRules, "customer_fee");
+        setEstimate({
+          total: instant.total,
+          subtotal: instant.subtotal,
+          platformFee: instant.platformFee,
+          currency: "INR",
+          totalPages: instant.totalPages,
+          colorPages: instant.colorPages,
+          blackAndWhitePages: instant.blackAndWhitePages,
+        });
+      } catch {
+        // Fallback to server estimate
+      }
+    }
+  }, [step, documents, allValid, pricingRules]);
+
+  // 2. Background Server Estimate Sync
   const fetchEstimate = useCallback(
     async (docs: CustomerDocument[], currentOrderId: string, currentToken: string) => {
       try {
@@ -141,9 +173,19 @@ export function CustomerPrintFlow({ shop: initialShop, identifier }: Props) {
             configurations: docs.map(({ id, ranges }) => ({ orderId: currentOrderId, documentId: id, ranges })),
           }),
         });
-        const result = await safeFetchJson<Estimate>(response);
+        const result = await safeFetchJson<Estimate & { pricingRuleSnapshot?: PricingRule[] }>(response);
         if (result.ok && result.data) {
           setEstimate(result.data);
+          if (result.data.pricingRuleSnapshot && result.data.pricingRuleSnapshot.length > 0) {
+            setPricingRules(
+              result.data.pricingRuleSnapshot.map((r) => ({
+                ...r,
+                side_mode: r.side_mode ?? "single_sided",
+                price_per_page: Number(r.price_per_page),
+                is_active: true,
+              }))
+            );
+          }
         }
       } catch {
         // Fallback live estimate calculation
@@ -157,10 +199,24 @@ export function CustomerPrintFlow({ shop: initialShop, identifier }: Props) {
     if (step === 1 && orderId && accessToken && allValid && documents.length > 0) {
       const timer = setTimeout(() => {
         fetchEstimate(documents, orderId, accessToken);
-      }, 300);
+      }, 100);
       return () => clearTimeout(timer);
     }
   }, [step, orderId, accessToken, documents, allValid, fetchEstimate]);
+
+  // Auto-scroll to top smoothly whenever an error is set so customer immediately sees the notification
+  useEffect(() => {
+    if (error) {
+      window.scrollTo({ top: 0, behavior: "smooth" });
+    }
+  }, [error]);
+
+  // Auto-scroll to top when moving to token step or status step
+  useEffect(() => {
+    if (step > 0) {
+      window.scrollTo({ top: 0, behavior: "smooth" });
+    }
+  }, [step]);
 
   if (!shop.is_active || !shop.accepting_orders) {
     return (
@@ -232,7 +288,16 @@ export function CustomerPrintFlow({ shop: initialShop, identifier }: Props) {
         ...document,
         filename: document.filename,
         pageCount: document.pageCount,
-        ranges: [{ startPage: 1, endPage: document.pageCount, colorMode: "black_and_white", paperSize: "a4" }],
+        ranges: [
+          {
+            startPage: 1,
+            endPage: document.pageCount,
+            colorMode: "black_and_white",
+            paperSize: "a4",
+            sideMode: "single_sided",
+            copies: 1,
+          },
+        ],
       }));
 
       const mergedDocs = isAppending ? [...documents, ...newDocs] : newDocs;
@@ -263,14 +328,30 @@ export function CustomerPrintFlow({ shop: initialShop, identifier }: Props) {
     setDocuments((items) => items.map((document, index) => (index === activeDocument ? update(document) : document)));
   }
 
-  function updateRange(index: number, field: keyof PrintRange, value: string) {
+  function updateRange(index: number, field: keyof PrintRange, value: string | number) {
     updateDocument((document) => ({
       ...document,
       ranges: document.ranges.map((range, rangeIndex) =>
         rangeIndex === index
-          ? { ...range, [field]: field === "startPage" || field === "endPage" ? Number(value) : value }
+          ? {
+              ...range,
+              [field]:
+                field === "startPage" || field === "endPage" || field === "copies"
+                  ? Math.max(1, Number(value) || 1)
+                  : value,
+            }
           : range,
       ),
+    }));
+  }
+
+  function setDocumentCopies(copies: number) {
+    updateDocument((document) => ({
+      ...document,
+      ranges: document.ranges.map((range) => ({
+        ...range,
+        copies: Math.max(1, copies),
+      })),
     }));
   }
 
@@ -279,11 +360,20 @@ export function CustomerPrintFlow({ shop: initialShop, identifier }: Props) {
     const lastRange = current.ranges[current.ranges.length - 1];
     const defaultMode = lastRange?.colorMode ?? "black_and_white";
     const defaultSize = lastRange?.paperSize ?? "a4";
+    const defaultSide = lastRange?.sideMode ?? "single_sided";
+    const defaultCopies = lastRange?.copies ?? 1;
     updateDocument((document) => ({
       ...document,
       ranges: [
         ...document.ranges,
-        { startPage: 1, endPage: document.pageCount, colorMode: defaultMode, paperSize: defaultSize },
+        {
+          startPage: 1,
+          endPage: document.pageCount,
+          colorMode: defaultMode,
+          paperSize: defaultSize,
+          sideMode: defaultSide,
+          copies: defaultCopies,
+        },
       ],
     }));
     setError(null);
@@ -440,6 +530,7 @@ export function CustomerPrintFlow({ shop: initialShop, identifier }: Props) {
           activeDocument={activeDocument}
           setActiveDocument={setActiveDocument}
           updateRange={updateRange}
+          setDocumentCopies={setDocumentCopies}
           addRange={addRange}
           removeRange={removeRange}
           removeDocument={removeDocument}
@@ -794,6 +885,7 @@ function ConfigureAndPayStep({
   activeDocument,
   setActiveDocument,
   updateRange,
+  setDocumentCopies,
   addRange,
   removeRange,
   removeDocument,
@@ -809,7 +901,8 @@ function ConfigureAndPayStep({
   current: CustomerDocument;
   activeDocument: number;
   setActiveDocument: (index: number) => void;
-  updateRange: (index: number, field: keyof PrintRange, value: string) => void;
+  updateRange: (index: number, field: keyof PrintRange, value: string | number) => void;
+  setDocumentCopies: (copies: number) => void;
   addRange: () => void;
   removeRange: (index: number) => void;
   removeDocument: (index: number) => void;
@@ -829,7 +922,14 @@ function ConfigureAndPayStep({
     shopPaymentMode === "counter" ? "counter" : "online"
   );
 
-  const fallbackTotalPages = documents.reduce((sum, doc) => sum + doc.pageCount, 0);
+  const fallbackTotalPages = documents.reduce((sum, doc) => {
+    const docPages = doc.ranges.reduce((acc, r) => {
+      const span = Math.max(0, r.endPage - r.startPage + 1);
+      return acc + span * Math.max(1, r.copies ?? 1);
+    }, 0);
+    return sum + docPages;
+  }, 0);
+
   const requestsColorMode = documents.some((doc) => doc.ranges.some((r) => r.colorMode === "color"));
   const colorPrinterUnavailable = requestsColorMode && shop.color_printer_status !== "ready";
   const printerOffline = shop.printer_status !== "ready";
@@ -844,16 +944,16 @@ function ConfigureAndPayStep({
       ) : null}
 
       {/* 1. Document Configuration Card */}
-      <Card className="p-5 sm:p-7 border-slate-200/80 bg-white shadow-md rounded-3xl">
-        <div className="flex flex-wrap items-start justify-between gap-3">
+      <Card className="p-4 sm:p-7 border-slate-200/80 bg-white shadow-md rounded-3xl">
+        <div className="flex flex-wrap items-center justify-between gap-2.5">
           <div>
-            <h2 className="text-xl font-bold text-slate-900">Configure Print Options</h2>
-            <p className="mt-0.5 text-xs text-slate-500">
-              Set page ranges, color mode, and paper size for each document.
+            <h2 className="text-lg sm:text-xl font-bold text-slate-900">Configure Print Options</h2>
+            <p className="text-[11px] sm:text-xs text-slate-500">
+              Set page ranges, copies, color mode, and paper size.
             </p>
           </div>
           <div className="flex items-center gap-2">
-            <span className="rounded-full bg-emerald-100 px-2.5 py-0.5 text-xs font-bold text-emerald-800">
+            <span className="rounded-full bg-emerald-100 px-2.5 py-0.5 text-[11px] sm:text-xs font-bold text-emerald-800">
               {documents.length} File{documents.length === 1 ? "" : "s"}
             </span>
             <input
@@ -874,7 +974,7 @@ function ConfigureAndPayStep({
               type="button"
               disabled={busy || documents.length >= 10}
               onClick={() => fileInputRef.current?.click()}
-              className="inline-flex items-center gap-1.5 rounded-xl border border-slate-200 bg-white px-3 py-1.5 text-xs font-bold text-slate-700 shadow-2xs hover:bg-slate-50 hover:border-emerald-500 transition"
+              className="inline-flex items-center gap-1.5 rounded-xl border border-slate-200 bg-white px-2.5 sm:px-3 py-1.5 text-xs font-bold text-slate-700 shadow-2xs hover:bg-slate-50 hover:border-emerald-500 transition active:scale-95"
             >
               <Plus className="size-3.5 text-emerald-600" /> Add File
             </button>
@@ -882,151 +982,274 @@ function ConfigureAndPayStep({
         </div>
 
         {/* Tab switcher for multiple documents */}
-        <div className="mt-4 flex gap-2 overflow-x-auto pb-2">
+        <div className="mt-3 flex gap-2 overflow-x-auto pb-1.5 no-scrollbar">
           {documents.map((document, index) => (
             <button
               key={document.id}
               onClick={() => setActiveDocument(index)}
               className={cn(
-                "flex items-center gap-2 shrink-0 rounded-xl border px-3.5 py-2 text-left text-xs transition-all",
+                "flex items-center gap-1.5 shrink-0 rounded-xl border px-3 py-2 text-left text-xs transition-all",
                 index === activeDocument
-                  ? "border-emerald-600 bg-emerald-50/80 font-bold text-emerald-950 shadow-xs ring-1 ring-emerald-500/20"
+                  ? "border-emerald-600 bg-emerald-50/90 font-bold text-emerald-950 shadow-xs ring-1 ring-emerald-500/20"
                   : "border-slate-200 bg-white text-slate-600 hover:bg-slate-50"
               )}
             >
-              <FileText className="size-4 text-emerald-600" />
-              <span className="max-w-36 truncate">{document.filename}</span>
-              <span className="rounded-md bg-white/80 px-1.5 py-0.5 text-[10px] font-semibold text-slate-500">
+              <FileText className="size-3.5 text-emerald-600 shrink-0" />
+              <span className="max-w-28 sm:max-w-36 truncate">{document.filename}</span>
+              <span className="rounded-md bg-white/90 px-1.5 py-0.5 text-[10px] font-semibold text-slate-500">
                 {document.pageCount}p
               </span>
             </button>
           ))}
         </div>
 
-        {/* Active Document Details */}
-        <div className="mt-3 rounded-2xl bg-slate-50/80 border border-slate-200/80 p-4 sm:p-5">
-          <div className="flex flex-wrap items-center justify-between gap-3 pb-3 border-b border-slate-200/60">
-            <div>
-              <p className="font-bold text-slate-900 text-sm sm:text-base">{current.filename}</p>
-              <p className="text-xs text-slate-500">
-                {(current.sizeBytes / 1024 / 1024).toFixed(2)} MB · {current.pageCount} total pages
+        {/* Active Document Details Box */}
+        <div className="mt-3 rounded-2xl bg-slate-50/80 border border-slate-200/80 p-3.5 sm:p-5">
+          <div className="flex flex-wrap items-center justify-between gap-2 pb-3 border-b border-slate-200/60">
+            <div className="min-w-0 max-w-[70%]">
+              <p className="font-bold text-slate-900 text-xs sm:text-base truncate">{current.filename}</p>
+              <p className="text-[11px] text-slate-500">
+                {(current.sizeBytes / 1024 / 1024).toFixed(2)} MB · {current.pageCount} pages in PDF
               </p>
             </div>
-            <div className="flex items-center gap-3">
-              <div className="text-right text-xs text-slate-600">
+            <div className="flex items-center gap-2">
+              <div className="text-right text-[11px] sm:text-xs text-slate-600">
                 <span>B&amp;W: <b className="text-slate-900">{modes.black_and_white}p</b></span>
-                <span className="mx-1.5">·</span>
+                <span className="mx-1">·</span>
                 <span>Color: <b className="text-slate-900">{modes.color}p</b></span>
               </div>
               <button
                 type="button"
                 disabled={documents.length <= 1}
                 onClick={() => removeDocument(activeDocument)}
-                className="rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-xs font-semibold text-rose-600 hover:bg-rose-50 disabled:opacity-40 transition"
+                className="rounded-lg border border-slate-200 bg-white px-2 py-1 text-xs font-semibold text-rose-600 hover:bg-rose-50 disabled:opacity-40 transition"
               >
-                <Trash2 className="size-3.5 inline mr-1" />
-                Remove
+                <Trash2 className="size-3.5" />
               </button>
             </div>
           </div>
 
+          {/* Quick Document Copies Bar */}
+          <div className="mt-3 flex flex-wrap items-center justify-between gap-2 rounded-xl bg-white p-2.5 sm:p-3 border border-slate-200/90 shadow-2xs">
+            <div className="flex items-center gap-2">
+              <span className="flex size-6 sm:size-7 items-center justify-center rounded-lg bg-emerald-100 text-emerald-700 font-bold text-xs">
+                #
+              </span>
+              <div>
+                <span className="text-xs font-bold text-slate-900 block leading-tight">Document Copies</span>
+                <span className="text-[10px] sm:text-[11px] text-slate-500">Apply to whole document</span>
+              </div>
+            </div>
+            <div className="flex flex-wrap items-center gap-1">
+              {[1, 2, 3, 5, 10].map((count) => (
+                <button
+                  key={count}
+                  type="button"
+                  onClick={() => setDocumentCopies(count)}
+                  className="rounded-lg border border-slate-200 bg-slate-50 px-2 sm:px-2.5 py-1 text-xs font-bold text-slate-700 hover:border-emerald-500 hover:bg-emerald-50 hover:text-emerald-900 transition active:scale-95"
+                >
+                  {count} {count === 1 ? "Copy" : "Copies"}
+                </button>
+              ))}
+            </div>
+          </div>
+
           {/* Quick Page Presets */}
-          <div className="mt-3 flex flex-wrap items-center gap-2">
-            <span className="text-xs font-bold text-slate-500">Presets:</span>
+          <div className="mt-2.5 flex flex-wrap items-center gap-1.5">
+            <span className="text-[11px] font-bold text-slate-500">Presets:</span>
             <button
               type="button"
               onClick={() => {
-                updateRange(0, "startPage", "1");
-                updateRange(0, "endPage", String(current.pageCount));
+                updateRange(0, "startPage", 1);
+                updateRange(0, "endPage", current.pageCount);
               }}
-              className="rounded-lg border border-slate-200 bg-white px-2.5 py-1 text-xs font-semibold text-slate-700 hover:border-emerald-500 hover:bg-emerald-50/50 transition"
+              className="rounded-lg border border-slate-200 bg-white px-2.5 py-1 text-xs font-semibold text-slate-700 hover:border-emerald-500 hover:bg-emerald-50/50 transition active:scale-95"
             >
               All Pages (1 - {current.pageCount})
             </button>
             <button
               type="button"
               onClick={() => {
-                updateRange(0, "startPage", "1");
-                updateRange(0, "endPage", "1");
+                updateRange(0, "startPage", 1);
+                updateRange(0, "endPage", 1);
               }}
-              className="rounded-lg border border-slate-200 bg-white px-2.5 py-1 text-xs font-semibold text-slate-700 hover:border-emerald-500 hover:bg-emerald-50/50 transition"
+              className="rounded-lg border border-slate-200 bg-white px-2.5 py-1 text-xs font-semibold text-slate-700 hover:border-emerald-500 hover:bg-emerald-50/50 transition active:scale-95"
             >
               Page 1 Only
             </button>
+            {current.pageCount >= 2 && (
+              <button
+                type="button"
+                onClick={() => {
+                  updateRange(0, "startPage", 1);
+                  updateRange(0, "endPage", 2);
+                }}
+                className="rounded-lg border border-slate-200 bg-white px-2.5 py-1 text-xs font-semibold text-slate-700 hover:border-emerald-500 hover:bg-emerald-50/50 transition active:scale-95"
+              >
+                Pages 1 - 2 Only
+              </button>
+            )}
           </div>
 
           {/* Page Ranges List */}
-          {current.ranges.map((range, index) => (
-            <div
-              key={`${current.id}-${index}`}
-              className="mt-3 grid gap-3 rounded-xl border border-slate-200 bg-white p-3.5 sm:grid-cols-[1fr_1fr_1.3fr_1.2fr_auto]"
-            >
-              <label className="text-xs font-semibold text-slate-600">
-                From Page
-                <input
-                  className="mt-1 h-10 w-full rounded-lg border border-slate-200 px-3 text-sm font-bold text-slate-900 focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500"
-                  min="1"
-                  max={current.pageCount}
-                  type="number"
-                  value={range.startPage}
-                  onChange={(event) => updateRange(index, "startPage", event.target.value)}
-                />
-              </label>
-              <label className="text-xs font-semibold text-slate-600">
-                To Page
-                <input
-                  className="mt-1 h-10 w-full rounded-lg border border-slate-200 px-3 text-sm font-bold text-slate-900 focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500"
-                  min="1"
-                  max={current.pageCount}
-                  type="number"
-                  value={range.endPage}
-                  onChange={(event) => updateRange(index, "endPage", event.target.value)}
-                />
-              </label>
-              <Select
-                label="Print Mode"
-                value={range.colorMode}
-                onChange={(event) => updateRange(index, "colorMode", event.target.value)}
+          {current.ranges.map((range, index) => {
+            const pageSpan = Math.max(0, range.endPage - range.startPage + 1);
+            const copies = Math.max(1, range.copies ?? 1);
+            const rangePrintedPages = pageSpan * copies;
+
+            return (
+              <div
+                key={`${current.id}-${index}`}
+                className="mt-3 rounded-2xl border border-slate-200 bg-white p-3 sm:p-4 shadow-2xs space-y-3"
               >
-                <option value="black_and_white">📄 Black &amp; White</option>
-                <option value="color" disabled={shop.color_printer_status !== "ready"}>
-                  🎨 Full Color {shop.color_printer_status !== "ready" ? "(Offline)" : ""}
-                </option>
-              </Select>
-              <Select
-                label="Paper Size"
-                value={range.paperSize}
-                onChange={(event) => updateRange(index, "paperSize", event.target.value)}
-              >
-                <option value="a4">A4 (Standard)</option>
-                <option value="a3">A3 (Large)</option>
-                <option value="letter">Letter</option>
-                <option value="legal">Legal</option>
-              </Select>
-              <button
-                type="button"
-                className="self-end rounded-lg p-2 text-rose-600 hover:bg-rose-50 disabled:opacity-30 transition"
-                aria-label="Remove page range"
-                disabled={current.ranges.length === 1}
-                onClick={() => removeRange(index)}
-              >
-                <Trash2 className="size-4" />
-              </button>
-            </div>
-          ))}
+                {/* Mobile Row 1: From, To, Copies */}
+                <div className="grid grid-cols-3 gap-2">
+                  <label className="text-xs font-semibold text-slate-600">
+                    From
+                    <input
+                      className="mt-1 h-10 w-full rounded-xl border border-slate-200 px-2 sm:px-3 text-center sm:text-left text-sm font-bold text-slate-900 focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500"
+                      min="1"
+                      max={current.pageCount}
+                      type="number"
+                      value={range.startPage}
+                      onChange={(event) => updateRange(index, "startPage", event.target.value)}
+                    />
+                  </label>
+                  <label className="text-xs font-semibold text-slate-600">
+                    To
+                    <input
+                      className="mt-1 h-10 w-full rounded-xl border border-slate-200 px-2 sm:px-3 text-center sm:text-left text-sm font-bold text-slate-900 focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500"
+                      min="1"
+                      max={current.pageCount}
+                      type="number"
+                      value={range.endPage}
+                      onChange={(event) => updateRange(index, "endPage", event.target.value)}
+                    />
+                  </label>
+
+                  {/* Copies Stepper */}
+                  <div className="text-xs font-semibold text-slate-600">
+                    <span>Copies</span>
+                    <div className="mt-1 flex h-10 items-center rounded-xl border border-slate-200 bg-white overflow-hidden shadow-2xs">
+                      <button
+                        type="button"
+                        onClick={() => updateRange(index, "copies", Math.max(1, copies - 1))}
+                        disabled={copies <= 1}
+                        className="flex h-full w-8 sm:w-9 items-center justify-center bg-slate-50 text-slate-700 hover:bg-slate-100 disabled:opacity-30 transition font-bold text-base select-none"
+                      >
+                        -
+                      </button>
+                      <input
+                        className="h-full w-full min-w-0 border-0 text-center text-sm font-black text-slate-900 focus:ring-0 focus:outline-none"
+                        min="1"
+                        max="100"
+                        type="number"
+                        value={copies}
+                        onChange={(event) => updateRange(index, "copies", event.target.value)}
+                      />
+                      <button
+                        type="button"
+                        onClick={() => updateRange(index, "copies", copies + 1)}
+                        className="flex h-full w-8 sm:w-9 items-center justify-center bg-slate-50 text-slate-700 hover:bg-slate-100 transition font-bold text-base select-none"
+                      >
+                        +
+                      </button>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Mobile Row 2: Mode, Paper Size, Side */}
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
+                  <Select
+                    label="Print Mode"
+                    value={range.colorMode}
+                    onChange={(event) => updateRange(index, "colorMode", event.target.value)}
+                  >
+                    <option value="black_and_white">📄 Black &amp; White</option>
+                    <option value="color" disabled={shop.color_printer_status !== "ready"}>
+                      🎨 Full Color {shop.color_printer_status !== "ready" ? "(Offline)" : ""}
+                    </option>
+                  </Select>
+                  <Select
+                    label="Paper Size"
+                    value={range.paperSize}
+                    onChange={(event) => updateRange(index, "paperSize", event.target.value)}
+                  >
+                    <option value="a4">A4 (Standard)</option>
+                    <option value="a3">A3 (Large)</option>
+                    <option value="letter">Letter</option>
+                    <option value="legal">Legal</option>
+                  </Select>
+                  <Select
+                    label="Print Sides"
+                    value={range.sideMode ?? "single_sided"}
+                    onChange={(event) => updateRange(index, "sideMode", event.target.value)}
+                  >
+                    <option value="single_sided">📄 Single-Sided (1 Side)</option>
+                    <option value="double_sided">📑 Double-Sided (Both Sides)</option>
+                  </Select>
+                </div>
+
+                {/* Range Calculation Breakdown Footer */}
+                <div className="flex flex-wrap items-center justify-between gap-2 border-t border-slate-100 pt-2 text-xs">
+                  <div className="flex flex-wrap items-center gap-1 font-medium text-slate-600">
+                    <span className="rounded-md bg-slate-100 px-1.5 py-0.5 font-bold text-slate-700">
+                      {range.startPage === range.endPage ? `P.${range.startPage}` : `P.${range.startPage}–${range.endPage}`}
+                    </span>
+                    <span>({pageSpan}p)</span>
+                    <span className="font-bold text-emerald-700">× {copies} {copies === 1 ? "copy" : "copies"}</span>
+                    <span>=</span>
+                    <span className="rounded-md bg-emerald-50 px-2 py-0.5 font-black text-emerald-800 border border-emerald-200">
+                      {rangePrintedPages} Printed {rangePrintedPages === 1 ? "Page" : "Pages"}
+                    </span>
+                  </div>
+
+                  <div className="flex items-center gap-1.5 ml-auto">
+                    <div className="flex items-center gap-1">
+                      {[1, 2, 3, 5].map((c) => (
+                        <button
+                          key={c}
+                          type="button"
+                          onClick={() => updateRange(index, "copies", c)}
+                          className={cn(
+                            "rounded-md px-1.5 py-0.5 text-[10px] font-bold border transition active:scale-95",
+                            copies === c
+                              ? "border-emerald-500 bg-emerald-50 text-emerald-800"
+                              : "border-slate-200 bg-slate-50 text-slate-600 hover:border-slate-300"
+                          )}
+                        >
+                          {c}x
+                        </button>
+                      ))}
+                    </div>
+                    {current.ranges.length > 1 && (
+                      <button
+                        type="button"
+                        className="rounded-lg p-1.5 text-rose-600 hover:bg-rose-50 transition active:scale-95"
+                        aria-label="Remove page range"
+                        onClick={() => removeRange(index)}
+                      >
+                        <Trash2 className="size-4" />
+                      </button>
+                    )}
+                  </div>
+                </div>
+              </div>
+            );
+          })}
 
           {rangeError ? (
             <p className="mt-2.5 text-xs font-bold text-rose-600">{rangeError}</p>
           ) : (
             <p className="mt-2.5 text-xs text-emerald-700 font-semibold flex items-center gap-1.5">
-              <CheckCircle2 className="size-3.5" /> Ready to print selected pages.
+              <CheckCircle2 className="size-3.5" /> Ready to print selected pages and copies.
             </p>
           )}
 
           <button
             type="button"
             onClick={addRange}
-            className="mt-3 inline-flex items-center gap-1.5 rounded-xl border border-slate-200 bg-white px-3 py-1.5 text-xs font-bold text-slate-700 shadow-2xs hover:bg-slate-50 hover:border-emerald-500 transition"
+            className="mt-3 inline-flex items-center gap-1.5 rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-bold text-slate-700 shadow-2xs hover:bg-slate-50 hover:border-emerald-500 transition active:scale-95"
           >
             <Plus className="size-3.5 text-emerald-600" /> Add Another Page Range
           </button>
@@ -1034,41 +1257,42 @@ function ConfigureAndPayStep({
       </Card>
 
       {/* 2. Order Summary & Payment Mode Selection */}
-      <Card className="overflow-hidden border-emerald-200/80 bg-gradient-to-br from-white via-emerald-50/20 to-slate-50 p-6 sm:p-7 shadow-lg rounded-3xl">
-        <div className="flex items-center justify-between border-b border-slate-200/60 pb-4">
-          <div className="flex items-center gap-2.5">
-            <div className="flex size-9 items-center justify-center rounded-xl bg-gradient-to-br from-emerald-600 to-teal-700 text-white shadow-xs">
-              <Sparkles className="size-5" />
+      <Card className="overflow-hidden border-emerald-200/80 bg-gradient-to-br from-white via-emerald-50/20 to-slate-50 p-4 sm:p-7 shadow-lg rounded-3xl">
+        <div className="flex items-center justify-between border-b border-slate-200/60 pb-3">
+          <div className="flex items-center gap-2 sm:gap-2.5">
+            <div className="flex size-8 sm:size-9 items-center justify-center rounded-xl bg-gradient-to-br from-emerald-600 to-teal-700 text-white shadow-xs">
+              <Sparkles className="size-4 sm:size-5" />
             </div>
             <div>
-              <h3 className="text-lg font-bold text-slate-900">Order Summary</h3>
-              <p className="text-xs text-slate-500">Authoritative slab pricing</p>
+              <h3 className="text-base sm:text-lg font-bold text-slate-900">Order Summary</h3>
+              <p className="text-[11px] sm:text-xs text-slate-500">Authoritative slab pricing</p>
             </div>
           </div>
-          <span className="rounded-full bg-emerald-100 px-3 py-1 text-xs font-bold text-emerald-800">
+          <span className="rounded-full bg-emerald-100 px-2.5 py-0.5 text-[10px] sm:text-xs font-bold text-emerald-800">
             {selectedMode === "counter" ? "TOKEN QUEUE" : "INSTANT AUTO-PRINT"}
           </span>
         </div>
 
-        <div className="mt-4 grid gap-3 sm:grid-cols-3">
-          <div className="rounded-2xl border border-slate-200/80 bg-white p-4 shadow-2xs">
-            <span className="text-xs font-semibold text-slate-500">Documents</span>
-            <div className="mt-1 text-lg font-black text-slate-900">{documents.length} File{documents.length === 1 ? "" : "s"}</div>
+        {/* 3 Metric Cards Optimized for Mobile */}
+        <div className="mt-3.5 grid grid-cols-2 sm:grid-cols-3 gap-2.5 sm:gap-3">
+          <div className="rounded-2xl border border-slate-200/80 bg-white p-3 sm:p-4 shadow-2xs">
+            <span className="text-[11px] sm:text-xs font-semibold text-slate-500">Documents</span>
+            <div className="mt-0.5 text-base sm:text-lg font-black text-slate-900">{documents.length} File{documents.length === 1 ? "" : "s"}</div>
           </div>
-          <div className="rounded-2xl border border-slate-200/80 bg-white p-4 shadow-2xs">
-            <span className="text-xs font-semibold text-slate-500">Total Pages</span>
-            <div className="mt-1 text-lg font-black text-slate-900">
+          <div className="rounded-2xl border border-slate-200/80 bg-white p-3 sm:p-4 shadow-2xs">
+            <span className="text-[11px] sm:text-xs font-semibold text-slate-500">Total Pages</span>
+            <div className="mt-0.5 text-base sm:text-lg font-black text-slate-900">
               {estimate ? estimate.totalPages : fallbackTotalPages} Pages
             </div>
             {estimate ? (
-              <span className="text-[11px] text-slate-500">
+              <span className="text-[10px] sm:text-[11px] text-slate-500 block truncate">
                 ({estimate.blackAndWhitePages} B&amp;W, {estimate.colorPages} Color)
               </span>
             ) : null}
           </div>
-          <div className="rounded-2xl border border-slate-200/80 bg-white p-4 shadow-2xs">
-            <span className="text-xs font-semibold text-slate-500">Total Payable</span>
-            <div className="mt-1 text-2xl font-black text-emerald-800 font-mono">
+          <div className="col-span-2 sm:col-span-1 rounded-2xl border border-emerald-200/80 bg-emerald-50/50 p-3 sm:p-4 shadow-2xs flex sm:block items-center justify-between">
+            <span className="text-[11px] sm:text-xs font-bold text-emerald-900">Total Payable</span>
+            <div className="text-xl sm:text-2xl font-black text-emerald-800 font-mono">
               ₹{estimate ? estimate.total.toFixed(2) : (fallbackTotalPages * 5).toFixed(2)}
             </div>
           </div>
@@ -1076,38 +1300,38 @@ function ConfigureAndPayStep({
 
         {/* Payment Mode Selector */}
         {shopPaymentMode === "both" ? (
-          <div className="mt-6">
-            <label className="text-xs font-bold uppercase tracking-wider text-slate-600 block mb-2.5">
+          <div className="mt-4 sm:mt-6">
+            <label className="text-xs font-bold uppercase tracking-wider text-slate-600 block mb-2">
               Choose How to Pay
             </label>
-            <div className="grid gap-3 sm:grid-cols-2">
+            <div className="grid gap-2.5 sm:grid-cols-2">
               <button
                 type="button"
                 onClick={() => setSelectedMode("counter")}
                 className={cn(
-                  "flex items-start gap-3.5 rounded-2xl border-2 p-4 text-left transition-all cursor-pointer",
+                  "flex items-start gap-3 rounded-2xl border-2 p-3 sm:p-4 text-left transition-all cursor-pointer active:scale-98",
                   selectedMode === "counter"
-                    ? "border-emerald-600 bg-emerald-50/80 shadow-md ring-2 ring-emerald-500/20"
+                    ? "border-emerald-600 bg-emerald-50/90 shadow-md ring-2 ring-emerald-500/20"
                     : "border-slate-200 bg-white hover:border-slate-300 hover:bg-slate-50/80"
                 )}
               >
                 <div
                   className={cn(
-                    "flex size-10 shrink-0 items-center justify-center rounded-xl font-bold transition",
+                    "flex size-9 sm:size-10 shrink-0 items-center justify-center rounded-xl font-bold transition",
                     selectedMode === "counter" ? "bg-emerald-600 text-white shadow-xs" : "bg-slate-100 text-slate-600"
                   )}
                 >
-                  <Ticket className="size-5" />
+                  <Ticket className="size-4 sm:size-5" />
                 </div>
                 <div>
-                  <div className="flex items-center gap-2 font-bold text-slate-900">
+                  <div className="flex items-center gap-1.5 font-bold text-xs sm:text-sm text-slate-900">
                     Pay at Counter
-                    <span className="rounded-full bg-emerald-100 px-2 py-0.2 text-[10px] font-bold text-emerald-800">
+                    <span className="rounded-full bg-emerald-100 px-2 py-0.2 text-[9px] sm:text-[10px] font-bold text-emerald-800">
                       TOKEN
                     </span>
                   </div>
-                  <p className="mt-0.5 text-xs text-slate-500 leading-relaxed">
-                    Generate a sequential token number and pay cash/UPI at the counter. Valid for 1 hour.
+                  <p className="mt-0.5 text-[11px] sm:text-xs text-slate-500 leading-snug">
+                    Generate token &amp; pay cash/UPI at counter. Valid for 1 hr.
                   </p>
                 </div>
               </button>
@@ -1116,29 +1340,29 @@ function ConfigureAndPayStep({
                 type="button"
                 onClick={() => setSelectedMode("online")}
                 className={cn(
-                  "flex items-start gap-3.5 rounded-2xl border-2 p-4 text-left transition-all cursor-pointer",
+                  "flex items-start gap-3 rounded-2xl border-2 p-3 sm:p-4 text-left transition-all cursor-pointer active:scale-98",
                   selectedMode === "online"
-                    ? "border-emerald-600 bg-emerald-50/80 shadow-md ring-2 ring-emerald-500/20"
+                    ? "border-emerald-600 bg-emerald-50/90 shadow-md ring-2 ring-emerald-500/20"
                     : "border-slate-200 bg-white hover:border-slate-300 hover:bg-slate-50/80"
                 )}
               >
                 <div
                   className={cn(
-                    "flex size-10 shrink-0 items-center justify-center rounded-xl font-bold transition",
+                    "flex size-9 sm:size-10 shrink-0 items-center justify-center rounded-xl font-bold transition",
                     selectedMode === "online" ? "bg-emerald-600 text-white shadow-xs" : "bg-slate-100 text-slate-600"
                   )}
                 >
-                  <CreditCard className="size-5" />
+                  <CreditCard className="size-4 sm:size-5" />
                 </div>
                 <div>
-                  <div className="flex items-center gap-2 font-bold text-slate-900">
+                  <div className="flex items-center gap-1.5 font-bold text-xs sm:text-sm text-slate-900">
                     Pay Online
-                    <span className="rounded-full bg-emerald-100 px-2 py-0.2 text-[10px] font-bold text-emerald-800">
+                    <span className="rounded-full bg-emerald-100 px-2 py-0.2 text-[9px] sm:text-[10px] font-bold text-emerald-800">
                       INSTANT
                     </span>
                   </div>
-                  <p className="mt-0.5 text-xs text-slate-500 leading-relaxed">
-                    Pay with UPI, Cards, or NetBanking. Instant zero-touch auto-print.
+                  <p className="mt-0.5 text-[11px] sm:text-xs text-slate-500 leading-snug">
+                    Pay via UPI, Cards, NetBanking for instant auto-print.
                   </p>
                 </div>
               </button>
@@ -1147,26 +1371,26 @@ function ConfigureAndPayStep({
         ) : null}
 
         {/* Tactile Primary Action Button */}
-        <div className="mt-6">
+        <div className="mt-5 sm:mt-6">
           {selectedMode === "counter" ? (
             <button
               type="button"
               disabled={!allValid || busy}
               onClick={onProceedToCounterToken}
-              className="flex w-full items-center justify-center gap-2.5 rounded-2xl bg-gradient-to-r from-emerald-600 via-emerald-700 to-teal-800 px-6 py-4 text-base font-bold text-white shadow-[0_4px_0_#065f46,0_12px_24px_-2px_rgba(5,150,105,0.4)] transition-all hover:from-emerald-500 hover:to-emerald-600 hover:shadow-[0_5px_0_#065f46,0_16px_28px_-2px_rgba(5,150,105,0.5)] hover:-translate-y-0.5 active:translate-y-1 active:shadow-[0_1px_0_#065f46] cursor-pointer disabled:opacity-50 disabled:pointer-events-none"
+              className="flex w-full items-center justify-center gap-2 rounded-2xl bg-gradient-to-r from-emerald-600 via-emerald-700 to-teal-800 px-4 sm:px-6 py-3.5 sm:py-4 text-sm sm:text-base font-bold text-white shadow-[0_4px_0_#065f46,0_12px_24px_-2px_rgba(5,150,105,0.4)] transition-all hover:from-emerald-500 hover:to-emerald-600 hover:-translate-y-0.5 active:translate-y-1 active:shadow-[0_1px_0_#065f46] cursor-pointer disabled:opacity-50 disabled:pointer-events-none"
             >
               {busy ? (
                 <>
-                  <LoaderCircle className="size-5 animate-spin" />
+                  <LoaderCircle className="size-4 sm:size-5 animate-spin" />
                   <span>Generating Counter Token...</span>
                 </>
               ) : (
                 <>
-                  <Ticket className="size-5" />
-                  <span>
-                    Generate Token &amp; Pay at Counter (₹{estimate ? estimate.total.toFixed(2) : (fallbackTotalPages * 5).toFixed(2)})
+                  <Ticket className="size-4 sm:size-5 shrink-0" />
+                  <span className="truncate">
+                    Generate Token (₹{estimate ? estimate.total.toFixed(2) : (fallbackTotalPages * 5).toFixed(2)})
                   </span>
-                  <ArrowRight className="size-4" />
+                  <ArrowRight className="size-4 shrink-0" />
                 </>
               )}
             </button>
@@ -1175,36 +1399,36 @@ function ConfigureAndPayStep({
               type="button"
               disabled={!allValid || busy}
               onClick={onProceedToPay}
-              className="flex w-full items-center justify-center gap-2.5 rounded-2xl bg-gradient-to-r from-emerald-700 via-teal-800 to-slate-900 px-6 py-4 text-base font-bold text-white shadow-[0_4px_0_#064e3b,0_12px_24px_-2px_rgba(6,78,59,0.4)] transition-all hover:from-emerald-600 hover:to-teal-700 hover:shadow-[0_5px_0_#064e3b,0_16px_28px_-2px_rgba(6,78,59,0.5)] hover:-translate-y-0.5 active:translate-y-1 active:shadow-[0_1px_0_#064e3b] cursor-pointer disabled:opacity-50 disabled:pointer-events-none"
+              className="flex w-full items-center justify-center gap-2 rounded-2xl bg-gradient-to-r from-emerald-700 via-teal-800 to-slate-900 px-4 sm:px-6 py-3.5 sm:py-4 text-sm sm:text-base font-bold text-white shadow-[0_4px_0_#064e3b,0_12px_24px_-2px_rgba(6,78,59,0.4)] transition-all hover:from-emerald-600 hover:to-teal-700 hover:-translate-y-0.5 active:translate-y-1 active:shadow-[0_1px_0_#064e3b] cursor-pointer disabled:opacity-50 disabled:pointer-events-none"
             >
               {busy ? (
                 <>
-                  <LoaderCircle className="size-5 animate-spin" />
+                  <LoaderCircle className="size-4 sm:size-5 animate-spin" />
                   <span>Preparing Payment...</span>
                 </>
               ) : (
                 <>
-                  <CreditCard className="size-5" />
-                  <span>
+                  <CreditCard className="size-4 sm:size-5 shrink-0" />
+                  <span className="truncate">
                     Proceed to Pay ₹{estimate ? estimate.total.toFixed(2) : (fallbackTotalPages * 5).toFixed(2)} Online
                   </span>
-                  <ArrowRight className="size-4" />
+                  <ArrowRight className="size-4 shrink-0" />
                 </>
               )}
             </button>
           )}
         </div>
 
-        <div className="mt-4 flex items-center justify-center gap-2 text-xs text-slate-500">
+        <div className="mt-3.5 flex items-center justify-center gap-1.5 text-[11px] text-slate-500 text-center">
           {selectedMode === "counter" ? (
             <>
-              <Store className="size-4 text-emerald-600" />
-              <span>Token generated immediately · Show at counter within 1 hour</span>
+              <Store className="size-3.5 text-emerald-600 shrink-0" />
+              <span>Token generated immediately · Show at counter within 1 hr</span>
             </>
           ) : (
             <>
-              <ShieldCheck className="size-4 text-emerald-600" />
-              <span>256-Bit Encrypted Payment · Instant Web Printing at Counter</span>
+              <ShieldCheck className="size-3.5 text-emerald-600 shrink-0" />
+              <span>256-Bit Encrypted Payment · Instant Auto-Print</span>
             </>
           )}
         </div>
@@ -1234,6 +1458,11 @@ function CounterTokenStep({
   const [orderStatus, setOrderStatus] = useState<string>("awaiting_payment");
   const [jobStatuses, setJobStatuses] = useState<Array<{ id: string; status: string }>>([]);
   const [copied, setCopied] = useState(false);
+
+  // Auto scroll up to ensure token card is fully in view
+  useEffect(() => {
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  }, []);
 
   // Live countdown timer for 1-hour validity
   useEffect(() => {
@@ -1293,57 +1522,57 @@ function CounterTokenStep({
   };
 
   return (
-    <Card className="overflow-hidden border-emerald-200 bg-gradient-to-br from-white via-emerald-50/20 to-slate-50 p-6 sm:p-8 shadow-xl rounded-3xl">
-      {/* 1. SCREENSHOT PROMPT BANNER (User requirement: "tell customer to take a screenshot of your token number") */}
-      <div className="rounded-2xl border-2 border-dashed border-amber-400 bg-gradient-to-r from-amber-50 to-orange-50/70 p-4 sm:p-5 text-amber-950 shadow-xs">
-        <div className="flex items-center gap-3.5">
-          <div className="flex size-11 shrink-0 items-center justify-center rounded-2xl bg-amber-200/80 text-amber-900 shadow-inner">
-            <Camera className="size-6" />
+    <Card className="overflow-hidden border-emerald-200 bg-gradient-to-br from-white via-emerald-50/20 to-slate-50 p-4 sm:p-8 shadow-xl rounded-3xl">
+      {/* 1. SCREENSHOT PROMPT BANNER */}
+      <div className="rounded-2xl border-2 border-dashed border-amber-400 bg-gradient-to-r from-amber-50 to-orange-50/70 p-3.5 sm:p-5 text-amber-950 shadow-xs">
+        <div className="flex items-center gap-3">
+          <div className="flex size-10 sm:size-11 shrink-0 items-center justify-center rounded-2xl bg-amber-200/80 text-amber-900 shadow-inner">
+            <Camera className="size-5 sm:size-6" />
           </div>
           <div>
-            <p className="text-sm font-black tracking-tight text-amber-950 sm:text-base">
+            <p className="text-xs sm:text-base font-black tracking-tight text-amber-950">
               📸 Please take a screenshot of your token number!
             </p>
-            <p className="text-xs text-amber-800 leading-relaxed mt-0.5">
-              Take a screenshot now or save Token <b>#{tokenDetails.tokenNumber}</b> to show the shopkeeper at the counter.
+            <p className="text-[11px] sm:text-xs text-amber-800 leading-snug sm:leading-relaxed mt-0.5">
+              Take a screenshot now or save Token <b>#{tokenDetails.tokenNumber}</b> to show at the counter.
             </p>
           </div>
         </div>
       </div>
 
       {/* 2. MASSIVE TOKEN NUMBER CARD */}
-      <div className="mt-6 rounded-3xl border border-emerald-300/80 bg-white p-6 sm:p-8 text-center shadow-md">
-        <div className="inline-flex items-center gap-2 rounded-full bg-emerald-100 px-4 py-1 text-xs font-bold text-emerald-800">
-          <Ticket className="size-4" /> PAY AT COUNTER TOKEN
+      <div className="mt-4 sm:mt-6 rounded-2xl sm:rounded-3xl border border-emerald-300/80 bg-white p-4 sm:p-8 text-center shadow-md">
+        <div className="inline-flex items-center gap-1.5 rounded-full bg-emerald-100 px-3 py-0.5 text-[11px] sm:text-xs font-bold text-emerald-800">
+          <Ticket className="size-3.5" /> PAY AT COUNTER TOKEN
         </div>
 
-        <div className="mt-4">
-          <span className="text-xs font-bold uppercase tracking-widest text-slate-400">Your Token Number</span>
-          <div className="mt-1 text-6xl sm:text-7xl font-black tracking-tight text-emerald-700 font-mono">
+        <div className="mt-3 sm:mt-4">
+          <span className="text-[10px] sm:text-xs font-bold uppercase tracking-widest text-slate-400">Your Token Number</span>
+          <div className="mt-0.5 text-5xl sm:text-7xl font-black tracking-tight text-emerald-700 font-mono">
             #{tokenDetails.tokenNumber}
           </div>
         </div>
 
         {/* Total pages to be printed clearly below token number */}
-        <div className="mt-3.5 inline-flex items-center gap-2 rounded-xl bg-emerald-50 px-4 py-2 text-sm font-extrabold text-emerald-900 border border-emerald-200">
-          <Printer className="size-4 text-emerald-700 shrink-0" />
+        <div className="mt-3 inline-flex flex-wrap items-center justify-center gap-1.5 rounded-xl bg-emerald-50 px-3 py-1.5 text-xs sm:text-sm font-extrabold text-emerald-900 border border-emerald-200">
+          <Printer className="size-3.5 sm:size-4 text-emerald-700 shrink-0" />
           <span>
-            {tokenDetails.totalPages} Pages to be printed ({tokenDetails.blackAndWhitePages} B&amp;W, {tokenDetails.colorPages} Color)
+            {tokenDetails.totalPages} Pages to print ({tokenDetails.blackAndWhitePages} B&amp;W, {tokenDetails.colorPages} Color)
           </span>
         </div>
 
         {/* Amount to pay */}
-        <div className="mt-5 pt-4 border-t border-slate-100 flex items-center justify-center gap-2 text-slate-600 text-sm">
+        <div className="mt-4 pt-3 border-t border-slate-100 flex items-center justify-center gap-2 text-slate-600 text-xs sm:text-sm">
           <span>Pay at Counter:</span>
-          <b className="text-2xl font-black text-slate-900 font-mono">₹{tokenDetails.totalAmount.toFixed(2)}</b>
+          <b className="text-xl sm:text-2xl font-black text-slate-900 font-mono">₹{tokenDetails.totalAmount.toFixed(2)}</b>
         </div>
 
         {/* Copy Token Button */}
-        <div className="mt-4">
+        <div className="mt-3.5">
           <button
             type="button"
             onClick={handleCopyToken}
-            className="inline-flex items-center gap-1.5 rounded-xl border border-slate-200 bg-slate-50 px-3.5 py-1.5 text-xs font-bold text-slate-700 hover:bg-emerald-50 hover:text-emerald-800 hover:border-emerald-300 transition"
+            className="inline-flex items-center gap-1.5 rounded-xl border border-slate-200 bg-slate-50 px-3.5 py-1.5 text-xs font-bold text-slate-700 hover:bg-emerald-50 hover:text-emerald-800 hover:border-emerald-300 transition active:scale-95"
           >
             {copied ? (
               <>
@@ -1361,73 +1590,73 @@ function CounterTokenStep({
       </div>
 
       {/* 3. VALIDITY COUNTDOWN & LIVE STATUS */}
-      <div className="mt-5 grid gap-3 sm:grid-cols-2">
+      <div className="mt-4 grid gap-2.5 sm:grid-cols-2">
         {/* Countdown Box */}
-        <div className="rounded-2xl border border-slate-200/80 bg-white p-4 shadow-2xs">
-          <div className="flex items-center gap-2 text-xs text-slate-500">
-            <Clock3 className="size-4 text-emerald-600" />
+        <div className="rounded-2xl border border-slate-200/80 bg-white p-3.5 sm:p-4 shadow-2xs">
+          <div className="flex items-center gap-1.5 text-xs text-slate-500">
+            <Clock3 className="size-3.5 text-emerald-600" />
             <span className="font-bold">Token Validity</span>
           </div>
-          <div className="mt-2 flex items-baseline gap-2">
+          <div className="mt-1.5 flex items-baseline gap-2">
             <span
               className={cn(
-                "font-mono text-2xl font-black",
+                "font-mono text-xl sm:text-2xl font-black",
                 remainingSeconds < 300 ? "text-rose-600" : "text-slate-900"
               )}
             >
               {isExpired ? "Expired" : formattedCountdown}
             </span>
-            <span className="text-xs text-slate-500">{isExpired ? "" : "remaining (1 hr validity)"}</span>
+            <span className="text-[11px] text-slate-500">{isExpired ? "" : "left (1 hr validity)"}</span>
           </div>
-          <p className="mt-1 text-[11px] text-slate-500 leading-relaxed">
+          <p className="mt-1 text-[11px] text-slate-500 leading-snug">
             {isExpired
-              ? "This token has expired. Please create a new request."
-              : "Valid for 1 hour from submission. Show to shopkeeper before expiry."}
+              ? "Token expired. Please submit a new request."
+              : "Show token to the shopkeeper before expiry."}
           </p>
         </div>
 
         {/* Live Status Box */}
-        <div className="rounded-2xl border border-slate-200/80 bg-white p-4 shadow-2xs">
-          <span className="text-xs font-bold text-slate-500">Print Queue Status</span>
-          <div className="mt-2">
+        <div className="rounded-2xl border border-slate-200/80 bg-white p-3.5 sm:p-4 shadow-2xs">
+          <span className="text-xs font-bold text-slate-500">Queue Status</span>
+          <div className="mt-1.5">
             {isCompleted ? (
-              <span className="inline-flex items-center gap-1.5 text-sm font-bold text-emerald-700">
-                <CheckCircle2 className="size-4" /> Printed &amp; Ready for Pickup!
+              <span className="inline-flex items-center gap-1.5 text-xs sm:text-sm font-bold text-emerald-700">
+                <CheckCircle2 className="size-4 shrink-0" /> Printed &amp; Ready!
               </span>
             ) : isPrinting ? (
-              <span className="inline-flex items-center gap-1.5 text-sm font-bold text-emerald-600">
-                <LoaderCircle className="size-4 animate-spin" /> Approved! Printing now...
+              <span className="inline-flex items-center gap-1.5 text-xs sm:text-sm font-bold text-emerald-600">
+                <LoaderCircle className="size-4 animate-spin shrink-0" /> Approved! Printing now...
               </span>
             ) : isExpired ? (
-              <span className="text-sm font-bold text-rose-600">Expired (1 Hour Elapsed)</span>
+              <span className="text-xs sm:text-sm font-bold text-rose-600">Expired</span>
             ) : (
-              <span className="inline-flex items-center gap-1.5 text-sm font-bold text-amber-700">
-                <span className="size-2 rounded-full bg-amber-500 animate-pulse" />
-                Waiting for Shopkeeper at Counter
+              <span className="inline-flex items-center gap-1.5 text-xs sm:text-sm font-bold text-amber-700">
+                <span className="size-2 rounded-full bg-amber-500 animate-pulse shrink-0" />
+                Waiting for Shopkeeper
               </span>
             )}
           </div>
-          <p className="mt-1 text-[11px] text-slate-500 leading-relaxed">
+          <p className="mt-1 text-[11px] text-slate-500 leading-snug">
             {isCompleted
-              ? "Your documents have been printed. Collect them from the counter."
+              ? "Ready! Collect printed sheets from counter."
               : isPrinting
-              ? "Shop owner approved your token. Pages are being dispatched to the printer."
-              : "Shop owner will verify Token #" + tokenDetails.tokenNumber + ", collect ₹" + tokenDetails.totalAmount.toFixed(2) + ", and print."}
+              ? "Shop owner approved token; printing in progress."
+              : `Shopkeeper will verify Token #${tokenDetails.tokenNumber} & print.`}
           </p>
         </div>
       </div>
 
       {/* 4. ORDER SUMMARY & INSTRUCTIONS */}
-      <div className="mt-5 rounded-2xl border border-slate-200/80 bg-white p-5 text-xs text-slate-600 space-y-2 shadow-2xs">
-        <div className="flex items-center justify-between py-1">
+      <div className="mt-4 rounded-2xl border border-slate-200/80 bg-white p-3.5 sm:p-5 text-xs text-slate-600 space-y-1.5 shadow-2xs">
+        <div className="flex items-center justify-between py-0.5">
           <span>Order ID</span>
           <span className="font-mono font-bold text-slate-900">#{tokenDetails.publicOrderId}</span>
         </div>
-        <div className="flex items-center justify-between py-1">
+        <div className="flex items-center justify-between py-0.5">
           <span>Shop</span>
-          <span className="font-semibold text-slate-900">{shop.name}</span>
+          <span className="font-semibold text-slate-900 truncate max-w-[60%]">{shop.name}</span>
         </div>
-        <div className="flex items-center justify-between py-1">
+        <div className="flex items-center justify-between py-0.5">
           <span>Files</span>
           <span className="font-semibold text-slate-900">
             {documents.length} File{documents.length === 1 ? "" : "s"} ({tokenDetails.totalPages} Pages)
@@ -1436,13 +1665,13 @@ function CounterTokenStep({
       </div>
 
       {/* Reset / New Order Button */}
-      <div className="mt-6 flex flex-wrap items-center justify-between gap-3">
+      <div className="mt-4 sm:mt-6">
         <button
           type="button"
           onClick={onReset}
-          className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-xs font-bold text-slate-700 shadow-xs hover:bg-slate-50 hover:border-emerald-500 transition active:scale-95 cursor-pointer"
+          className="w-full sm:w-auto inline-flex items-center justify-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-3 text-xs font-bold text-slate-700 shadow-xs hover:bg-slate-50 hover:border-emerald-500 transition active:scale-95 cursor-pointer"
         >
-          <RotateCcw className="size-4" />
+          <RotateCcw className="size-3.5" />
           Print Another Document
         </button>
       </div>

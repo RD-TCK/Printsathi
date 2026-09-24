@@ -86,4 +86,45 @@ describe("PDF print submission", () => {
     expect((await prepareAndPrintDocument(source, invalidJob, printerName)).success).toBe(false);
     expect(mocks.execute).not.toHaveBeenCalled();
   });
+
+  it("slices only odd pages when duplexStep is 'odd' and only even pages when duplexStep is 'even'", async () => {
+    // Create a 4-page source PDF (Pages 1, 2, 3, 4)
+    const multiPageSource = path.join(directory, "four_pages.pdf");
+    const fourPagePdf = await PDFDocument.create();
+    fourPagePdf.addPage();
+    fourPagePdf.addPage();
+    fourPagePdf.addPage();
+    fourPagePdf.addPage();
+    fs.writeFileSync(multiPageSource, await fourPagePdf.save());
+
+    const duplexJobOdd = {
+      id: "job-duplex-odd",
+      totalPages: 4,
+      duplexStep: "odd",
+      pagesConfig: [{ startPage: 1, endPage: 4, colorMode: "black_and_white", paperSize: "a4", sideMode: "double_sided" }],
+    } as ClaimedJob;
+
+    let oddSlicedPdfPath!: string;
+    mocks.execute.mockImplementation((_file, args, _options, callback) => {
+      oddSlicedPdfPath = args.at(-1);
+      callback(null, "", "");
+    });
+
+    const oddResult = await prepareAndPrintDocument(multiPageSource, duplexJobOdd, printerName);
+    expect(oddResult.success).toBe(true);
+    // 2 odd pages (1, 3)
+    expect(oddResult.pagesSubmitted).toBe(2);
+
+    const duplexJobEven = {
+      id: "job-duplex-even",
+      totalPages: 4,
+      duplexStep: "even",
+      pagesConfig: [{ startPage: 1, endPage: 4, colorMode: "black_and_white", paperSize: "a4", sideMode: "double_sided" }],
+    } as ClaimedJob;
+
+    const evenResult = await prepareAndPrintDocument(multiPageSource, duplexJobEven, printerName);
+    expect(evenResult.success).toBe(true);
+    // 2 even pages (2, 4)
+    expect(evenResult.pagesSubmitted).toBe(2);
+  });
 });

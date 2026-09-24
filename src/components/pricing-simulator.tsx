@@ -10,6 +10,7 @@ type Rule = {
   id: string;
   color_mode: "black_and_white" | "color";
   paper_size: "a4" | "a3" | "letter" | "legal";
+  side_mode?: "single_sided" | "double_sided";
   min_pages: number;
   max_pages: number | null;
   price_per_page: number;
@@ -20,18 +21,43 @@ export function PricingSimulator({ rules }: { rules: Rule[] }) {
   const [pages, setPages] = useState<number>(7);
   const [mode, setMode] = useState<"black_and_white" | "color">("black_and_white");
   const [paper, setPaper] = useState<"a4" | "a3">("a4");
+  const [side, setSide] = useState<"single_sided" | "double_sided">("single_sided");
 
   const activeRules = rules
-    .filter((r) => r.is_active && r.color_mode === mode && r.paper_size === paper)
+    .filter(
+      (r) =>
+        r.is_active &&
+        r.color_mode === mode &&
+        r.paper_size === paper &&
+        (r.side_mode ?? "single_sided") === side,
+    )
     .sort((a, b) => a.min_pages - b.min_pages);
 
+  // Fallback: if double-sided rule is absent, try single-sided rule
+  const effectiveRules =
+    activeRules.length > 0
+      ? activeRules
+      : side === "double_sided"
+      ? rules
+          .filter(
+            (r) =>
+              r.is_active &&
+              r.color_mode === mode &&
+              r.paper_size === paper &&
+              (r.side_mode ?? "single_sided") === "single_sided",
+          )
+          .sort((a, b) => a.min_pages - b.min_pages)
+      : [];
+
+  const isFallback = activeRules.length === 0 && effectiveRules.length > 0;
+
   // Find matching tier for total page count
-  let matchedRule: Rule | undefined = activeRules.find(
+  let matchedRule: Rule | undefined = effectiveRules.find(
     (rule) => pages >= rule.min_pages && (rule.max_pages === null || pages <= rule.max_pages),
   );
 
-  if (!matchedRule && activeRules.length > 0) {
-    const highestRule = activeRules[activeRules.length - 1];
+  if (!matchedRule && effectiveRules.length > 0) {
+    const highestRule = effectiveRules[effectiveRules.length - 1];
     if (pages >= highestRule.min_pages) {
       matchedRule = highestRule;
     }
@@ -64,11 +90,11 @@ export function PricingSimulator({ rules }: { rules: Rule[] }) {
           <Badge tone="neutral">Real-time</Badge>
         </div>
         <p className="text-xs text-muted">
-          Test what a customer will be charged for any page count using your active rules.
+          Test what a customer will be charged for any page count using your active single &amp; double-sided rules.
         </p>
       </CardHeader>
       <CardContent className="space-y-4">
-        <div className="grid grid-cols-3 gap-3">
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
           <Input
             id="simPages"
             label="Document Pages"
@@ -78,6 +104,17 @@ export function PricingSimulator({ rules }: { rules: Rule[] }) {
             value={pages}
             onChange={(e) => setPages(Math.max(1, parseInt(e.target.value) || 1))}
           />
+          <div>
+            <label className="block text-sm font-medium text-brand-950 mb-2">Print Sides</label>
+            <select
+              className="h-11 w-full rounded-lg border border-line bg-white px-3 text-sm text-ink outline-none focus:border-brand-600"
+              value={side}
+              onChange={(e) => setSide(e.target.value as "single_sided" | "double_sided")}
+            >
+              <option value="single_sided">📄 Single-Sided</option>
+              <option value="double_sided">📑 Double-Sided</option>
+            </select>
+          </div>
           <div>
             <label className="block text-sm font-medium text-brand-950 mb-2">Color Mode</label>
             <select
@@ -120,16 +157,26 @@ export function PricingSimulator({ rules }: { rules: Rule[] }) {
         </div>
 
         {/* Calculation Result */}
-        {activeRules.length > 0 ? (
+        {effectiveRules.length > 0 ? (
           <div className="rounded-xl border border-brand-100 bg-brand-50/40 p-4">
             <div className="flex items-baseline justify-between border-b border-brand-100/60 pb-3">
               <div>
                 <span className="text-xs font-semibold uppercase tracking-wider text-muted">Customer Pays</span>
                 <div className="text-3xl font-extrabold text-brand-900">₹{total.toFixed(2)}</div>
+                {side === "double_sided" ? (
+                  <span className="text-[11px] text-muted">
+                    ({Math.ceil(pages / 2)} paper sheets printed back-to-back)
+                  </span>
+                ) : null}
               </div>
               <div className="text-right">
                 <span className="text-xs text-muted">Applied Tier Rate</span>
                 <div className="text-sm font-bold text-brand-700">₹{effectivePerPage} / page</div>
+                {isFallback ? (
+                  <span className="text-[10px] text-amber-700 font-semibold block">
+                    (Using single-sided rate fallback)
+                  </span>
+                ) : null}
               </div>
             </div>
 
@@ -152,7 +199,7 @@ export function PricingSimulator({ rules }: { rules: Rule[] }) {
           </div>
         ) : (
           <div className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-xs text-amber-800">
-            No active pricing rules configured for {mode === "color" ? "Color" : "Black & White"} ({paper.toUpperCase()}). Add a rule below to start pricing.
+            No active pricing rules configured for {side === "double_sided" ? "Double-Sided" : "Single-Sided"} {mode === "color" ? "Color" : "Black & White"} ({paper.toUpperCase()}). Add a rule below to start pricing.
           </div>
         )}
       </CardContent>

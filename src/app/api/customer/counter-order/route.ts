@@ -90,7 +90,7 @@ export async function POST(request: Request) {
   const documentMap = new Map((documents ?? []).map((doc) => [doc.id, doc]));
   const { data: rules } = await client
     .from("pricing_rules")
-    .select("color_mode, paper_size, min_pages, max_pages, price_per_page")
+    .select("color_mode, paper_size, side_mode, min_pages, max_pages, price_per_page")
     .eq("shop_id", shop.id)
     .eq("is_active", true);
 
@@ -172,6 +172,10 @@ export async function POST(request: Request) {
     if (!document || document.order_id !== orderId) continue;
 
     const jobId = crypto.randomUUID();
+    const jobPrintedPages = configuration.ranges.reduce(
+      (sum, r) => sum + (r.endPage - r.startPage + 1) * Math.max(1, r.copies ?? 1),
+      0
+    );
     await client.from("print_jobs").insert({
       id: jobId,
       order_id: orderId,
@@ -179,7 +183,7 @@ export async function POST(request: Request) {
       customer_id: order.customer_id,
       document_id: document.id,
       status: "awaiting_payment",
-      total_pages: document.page_count,
+      total_pages: jobPrintedPages,
       total_amount: Number(
         calculatePricing(
           configuration.ranges,
@@ -201,6 +205,8 @@ export async function POST(request: Request) {
         end_page: range.endPage,
         color_mode: range.colorMode,
         paper_size: range.paperSize,
+        side_mode: range.sideMode ?? "single_sided",
+        copies: range.copies ?? 1,
       }))
     );
   }

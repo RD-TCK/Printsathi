@@ -64,7 +64,7 @@ export async function GET(request: Request) {
 
   const buffer = await fileData.arrayBuffer();
 
-  return new NextResponse(buffer, {
+  return new NextResponse(Buffer.from(buffer), {
     status: 200,
     headers: {
       "Content-Type": document.mime_type || "application/pdf",

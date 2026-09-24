@@ -277,7 +277,7 @@ export default async function OrderDetailPage({ params }: Props) {
                           </span>
                         </div>
                         <p className="text-xs text-slate-500">
-                          {job.total_pages} pages · ₹{Number(job.total_amount).toFixed(2)}
+                          {job.total_pages} printed pages · ₹{Number(job.total_amount).toFixed(2)}
                         </p>
                       </div>
                     </div>
@@ -303,7 +303,7 @@ export default async function OrderDetailPage({ params }: Props) {
                           </span>
                           {(doc as { page_count?: number }).page_count && (
                             <span className="ml-auto shrink-0 text-slate-400">
-                              {(doc as { page_count: number }).page_count} pages
+                              {(doc as { page_count: number }).page_count} pages in PDF
                             </span>
                           )}
                         </div>

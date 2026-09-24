@@ -3,7 +3,7 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { getShopContext, canManageShop } from "@/lib/shop-portal";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
-import { getRazorpayClient, verifyPaymentSignature } from "@/lib/razorpay/server";
+import { getPlatformRazorpayClient, verifyPaymentSignature } from "@/lib/razorpay/server";
 
 const verifySubscriptionSchema = z.object({
   plan: z.enum(["monthly", "yearly"]),
@@ -32,7 +32,7 @@ export async function POST(request: Request) {
 
   const { plan, razorpayOrderId, razorpayPaymentId, razorpaySignature } = parsed.data;
 
-  const razorpayConfig = getRazorpayClient();
+  const razorpayConfig = getPlatformRazorpayClient();
   if (!razorpayConfig) {
     return NextResponse.json(
       { error: "Razorpay payment gateway is not configured on the server." },

@@ -80,6 +80,7 @@
   },
   "devDependencies": {
     "@tailwindcss/postcss": "^4",
+    "@types/jszip": "^3.4.0",
     "@types/node": "^20",
     "@types/qrcode": "^1.5.6",
     "@types/react": "^19",
@@ -91,6 +92,7 @@
     "eslint": "^9",
     "eslint-config-next": "16.3.4",
     "eslint-config-prettier": "^10.1.8",
+    "jszip": "^3.10.2",
     "prettier": "^3.9.6",
     "tailwindcss": "^4",
     "tsx": "^4.23.13",

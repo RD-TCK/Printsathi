@@ -86,10 +86,15 @@ export async function POST(request: Request) {
     const { data: orderJobs } = await adminClient
       .from("print_jobs")
       .select("status")
-      .eq("order_id", data.order_id);
+      .eq("order_id", data.order_id)
+      .eq("shop_id", member.shop_id);
 
     if (orderJobs && orderJobs.length > 0 && orderJobs.every((j) => j.status === "completed")) {
-      await adminClient.from("orders").update({ status: "completed" }).eq("id", data.order_id);
+      await adminClient
+        .from("orders")
+        .update({ status: "completed", updated_at: new Date().toISOString() })
+        .eq("id", data.order_id)
+        .eq("shop_id", member.shop_id);
     }
   }
 

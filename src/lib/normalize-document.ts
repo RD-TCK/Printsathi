@@ -8,6 +8,8 @@ import { promisify } from "node:util";
 import { PDFDocument, StandardFonts, rgb, PDFPage, PDFFont } from "pdf-lib";
 import sharp from "sharp";
 
+import mammoth from "mammoth";
+
 const execute = promisify(execFile);
 const officeExtensions = new Set([".doc", ".docx", ".odt", ".rtf", ".ppt", ".pptx", ".odp", ".xls", ".xlsx", ".ods", ".txt", ".csv", ".md"]);
 const textExtensions = new Set([".txt", ".csv", ".md"]);
@@ -31,8 +33,6 @@ export async function normalizeDocument(file: File): Promise<{ bytes: Buffer; pa
     // Pure Node.js mammoth pipeline for .docx — zero LibreOffice dependency.
     let converted = false;
     try {
-      const mammothModule = await import("mammoth");
-      const mammoth = (mammothModule as unknown as { default?: typeof mammothModule }).default || mammothModule;
       const htmlResult = await mammoth.convertToHtml({ buffer: bytes });
       const html = htmlResult.value ?? "";
 

@@ -4,6 +4,7 @@ import type { PrintRange } from "@/lib/customer-print";
 export const pricingRuleSchema = z.object({
   color_mode: z.enum(["black_and_white", "color"]),
   paper_size: z.enum(["a4", "a3", "letter", "legal"]),
+  side_mode: z.enum(["single_sided", "double_sided"]).default("single_sided"),
   min_pages: z.number().int().min(1),
   max_pages: z.number().int().min(1).nullable(),
   price_per_page: z.number().nonnegative(),
@@ -17,6 +18,7 @@ export type BillingMode = "customer_fee" | "shop_subscription";
 export type PricingBreakdown = {
   colorMode: PrintRange["colorMode"];
   paperSize: PrintRange["paperSize"];
+  sideMode: "single_sided" | "double_sided";
   pages: number;
   subtotal: number;
   slabBreakdown: Array<{
@@ -30,8 +32,11 @@ export type PricingBreakdown = {
 };
 
 export type PricingResult = {
+  totalPages: number;
   blackAndWhitePages: number;
   colorPages: number;
+  singleSidedPages: number;
+  doubleSidedPages: number;
   paperSizeBreakdown: Array<{ paperSize: PrintRange["paperSize"]; pages: number; subtotal: number }>;
   subtotal: number;
   platformFee: number;
@@ -54,7 +59,7 @@ export function assertShopCanPrice(shop: {
 const cents = (value: number) => Math.round((value + Number.EPSILON) * 100);
 const rupees = (value: number) => cents(value) / 100;
 const ruleKey = (rule: PricingRule) =>
-  `${rule.color_mode}:${rule.paper_size}:${rule.min_pages}:${rule.max_pages ?? "plus"}`;
+  `${rule.color_mode}:${rule.paper_size}:${rule.side_mode ?? "single_sided"}:${rule.min_pages}:${rule.max_pages ?? "plus"}`;
 
 export function calculatePlatformFee(
   _totalPages: number,
@@ -70,9 +75,10 @@ function validateRules(rules: PricingRule[]) {
     if (rule.is_active === false) continue;
     if (rule.max_pages !== null && rule.max_pages < rule.min_pages)
       throw new Error("Pricing rules contain an invalid page range.");
-    const key = `${rule.color_mode}:${rule.paper_size}`;
+    const side = rule.side_mode ?? "single_sided";
+    const key = `${rule.color_mode}:${rule.paper_size}:${side}`;
     const bucket = buckets.get(key) ?? [];
-    bucket.push(rule);
+    bucket.push({ ...rule, side_mode: side });
     buckets.set(key, bucket);
   }
   for (const bucket of buckets.values()) {
@@ -91,6 +97,7 @@ function validateRules(rules: PricingRule[]) {
 function priceBucket(
   mode: PrintRange["colorMode"],
   paperSize: PrintRange["paperSize"],
+  sideMode: "single_sided" | "double_sided",
   pages: number,
   bucket: PricingRule[],
 ) {
@@ -109,7 +116,7 @@ function priceBucket(
   }
 
   if (!matchedRule) {
-    throw new Error(`No pricing rule covers ${pages} ${mode} ${paperSize} pages.`);
+    throw new Error(`No pricing rule covers ${pages} ${mode} ${paperSize} (${sideMode.replace("_", " ")}) pages.`);
   }
 
   const subtotalCents = pages * cents(matchedRule.price_per_page);
@@ -126,7 +133,7 @@ function priceBucket(
     },
   ];
 
-  return { mode, paperSize, pages, subtotal, slabBreakdown };
+  return { mode, paperSize, sideMode, pages, subtotal, slabBreakdown };
 }
 
 export function calculatePricing(
@@ -137,19 +144,34 @@ export function calculatePricing(
   const buckets = validateRules(rules);
   const grouped = new Map<string, number>();
   for (const range of ranges) {
-    const pages = range.endPage - range.startPage + 1;
-    const key = `${range.colorMode}:${range.paperSize}`;
+    const copies = Math.max(1, range.copies ?? 1);
+    const pages = (range.endPage - range.startPage + 1) * copies;
+    const side = range.sideMode ?? "single_sided";
+    const key = `${range.colorMode}:${range.paperSize}:${side}`;
     grouped.set(key, (grouped.get(key) ?? 0) + pages);
   }
   const breakdown: PricingBreakdown[] = [];
   for (const [key, pages] of grouped) {
-    const [mode, paperSize] = key.split(":") as [PrintRange["colorMode"], PrintRange["paperSize"]];
-    const bucket = buckets.get(key);
-    if (!bucket) throw new Error(`No pricing configured for ${mode.replaceAll("_", " ")} ${paperSize} pages.`);
-    const priced = priceBucket(mode, paperSize, pages, bucket);
+    const [mode, paperSize, sideMode] = key.split(":") as [
+      PrintRange["colorMode"],
+      PrintRange["paperSize"],
+      "single_sided" | "double_sided",
+    ];
+    let bucket = buckets.get(key);
+    // Fallback: if double-sided pricing rule is not explicitly added, fallback to single-sided rule
+    if (!bucket && sideMode === "double_sided") {
+      bucket = buckets.get(`${mode}:${paperSize}:single_sided`);
+    }
+
+    if (!bucket) {
+      throw new Error(`No pricing configured for ${mode.replaceAll("_", " ")} ${paperSize} (${sideMode.replace("_", " ")}) pages.`);
+    }
+
+    const priced = priceBucket(mode, paperSize, sideMode, pages, bucket);
     breakdown.push({
       colorMode: mode,
       paperSize,
+      sideMode,
       pages,
       subtotal: priced.subtotal,
       slabBreakdown: priced.slabBreakdown,
@@ -162,12 +184,20 @@ export function calculatePricing(
     current.subtotalCents += cents(item.subtotal);
     paperTotals.set(item.paperSize, current);
   }
+
   const blackAndWhitePages = ranges
     .filter((range) => range.colorMode === "black_and_white")
-    .reduce((sum, range) => sum + range.endPage - range.startPage + 1, 0);
+    .reduce((sum, range) => sum + (range.endPage - range.startPage + 1) * Math.max(1, range.copies ?? 1), 0);
   const colorPages = ranges
     .filter((range) => range.colorMode === "color")
-    .reduce((sum, range) => sum + range.endPage - range.startPage + 1, 0);
+    .reduce((sum, range) => sum + (range.endPage - range.startPage + 1) * Math.max(1, range.copies ?? 1), 0);
+  const singleSidedPages = ranges
+    .filter((range) => (range.sideMode ?? "single_sided") === "single_sided")
+    .reduce((sum, range) => sum + (range.endPage - range.startPage + 1) * Math.max(1, range.copies ?? 1), 0);
+  const doubleSidedPages = ranges
+    .filter((range) => range.sideMode === "double_sided")
+    .reduce((sum, range) => sum + (range.endPage - range.startPage + 1) * Math.max(1, range.copies ?? 1), 0);
+
   const totalPages = blackAndWhitePages + colorPages;
   const platformFee = calculatePlatformFee(totalPages, billingMode);
 
@@ -175,8 +205,11 @@ export function calculatePricing(
   const total = rupees((cents(subtotal) + cents(platformFee)) / 100);
 
   return {
+    totalPages,
     blackAndWhitePages,
     colorPages,
+    singleSidedPages,
+    doubleSidedPages,
     paperSizeBreakdown: [...paperTotals].map(([paperSize, value]) => ({
       paperSize,
       pages: value.pages,
@@ -189,7 +222,7 @@ export function calculatePricing(
     billingMode,
     pricingRuleSnapshot: rules
       .filter((rule) => rule.is_active !== false)
-      .map((rule) => ({ ...rule, rule_key: ruleKey(rule) })),
+      .map((rule) => ({ ...rule, side_mode: rule.side_mode ?? "single_sided", rule_key: ruleKey(rule) })),
     breakdown,
   };
 }
