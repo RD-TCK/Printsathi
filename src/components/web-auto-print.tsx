@@ -42,27 +42,9 @@ export function WebPrintButton({
   jobId: string;
   documentName?: string;
   status: string;
+  amount?: number;
 }) {
   const [printing, setPrinting] = useState(false);
-  const [confirmed, setConfirmed] = useState(status === "completed");
-  const [completionError, setCompletionError] = useState("");
-  const confirmOutput = async () => {
-    setPrinting(true);
-    setCompletionError("");
-    try {
-      const response = await fetch("/api/shop/complete-job", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ jobId, status: "completed" }),
-      });
-      if (!response.ok) throw new Error("Could not confirm completion. Please try again.");
-      setConfirmed(true);
-    } catch (error) {
-      setCompletionError(error instanceof Error ? error.message : "Completion failed.");
-    } finally {
-      setPrinting(false);
-    }
-  };
 
   const handlePrint = async () => {
     setPrinting(true);
@@ -81,6 +63,15 @@ export function WebPrintButton({
           iframe.contentWindow?.print();
         };
       }
+
+      // Automatically mark as completed in background (no manual confirmation required)
+      if (status !== "completed") {
+        fetch("/api/shop/complete-job", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ jobId, status: "completed" }),
+        }).catch(() => {});
+      }
     } catch {
       // Manual print error
     } finally {
@@ -90,40 +81,25 @@ export function WebPrintButton({
 
   return (
     <div className="flex items-center gap-1.5">
-      {!confirmed && ["print_submitted", "printing"].includes(status) && (
-        <button
-          onClick={confirmOutput}
-          disabled={printing}
-          className="rounded border border-line px-2 py-1 text-xs"
-          title="Confirm only after checking that every page physically printed"
-        >
-          Confirm pages printed
-        </button>
-      )}
-      {confirmed && <span className="text-xs">Printed (confirmed)</span>}
-      {completionError && (
-        <span role="alert" className="text-xs text-red-600">
-          {completionError}
-        </span>
-      )}
       <button
         onClick={handlePrint}
         disabled={printing}
-        className="inline-flex items-center gap-1 rounded bg-brand-600 px-2 py-1 text-xs font-semibold text-white transition hover:bg-brand-700 disabled:opacity-50"
+        className="inline-flex items-center justify-center gap-1 whitespace-nowrap rounded-lg bg-gradient-to-b from-emerald-500 via-emerald-600 to-emerald-700 px-2.5 py-1.5 text-[11px] font-black uppercase tracking-wider text-white shadow-[0_2.5px_0_0_#064e3b,0_4px_8px_rgba(5,150,105,0.2)] border-t border-emerald-300/40 hover:from-emerald-400 hover:to-emerald-600 active:translate-y-[2px] active:shadow-[0_1px_0_0_#064e3b] disabled:opacity-50 transition-all cursor-pointer select-none"
       >
-        <Printer className="size-3.5" />
-        {printing ? "Printing..." : "Print (Web)"}
+        <Printer className="size-3 shrink-0 drop-shadow-xs" />
+        <span>{printing ? "Printing..." : "Print (Web)"}</span>
       </button>
       <a
         href={`/api/shop/print-document?jobId=${jobId}`}
         target="_blank"
         rel="noopener noreferrer"
         download={documentName}
-        className="inline-flex items-center rounded border border-line bg-white px-1.5 py-1 text-xs text-muted hover:bg-slate-50"
-        title="Download file"
+        className="inline-flex items-center justify-center rounded-lg bg-gradient-to-b from-slate-50 to-slate-100 border border-slate-300 p-1.5 text-slate-700 shadow-[0_1.5px_0_0_#cbd5e1] hover:bg-slate-200 active:translate-y-[1px] active:shadow-none transition-all"
+        title="Download PDF"
       >
-        <ExternalLink className="size-3.5" />
+        <ExternalLink className="size-3" />
       </a>
     </div>
   );
 }
+

@@ -424,3 +424,66 @@ export async function toggleAcceptingOrders(accepting: boolean): Promise<{ succe
   return { success: true };
 }
 
+export async function discardPrintJobAction(formData: FormData): Promise<void> {
+  const context = await getShopContext();
+  if (!context || !canManageShop(context)) {
+    redirect("/shop/jobs?error=Permission+denied");
+  }
+
+  const jobId = z.string().uuid().safeParse(formData.get("jobId"));
+  const reason = (formData.get("reason") as string) || "Customer rejected misprint (Discarded by shop owner)";
+  if (!jobId.success) {
+    redirect("/shop/jobs?error=Invalid+job+selected");
+  }
+
+  const admin = createSupabaseAdminClient() || context.client;
+
+  const { data: job } = await admin
+    .from("print_jobs")
+    .select("id, order_id")
+    .eq("id", jobId.data)
+    .eq("shop_id", context.shop.id)
+    .maybeSingle();
+
+  if (!job) {
+    redirect("/shop/jobs?error=Job+not+found");
+  }
+
+  // Update status to failed with discard reason
+  await admin
+    .from("print_jobs")
+    .update({
+      status: "failed",
+      failure_reason: reason,
+      updated_at: new Date().toISOString(),
+    })
+    .eq("id", jobId.data)
+    .eq("shop_id", context.shop.id);
+
+  if (job.order_id) {
+    const { data: siblingJobs } = await admin
+      .from("print_jobs")
+      .select("status")
+      .eq("order_id", job.order_id)
+      .eq("shop_id", context.shop.id);
+
+    const allDiscarded = (siblingJobs || []).every((j) => ["failed", "cancelled"].includes(j.status));
+    if (allDiscarded) {
+      await admin
+        .from("orders")
+        .update({
+          status: "cancelled",
+          updated_at: new Date().toISOString(),
+        })
+        .eq("id", job.order_id)
+        .eq("shop_id", context.shop.id);
+    }
+  }
+
+  revalidatePath("/shop/jobs");
+  revalidatePath("/shop/analytics");
+  revalidatePath("/shop/dashboard");
+  redirect("/shop/jobs?success=Print+job+discarded.+Excluded+from+revenue.");
+}
+
+

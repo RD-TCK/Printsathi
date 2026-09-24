@@ -125,43 +125,32 @@ export async function POST(request: Request) {
     }
   }
 
-  // 4. Generate sequential token number for this shop (reuse existing if re-configuring this order, else assign next max for today in IST)
-  let tokenNumber = 1;
+  // 4. Generate sequential token number for this shop.
+  // If the order already has a token (re-configuration), reuse it so the customer
+  // keeps the same position in the queue. Otherwise call the atomic DB function
+  // that uses INSERT ... ON CONFLICT DO UPDATE ... RETURNING to guarantee each
+  // concurrent submission for the same shop receives a unique value.
   const { data: currentOrderData } = await client
     .from("orders")
     .select("token_number")
     .eq("id", orderId)
     .maybeSingle();
 
+  let tokenNumber: number;
   if (currentOrderData?.token_number && currentOrderData.token_number > 0) {
+    // Re-configuration: keep the existing token number.
     tokenNumber = currentOrderData.token_number;
   } else {
-    // Calculate 00:00:00 IST today
-    const now = new Date();
-    const istOffsetMs = (5 * 60 + 30) * 60 * 1000;
-    const istNow = new Date(now.getTime() + istOffsetMs);
-    const istStartOfDay = new Date(
-      Date.UTC(istNow.getUTCFullYear(), istNow.getUTCMonth(), istNow.getUTCDate(), 0, 0, 0) - istOffsetMs
-    );
-
-    // Query highest token number among today's counter orders for this shop (excluding current order)
-    const { data: highestOrder } = await client
-      .from("orders")
-      .select("token_number")
-      .eq("shop_id", shop.id)
-      .eq("payment_mode", "counter")
-      .gte("created_at", istStartOfDay.toISOString())
-      .neq("id", orderId)
-      .not("token_number", "is", null)
-      .order("token_number", { ascending: false })
-      .limit(1)
-      .maybeSingle();
-
-    const maxToken = highestOrder && typeof highestOrder.token_number === "number" && highestOrder.token_number > 0
-      ? highestOrder.token_number
-      : 0;
-
-    tokenNumber = maxToken + 1;
+    // New submission: atomically claim the next token via the DB function.
+    // generate_counter_token() uses a dedicated counter row with a row-level
+    // lock, so concurrent calls are serialised and never produce duplicates.
+    const { data: tokenData, error: tokenError } = await client
+      .rpc("generate_counter_token", { p_shop_id: shop.id })
+      .single();
+    if (tokenError || typeof tokenData !== "number") {
+      return NextResponse.json({ error: "Could not assign a queue token. Please try again." }, { status: 500 });
+    }
+    tokenNumber = tokenData as number;
   }
 
   // 5. Replace draft print jobs

@@ -20,6 +20,11 @@ export class AgentDaemon {
   private lastHeartbeatTime: string | null = null;
   private isConnected: boolean = false;
 
+  // Multi-printer tracking and duplex reservation maps
+  private activePrintingPrinters: Set<string> = new Set();
+  private reservedDuplexPrinters: Map<string, { orderId: string; jobId: string; printerName: string; reservedAt: number }> = new Map();
+  private orderToReservedPrinter: Map<string, string> = new Map();
+
   private discoveryTimer: NodeJS.Timeout | null = null;
   private discovering = false;
   private heartbeatBusy = false;
@@ -162,6 +167,9 @@ export class AgentDaemon {
     this.client.setToken(null);
     this.isConnected = false;
     this.currentJob = null;
+    this.activePrintingPrinters.clear();
+    this.reservedDuplexPrinters.clear();
+    this.orderToReservedPrinter.clear();
   }
 
   setServerUrl(value: string): void {
@@ -256,20 +264,64 @@ export class AgentDaemon {
 
       this.currentJob = job;
       this.stats.jobsProcessed += 1;
-      logger.info(`Atomically claimed Job #${job.id.slice(0, 8)} (Order #${job.orderId.slice(0, 8)})`);
+      logger.info(`Atomically claimed Job #${job.id.slice(0, 8)} (Order #${job.orderId.slice(0, 8)}, Step: ${job.duplexStep || "standard"})`);
 
-      // Determine target printer
-      const targetPrinter = findDefaultPrinter(
-        this.discoveredPrinters,
-        this.config.selectedPrinter || job.defaultPrinter,
-      );
+      // Determine configurations
+      const configs = job.pagesConfig.length
+        ? job.pagesConfig
+        : [{ startPage: 1, endPage: job.document.pageCount, colorMode: "black_and_white" as const, paperSize: "a4" as const }];
 
-      if (!targetPrinter) {
-        logger.error(`No online printer available for Job #${job.id.slice(0, 8)}`);
-        await this.client.reportFailure(job.id, "No online printer available on Windows Agent", true);
+      // Separate changes of paper size or color mode
+      const groups: ClaimedJob["pagesConfig"][] = [];
+      for (const range of configs) {
+        const previous = groups[groups.length - 1];
+        if (previous && previous[0].colorMode === range.colorMode && previous[0].paperSize === range.paperSize) previous.push(range);
+        else groups.push([range]);
+      }
+
+      // Check if this is Step 2 of a duplex job (Print Next Side)
+      const isDuplexEvenStep = job.duplexStep === "even";
+      const reservedPrinterForJob = this.orderToReservedPrinter.get(job.orderId) || this.orderToReservedPrinter.get(job.id);
+
+      // Build busy printers set (all active printing printers + all reserved duplex printers)
+      const busyPrinters = new Set([
+        ...this.activePrintingPrinters,
+        ...this.reservedDuplexPrinters.keys(),
+      ]);
+
+      // If this is Step 2 (even pages) for a reserved printer, allow using that reserved printer
+      if (isDuplexEvenStep && reservedPrinterForJob) {
+        busyPrinters.delete(reservedPrinterForJob.toLowerCase());
+      }
+
+      const plan = groups.map(ranges => {
+        const printer = findBestPrinterForJob(this.discoveredPrinters, {
+          colorMode: ranges[0].colorMode,
+          paperSize: ranges[0].paperSize,
+          preferredName: this.config.selectedPrinter || job.defaultPrinter,
+          requiredPrinterName: isDuplexEvenStep ? reservedPrinterForJob : null,
+          busyPrinters,
+        });
+        return { ranges, printer };
+      });
+
+      if (plan.some(part => !part.printer)) {
+        const requiredMode = groups[0]?.[0]?.colorMode || "requested";
+        const reason = isDuplexEvenStep
+          ? `Reserved printer "${reservedPrinterForJob}" is currently offline or busy. Order will remain on hold for this printer.`
+          : `No free compatible ${requiredMode === "color" ? "Color" : "Black & White"} printer is available (printers busy/reserved). Request stays on hold.`;
+        logger.warn(`Job #${job.id.slice(0, 8)} held: ${reason}`);
+        await this.client.reportFailure(job.id, reason, true);
         this.stats.jobsFailed += 1;
         this.currentJob = null;
         return;
+      }
+
+      // Mark the selected printer(s) as actively printing
+      for (const part of plan) {
+        if (part.printer) {
+          this.activePrintingPrinters.add(part.printer.name.toLowerCase());
+        }
       }
 
       // Download document
@@ -285,38 +337,57 @@ export class AgentDaemon {
         logger.info(`Downloading document "${job.document.originalFilename}" (${job.document.pageCount} pages)...`);
         await this.client.downloadDocument(job.document.id, job.id, tempFilePath);
 
-        const configs = job.pagesConfig.length ? job.pagesConfig : [{ startPage: 1, endPage: job.document.pageCount, colorMode: "black_and_white" as const, paperSize: "a4" as const }];
-        // Preserve page order and separate every change of paper size or color mode.
-        const groups: ClaimedJob["pagesConfig"][] = [];
-        for (const range of configs) {
-          const previous = groups[groups.length - 1];
-          if (previous && previous[0].colorMode === range.colorMode && previous[0].paperSize === range.paperSize) previous.push(range);
-          else groups.push([range]);
-        }
-        const plan = groups.map(ranges => ({ ranges, printer: findBestPrinterForJob(this.discoveredPrinters, {
-          colorMode: ranges[0].colorMode, paperSize: ranges[0].paperSize,
-          preferredName: this.config.selectedPrinter || job.defaultPrinter,
-        }) }));
-        if (plan.some(part => !part.printer)) throw new Error("A connected printer supporting the requested paper size and color mode is required.");
-        // Persist the no-retry boundary BEFORE invoking the renderer. A crash or
-        // lost response after this point requires inspection, never a blind reprint.
+        // Persist the no-retry boundary BEFORE invoking the renderer
         submissionStarted = true;
         await this.client.reportSubmit(job.id);
+
         let pagesSubmitted = 0;
         for (const part of plan) {
-          const result = await prepareAndPrintDocument(tempFilePath, job, part.printer!.name, part.ranges);
+          const printerName = part.printer!.name;
+          logger.info(`Submitting to printer "${printerName}" for Job #${job.id.slice(0, 8)} (${job.duplexStep || "full"})...`);
+          const result = await prepareAndPrintDocument(tempFilePath, job, printerName, part.ranges);
           if (!result.success) throw new Error(result.errorMessage || "Windows print submission failed. Check for partial output before retrying.");
           pagesSubmitted += result.pagesSubmitted;
+
+          // Duplex State Management:
+          if (job.duplexStep === "odd") {
+            // Phase 1 (Odd Pages) completed -> Reserve this exact printer for Phase 2 (Even Pages)
+            const printerKey = printerName.toLowerCase();
+            this.reservedDuplexPrinters.set(printerKey, {
+              orderId: job.orderId,
+              jobId: job.id,
+              printerName,
+              reservedAt: Date.now(),
+            });
+            this.orderToReservedPrinter.set(job.orderId, printerKey);
+            this.orderToReservedPrinter.set(job.id, printerKey);
+            logger.info(`🖨️ Printer "${printerName}" is now RESERVED for Order #${job.orderId.slice(0, 8)} until "Print Next Side" is clicked.`);
+          } else if (job.duplexStep === "even") {
+            // Phase 2 (Even Pages) completed -> Release this printer reservation
+            const printerKey = printerName.toLowerCase();
+            this.reservedDuplexPrinters.delete(printerKey);
+            this.orderToReservedPrinter.delete(job.orderId);
+            this.orderToReservedPrinter.delete(job.id);
+            logger.info(`✅ Order #${job.orderId.slice(0, 8)} duplex printing completed. Printer "${printerName}" is now RELEASED for other jobs.`);
+          }
         }
+
         this.stats.jobsSubmitted += 1;
         this.stats.totalPagesSubmitted += pagesSubmitted;
-        logger.info(`Job #${job.id.slice(0, 8)} submitted; physical completion is unconfirmed.`);
+        logger.info(`Job #${job.id.slice(0, 8)} successfully submitted.`);
       } catch (printErr) {
         const errorMsg = printErr instanceof Error ? printErr.message : "Print execution error";
         logger.error(`Print execution failed for Job #${job.id.slice(0, 8)}: ${errorMsg}`);
         await this.client.reportFailure(job.id, errorMsg.slice(0, 500), !submissionStarted);
         this.stats.jobsFailed += 1;
       } finally {
+        // Unmark active printing status
+        for (const part of plan) {
+          if (part.printer) {
+            this.activePrintingPrinters.delete(part.printer.name.toLowerCase());
+          }
+        }
+
         // Clean up download file
         if (fs.existsSync(tempFilePath)) {
           try {
@@ -376,6 +447,11 @@ export class AgentDaemon {
   }
 
   async cancelCounterOrder(orderId: string) {
+    const reservedName = this.orderToReservedPrinter.get(orderId);
+    if (reservedName) {
+      this.reservedDuplexPrinters.delete(reservedName);
+      this.orderToReservedPrinter.delete(orderId);
+    }
     return await this.client.cancelCounterOrder(orderId);
   }
 }

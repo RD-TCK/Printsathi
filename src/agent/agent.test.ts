@@ -134,6 +134,96 @@ describe("Phase 8: Windows Desktop Agent Subsystem", () => {
       const selected = findDefaultPrinter(offlineOnlyPrinters, null);
       expect(selected?.name).toBe("Brother Online Secondary");
     });
+
+    it("strictly separates B&W and Color requests: B&W never routes to Color and Color never to B&W", () => {
+      const monoOnly: DiscoveredPrinter = {
+        name: "HP LaserJet Mono 1020",
+        systemIdentifier: "hp_mono",
+        status: "online",
+        isDefault: true,
+        capabilities: { colorSupport: false, paperSizes: ["A4"] },
+      };
+
+      const colorOnly: DiscoveredPrinter = {
+        name: "Epson Color L3150",
+        systemIdentifier: "epson_color",
+        status: "online",
+        isDefault: false,
+        capabilities: { colorSupport: true, paperSizes: ["A4"] },
+      };
+
+      // B&W request must NEVER go to the color printer
+      const bwWithOnlyColor = findBestPrinterForJob([colorOnly], { colorMode: "black_and_white" });
+      expect(bwWithOnlyColor).toBeNull();
+
+      // Color request must NEVER go to the B&W printer
+      const colorWithOnlyMono = findBestPrinterForJob([monoOnly], { colorMode: "color" });
+      expect(colorWithOnlyMono).toBeNull();
+
+      // With both printers connected, each goes strictly to its own matching printer
+      const bwWithBoth = findBestPrinterForJob([monoOnly, colorOnly], { colorMode: "black_and_white" });
+      expect(bwWithBoth?.name).toBe("HP LaserJet Mono 1020");
+
+      const colorWithBoth = findBestPrinterForJob([monoOnly, colorOnly], { colorMode: "color" });
+      expect(colorWithBoth?.name).toBe("Epson Color L3150");
+    });
+
+    it("diverts jobs away from busy/reserved printers to other available connected printers", () => {
+      const printer1: DiscoveredPrinter = {
+        name: "HP LaserJet 1 (Primary)",
+        systemIdentifier: "hp_1",
+        status: "online",
+        isDefault: true,
+        capabilities: { colorSupport: false, paperSizes: ["A4"] },
+      };
+
+      const printer2: DiscoveredPrinter = {
+        name: "HP LaserJet 2 (Secondary)",
+        systemIdentifier: "hp_2",
+        status: "online",
+        isDefault: false,
+        capabilities: { colorSupport: false, paperSizes: ["A4"] },
+      };
+
+      // When printer 1 is busy/reserved, job diverts automatically to printer 2
+      const divertedJob = findBestPrinterForJob([printer1, printer2], {
+        colorMode: "black_and_white",
+        busyPrinters: [printer1.name],
+      });
+      expect(divertedJob?.name).toBe("HP LaserJet 2 (Secondary)");
+
+      // When both printers are busy, job returns null (stays on hold in queue)
+      const allBusyJob = findBestPrinterForJob([printer1, printer2], {
+        colorMode: "black_and_white",
+        busyPrinters: [printer1.name, printer2.name],
+      });
+      expect(allBusyJob).toBeNull();
+    });
+
+    it("routes Step 2 of duplex (even pages) to the exact required same printer", () => {
+      const printer1: DiscoveredPrinter = {
+        name: "Canon LBP2900 (Duplex Pass 1 Printer)",
+        systemIdentifier: "canon_1",
+        status: "online",
+        isDefault: false,
+        capabilities: { colorSupport: false, paperSizes: ["A4"] },
+      };
+
+      const printer2: DiscoveredPrinter = {
+        name: "HP LaserJet M1005 (Other Printer)",
+        systemIdentifier: "hp_other",
+        status: "online",
+        isDefault: true,
+        capabilities: { colorSupport: false, paperSizes: ["A4"] },
+      };
+
+      const step2Printer = findBestPrinterForJob([printer1, printer2], {
+        colorMode: "black_and_white",
+        requiredPrinterName: printer1.name,
+      });
+
+      expect(step2Printer?.name).toBe("Canon LBP2900 (Duplex Pass 1 Printer)");
+    });
   });
 
   describe("Atomic Claiming & Lease Invariant Rules", () => {

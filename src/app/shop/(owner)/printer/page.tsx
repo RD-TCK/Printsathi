@@ -211,7 +211,13 @@ export default async function PrinterPage({ searchParams }: PrinterPageProps) {
                       <span className="text-muted">Last Heartbeat:</span>{" "}
                       <span className="font-semibold text-brand-950">
                         {agent.last_heartbeat_at
-                          ? new Date(agent.last_heartbeat_at).toLocaleString()
+                          ? new Date(agent.last_heartbeat_at).toLocaleTimeString("en-IN", {
+                              timeZone: "Asia/Kolkata",
+                              hour: "2-digit",
+                              minute: "2-digit",
+                              second: "2-digit",
+                              hour12: true,
+                            }) + " IST"
                           : "No heartbeat yet"}
                       </span>
                     </div>
@@ -278,7 +284,17 @@ export default async function PrinterPage({ searchParams }: PrinterPageProps) {
                       <div className="mt-4 flex items-center justify-between border-t border-line/60 pt-3 text-xs">
                         <span className="text-muted">
                           Last detected:{" "}
-                          {printer.last_seen_at ? new Date(printer.last_seen_at).toLocaleTimeString() : "—"}
+                          <b className="text-slate-800">
+                            {printer.last_seen_at
+                              ? new Date(printer.last_seen_at).toLocaleTimeString("en-IN", {
+                                  timeZone: "Asia/Kolkata",
+                                  hour: "2-digit",
+                                  minute: "2-digit",
+                                  second: "2-digit",
+                                  hour12: true,
+                                }) + " IST"
+                              : "—"}
+                          </b>
                         </span>
                         {printer.is_default ? (
                           <Badge tone="success">

@@ -17,6 +17,14 @@ export function availablePrinters(printers: InventoryPrinter[], agents: Inventor
     isFresh(p.last_seen_at, now) && agents.some((a) => a.id === p.desktop_agent_id && !a.is_revoked && isFresh(a.last_heartbeat_at, now)));
 }
 export function supportsPrint(printer: InventoryPrinter, color: string, paper: string): boolean {
-  return (color !== "color" || printer.capabilities?.colorSupport === true) &&
-    (printer.capabilities?.paperSizes || ["A4"]).some((size) => size.toLowerCase().includes(paper.toLowerCase()));
+  const matchesColor =
+    color === "color"
+      ? printer.capabilities?.colorSupport === true
+      : !printer.capabilities?.colorSupport;
+  return (
+    matchesColor &&
+    (printer.capabilities?.paperSizes || ["A4"]).some((size) =>
+      size.toLowerCase().includes(paper.toLowerCase()),
+    )
+  );
 }

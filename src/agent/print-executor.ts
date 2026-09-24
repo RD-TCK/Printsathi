@@ -133,13 +133,15 @@ export async function prepareAndPrintDocument(
       }
     }
 
-    // Add 1 blank page at the very end as a job separator
-    const firstPage = outputPdf.getPageCount() > 0 ? outputPdf.getPage(0) : null;
-    if (firstPage) {
-      const { width, height } = firstPage.getSize();
-      outputPdf.addPage([width, height]);
-    } else {
-      outputPdf.addPage([595.28, 841.89]); // Standard A4 points
+    // Add 1 blank page at the very end as a job separator (only for completed passes, never during odd pass of manual duplex)
+    if (duplexStep !== "odd") {
+      const firstPage = outputPdf.getPageCount() > 0 ? outputPdf.getPage(0) : null;
+      if (firstPage) {
+        const { width, height } = firstPage.getSize();
+        outputPdf.addPage([width, height]);
+      } else {
+        outputPdf.addPage([595.28, 841.89]); // Standard A4 points
+      }
     }
 
     effectivePagesCount = calculatedPages;
@@ -155,7 +157,10 @@ export async function prepareAndPrintDocument(
 
     const settings = ["fit"];
     const config = activeConfigs?.[0];
-    if (config?.sideMode === "double_sided") {
+    // For manual duplex passes (odd or even), print each side as simplex so paper can be physically reloaded
+    if (duplexStep === "odd" || duplexStep === "even") {
+      settings.push("simplex");
+    } else if (config?.sideMode === "double_sided") {
       settings.push("duplex");
     } else {
       settings.push("simplex");

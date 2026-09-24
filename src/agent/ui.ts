@@ -866,7 +866,7 @@ export class AgentWebServer {
                 <button type="button" class="btn-secondary" style="padding:2px 8px; font-size:10px;" onclick="changeServerUrl()">Switch</button>
               </span>
             </div>
-            <div class="info-row"><span class="info-label">Last Heartbeat</span><span class="info-val" style="font-size:12px;">\${status.lastHeartbeat ? new Date(status.lastHeartbeat).toLocaleTimeString() : 'Active'}</span></div>
+            <div class="info-row"><span class="info-label">Last Heartbeat</span><span class="info-val" style="font-size:12px;">\${status.lastHeartbeat ? new Date(status.lastHeartbeat).toLocaleTimeString('en-IN', { timeZone: 'Asia/Kolkata', hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: true }) + ' IST' : 'Active'}</span></div>
             <button class="btn-danger" onclick="unpairAgent()">Disconnect Agent</button>
           \`;
         }

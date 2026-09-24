@@ -149,9 +149,14 @@ export function isPhysicalPrinter(printer: DiscoveredPrinter): boolean {
 /**
  * Intelligent Printer Matcher:
  * Automatically selects the best connected and online printer for the specific job requirements.
- * - If colorMode is "color", looks for an online printer with colorSupport === true.
- * - If colorMode is "black_and_white", prioritizes dedicated monochrome/B&W printers first to save color toner,
- *   then seamlessly falls back to any available online color printer.
+ * - STRICT COLOR ISOLATION:
+ *   - "color" mode MUST route ONLY to printers with colorSupport === true.
+ *   - "black_and_white" mode MUST route ONLY to dedicated monochrome/B&W printers (!colorSupport).
+ *   - Black & White requests NEVER go to Color printers, and Color requests NEVER go to B&W printers.
+ * - DUPLEX ROUTING:
+ *   - If requiredPrinterName is provided (e.g. Step 2 "Print Next Side"), forces routing to that exact printer.
+ * - SMART DIVERSION:
+ *   - Automatically skips any printers listed in busyPrinters so other jobs divert to other free connected printers.
  */
 export function findBestPrinterForJob(
   printers: DiscoveredPrinter[],
@@ -159,58 +164,83 @@ export function findBestPrinterForJob(
     colorMode: "color" | "black_and_white";
     paperSize?: string;
     preferredName?: string | null;
+    requiredPrinterName?: string | null;
+    busyPrinters?: Set<string> | string[];
   },
 ): DiscoveredPrinter | null {
-  const onlinePrinters = printers.filter(
-    (p) => isPhysicalPrinter(p) && (p.status === "online" || p.status === "printing"),
+  const busySet = new Set(
+    Array.isArray(options.busyPrinters)
+      ? options.busyPrinters.map((s) => s.toLowerCase())
+      : options.busyPrinters
+      ? Array.from(options.busyPrinters).map((s) => s.toLowerCase())
+      : [],
   );
-  const compatiblePrinters = onlinePrinters.filter((p) => !options.paperSize ||
-    p.capabilities?.paperSizes?.some((size) => size.toLowerCase().includes(options.paperSize!.toLowerCase())));
-  onlinePrinters.splice(0, onlinePrinters.length, ...compatiblePrinters);
-  if (onlinePrinters.length === 0) {
-    // If no printer is explicitly online, return null or fallback
+
+  // If a specific printer is required (e.g. Duplex Step 2 even pages must print on the exact same printer)
+  if (options.requiredPrinterName) {
+    const matched = printers.find(
+      (p) =>
+        isPhysicalPrinter(p) &&
+        (p.status === "online" || p.status === "printing") &&
+        p.name.toLowerCase() === options.requiredPrinterName!.toLowerCase(),
+    );
+    if (matched) return matched;
     return null;
   }
 
-  // If user requested a preferred printer and it matches the mode, consider it
+  // Filter for physical, online printers that are NOT currently busy or reserved
+  const onlinePrinters = printers.filter(
+    (p) =>
+      isPhysicalPrinter(p) &&
+      (p.status === "online" || p.status === "printing") &&
+      !busySet.has(p.name.toLowerCase()),
+  );
+
+  const compatiblePrinters = onlinePrinters.filter(
+    (p) =>
+      !options.paperSize ||
+      p.capabilities?.paperSizes?.some((size) =>
+        size.toLowerCase().includes(options.paperSize!.toLowerCase()),
+      ),
+  );
+
+  if (compatiblePrinters.length === 0) {
+    return null;
+  }
+
+  // If user requested a preferred printer and it matches strict color mode, use it
   if (options.preferredName) {
-    const matched = onlinePrinters.find((p) => p.name.toLowerCase() === options.preferredName!.toLowerCase());
+    const matched = compatiblePrinters.find(
+      (p) => p.name.toLowerCase() === options.preferredName!.toLowerCase(),
+    );
     if (matched) {
-      if (options.colorMode === "color" && matched.capabilities?.colorSupport) {
+      if (options.colorMode === "color" && matched.capabilities?.colorSupport === true) {
         return matched;
       }
-      if (options.colorMode === "black_and_white") {
+      if (options.colorMode === "black_and_white" && !matched.capabilities?.colorSupport) {
         return matched;
       }
     }
   }
 
   if (options.colorMode === "color") {
-    // Must find a printer that supports color
+    // STRICT: Must find an online printer that explicitly supports color.
+    // NEVER fall back to monochrome/B&W printers for color jobs.
     const colorPrinter =
-      onlinePrinters.find((p) => p.capabilities?.colorSupport && p.isDefault) ||
-      onlinePrinters.find((p) => p.capabilities?.colorSupport);
+      compatiblePrinters.find((p) => p.capabilities?.colorSupport === true && p.isDefault) ||
+      compatiblePrinters.find((p) => p.capabilities?.colorSupport === true);
 
     return colorPrinter || null;
   }
 
-  // For Black & White:
-  // 1. Prefer dedicated monochrome printer (colorSupport === false)
+  // STRICT B&W ROUTING:
+  // Must find a dedicated monochrome/B&W printer (!colorSupport).
+  // NEVER divert or fall back Black & White jobs to a Color printer.
   const monoPrinter =
-    onlinePrinters.find((p) => !p.capabilities?.colorSupport && p.isDefault) ||
-    onlinePrinters.find((p) => !p.capabilities?.colorSupport);
+    compatiblePrinters.find((p) => !p.capabilities?.colorSupport && p.isDefault) ||
+    compatiblePrinters.find((p) => !p.capabilities?.colorSupport);
 
-  if (monoPrinter) {
-    return monoPrinter;
-  }
-
-  // 2. Fall back to system default online printer, or any online printer
-  const defaultOnline = onlinePrinters.find((p) => p.isDefault);
-  if (defaultOnline) {
-    return defaultOnline;
-  }
-
-  return onlinePrinters[0] || null;
+  return monoPrinter || null;
 }
 
 export function findDefaultPrinter(

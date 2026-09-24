@@ -20,14 +20,40 @@ export async function normalizeDocument(file: File): Promise<{ bytes: Buffer; pa
   let bytes: Buffer = Buffer.from(await file.arrayBuffer());
 
   if (imageExtensions.has(extension)) {
-    const png = await sharp(bytes, { limitInputPixels: 40000000 }).rotate().flatten({ background: "white" }).png().toBuffer();
+    const isJpeg = extension === ".jpg" || extension === ".jpeg";
+    const isPng = extension === ".png";
+
     const pdf = await PDFDocument.create();
-    const image = await pdf.embedPng(png);
+    let embeddedImage;
+
+    if (isJpeg) {
+      // Preserve 100% original JPEG quality without inflating into 30MB uncompressed PNG!
+      const processedJpeg = await sharp(bytes, { limitInputPixels: 40000000 })
+        .rotate()
+        .jpeg({ quality: 100, chromaSubsampling: "4:4:4" })
+        .toBuffer();
+      embeddedImage = await pdf.embedJpg(processedJpeg);
+    } else if (isPng) {
+      const processedPng = await sharp(bytes, { limitInputPixels: 40000000 })
+        .rotate()
+        .png()
+        .toBuffer();
+      embeddedImage = await pdf.embedPng(processedPng);
+    } else {
+      // Other formats (WebP, GIF, BMP, TIFF) -> lossless PNG
+      const png = await sharp(bytes, { limitInputPixels: 40000000 })
+        .rotate()
+        .flatten({ background: "white" })
+        .png()
+        .toBuffer();
+      embeddedImage = await pdf.embedPng(png);
+    }
+
     const page = pdf.addPage([595.28, 841.89]);
-    const scale = Math.min(523.28 / image.width, 769.89 / image.height);
-    const width = image.width * scale;
-    const height = image.height * scale;
-    page.drawImage(image, { x: (595.28 - width) / 2, y: (841.89 - height) / 2, width, height });
+    const scale = Math.min(523.28 / embeddedImage.width, 769.89 / embeddedImage.height);
+    const width = embeddedImage.width * scale;
+    const height = embeddedImage.height * scale;
+    page.drawImage(embeddedImage, { x: (595.28 - width) / 2, y: (841.89 - height) / 2, width, height });
     bytes = Buffer.from(await pdf.save());
   } else if (extension === ".docx" || extension === ".doc") {
     // Pure Node.js mammoth pipeline for .docx — zero LibreOffice dependency.
@@ -61,17 +87,47 @@ export async function normalizeDocument(file: File): Promise<{ bytes: Buffer; pa
   if (bytes.length > 50 * 1024 * 1024) {
     throw new Error(`${file.name}: converted PDF exceeds 50 MB.`);
   }
-  let pdf;
-  try {
-    pdf = await PDFDocument.load(bytes);
-  } catch {
-    throw new Error(`${file.name} is damaged or password-protected. Upload a readable document.`);
-  }
-  const pageCount = pdf.getPageCount();
+
+  // Fast PDF Page Count Extraction without deep AST parsing
+  const pageCount = await countPdfPages(bytes, file.name);
   if (pageCount < 1 || pageCount > 2000) {
     throw new Error(`${file.name} must contain between 1 and 2,000 pages.`);
   }
   return { bytes, pageCount, filename: file.name };
+}
+
+/**
+ * Ultra-fast PDF page count extraction.
+ * First inspects the document structure directly (<1ms), then falls back to pdf-lib.
+ */
+async function countPdfPages(bytes: Buffer, filename: string): Promise<number> {
+  // 1. Fast regex / binary search on PDF page tree
+  try {
+    const text = bytes.toString("latin1");
+    // Match root Pages catalog /Count
+    const rootMatches = text.match(/\/Type\s*\/Pages[\s\S]*?\/Count\s+(\d+)/);
+    if (rootMatches && rootMatches[1]) {
+      const count = parseInt(rootMatches[1], 10);
+      if (count > 0 && count <= 2000) {
+        return count;
+      }
+    }
+    // Match discrete /Type /Page objects (excluding /Type /Pages)
+    const pageMatches = text.match(/\/Type\s*\/Page\b(?!\s*s)/g);
+    if (pageMatches && pageMatches.length > 0 && pageMatches.length <= 2000) {
+      return pageMatches.length;
+    }
+  } catch {
+    // Fall back to PDFDocument loader
+  }
+
+  // 2. Robust fallback via pdf-lib
+  try {
+    const pdf = await PDFDocument.load(bytes, { ignoreEncryption: true });
+    return pdf.getPageCount();
+  } catch {
+    throw new Error(`${filename} is damaged or password-protected. Upload a readable document.`);
+  }
 }
 
 /**

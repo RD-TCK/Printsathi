@@ -18,11 +18,14 @@ import {
   Ticket,
   Clock3,
   Store,
-  Banknote,
+  Crop,
+  Eye,
 } from "lucide-react";
 import type { PublicShop, PublicPricingRule } from "@/lib/shops/public-lookup";
 import { countModes, type PrintRange, validateRanges } from "@/lib/customer-print";
 import { calculatePricing, type PricingRule } from "@/lib/pricing-engine";
+import { ImageCropperModal } from "@/components/image-cropper-modal";
+import { PrintPreviewStep } from "@/components/print-preview-step";
 
 import { Alert } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
@@ -31,7 +34,18 @@ import { Card } from "@/components/ui/card";
 import { Select } from "@/components/ui/select";
 import { cn } from "@/lib/utils";
 
-type CustomerDocument = { id: string; filename: string; pageCount: number; sizeBytes: number; ranges: PrintRange[] };
+export type CustomerDocument = {
+  id: string;
+  filename: string;
+  pageCount: number;
+  sizeBytes: number;
+  ranges: PrintRange[];
+  isImage?: boolean;
+  originalFile?: File;
+  previewUrl?: string;
+  croppedImageUrl?: string;
+};
+
 type Props = { shop: PublicShop; identifier: string; initialPricingRules?: PublicPricingRule[] };
 type TokenDetails = {
   tokenNumber: number;
@@ -42,7 +56,7 @@ type TokenDetails = {
   blackAndWhitePages: number;
   expiresAt: string;
 };
-type Estimate = {
+export type Estimate = {
   total: number;
   subtotal?: number;
   platformFee?: number;
@@ -52,7 +66,7 @@ type Estimate = {
   blackAndWhitePages: number;
 };
 
-const steps = ["1. Upload Document", "2. Configure & Pay"];
+const steps = ["1. Upload", "2. Configure & Crop", "3. Print Preview", "4. Checkout & Pay"];
 
 async function safeFetchJson<T = unknown>(
   response: Response,
@@ -97,6 +111,48 @@ async function safeFetchJson<T = unknown>(
   }
 }
 
+function uploadWithProgress<T>(
+  url: string,
+  formData: FormData,
+  onProgress: (percent: number) => void
+): Promise<{ ok: boolean; status: number; data?: T; error?: string }> {
+  return new Promise((resolve) => {
+    const xhr = new XMLHttpRequest();
+    xhr.open("POST", url);
+
+    xhr.upload.onprogress = (event) => {
+      if (event.lengthComputable && event.total > 0) {
+        const percent = Math.round((event.loaded / event.total) * 100);
+        onProgress(Math.min(percent, 99));
+      }
+    };
+
+    xhr.onload = () => {
+      try {
+        const data = JSON.parse(xhr.responseText);
+        if (xhr.status >= 200 && xhr.status < 300) {
+          resolve({ ok: true, status: xhr.status, data });
+        } else {
+          resolve({ ok: false, status: xhr.status, error: data?.error || `Upload failed (HTTP ${xhr.status})` });
+        }
+      } catch {
+        resolve({ ok: false, status: xhr.status, error: `Upload failed (HTTP ${xhr.status}). Please try again.` });
+      }
+    };
+
+    xhr.onerror = () => {
+      resolve({ ok: false, status: 0, error: "Network error during upload. Please check your connection and try again." });
+    };
+
+    xhr.ontimeout = () => {
+      resolve({ ok: false, status: 0, error: "Upload timed out. Please try again." });
+    };
+
+    xhr.timeout = 120000;
+    xhr.send(formData);
+  });
+}
+
 export function CustomerPrintFlow({ shop: initialShop, identifier, initialPricingRules = [] }: Props) {
   const [shop, setShop] = useState(initialShop);
   const [pricingRules, setPricingRules] = useState<PricingRule[]>(() =>
@@ -124,7 +180,9 @@ export function CustomerPrintFlow({ shop: initialShop, identifier, initialPricin
     const timer = setInterval(() => { void refresh(); }, 5000);
     return () => { controller.abort(); clearInterval(timer); };
   }, [identifier]);
-  const [step, setStep] = useState(0); // 0 = Upload, 1 = Configure & Pay, 2 = Payment Verified
+
+  // Step 0: Upload, Step 1: Configure & Crop, Step 2: Print Preview & Review, Step 3: Payment Online, Step 4: Counter Token
+  const [step, setStep] = useState(0);
   const [documents, setDocuments] = useState<CustomerDocument[]>([]);
   const [activeDocument, setActiveDocument] = useState(0);
   const [orderId, setOrderId] = useState<string | null>(null);
@@ -132,8 +190,18 @@ export function CustomerPrintFlow({ shop: initialShop, identifier, initialPricin
   const [estimate, setEstimate] = useState<Estimate | null>(null);
   const [busy, setBusy] = useState(false);
   const [uploadStatus, setUploadStatus] = useState<string | null>(null);
+  const [uploadProgress, setUploadProgress] = useState<number | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [tokenDetails, setTokenDetails] = useState<TokenDetails | null>(null);
+
+  // Selected payment mode ("counter" or "online")
+  const [selectedMode, setSelectedMode] = useState<"counter" | "online">(() =>
+    initialShop.payment_mode === "counter" ? "counter" : "online"
+  );
+
+  // Image Cropper State
+  const [cropperOpen, setCropperOpen] = useState(false);
+  const [cropTargetDocIndex, setCropTargetDocIndex] = useState<number | null>(null);
 
   const current = documents[activeDocument];
   const allValid =
@@ -141,7 +209,7 @@ export function CustomerPrintFlow({ shop: initialShop, identifier, initialPricin
 
   // 1. Instant Synchronous Estimate Calculation (0ms perceived latency on clicks)
   useEffect(() => {
-    if (step === 1 && documents.length > 0 && allValid && pricingRules.length > 0) {
+    if ((step === 1 || step === 2) && documents.length > 0 && allValid && pricingRules.length > 0) {
       const allRanges = documents.flatMap((d) => d.ranges);
       try {
         const instant = calculatePricing(allRanges, pricingRules, "customer_fee");
@@ -194,9 +262,9 @@ export function CustomerPrintFlow({ shop: initialShop, identifier, initialPricin
     [identifier],
   );
 
-  // Auto calculate estimate whenever document configuration changes in Step 1
+  // Auto calculate estimate whenever document configuration changes
   useEffect(() => {
-    if (step === 1 && orderId && accessToken && allValid && documents.length > 0) {
+    if ((step === 1 || step === 2) && orderId && accessToken && allValid && documents.length > 0) {
       const timer = setTimeout(() => {
         fetchEstimate(documents, orderId, accessToken);
       }, 100);
@@ -204,14 +272,14 @@ export function CustomerPrintFlow({ shop: initialShop, identifier, initialPricin
     }
   }, [step, orderId, accessToken, documents, allValid, fetchEstimate]);
 
-  // Auto-scroll to top smoothly whenever an error is set so customer immediately sees the notification
+  // Auto-scroll to top smoothly whenever an error is set
   useEffect(() => {
     if (error) {
       window.scrollTo({ top: 0, behavior: "smooth" });
     }
   }, [error]);
 
-  // Auto-scroll to top when moving to token step or status step
+  // Auto-scroll to top when moving between steps
   useEffect(() => {
     if (step > 0) {
       window.scrollTo({ top: 0, behavior: "smooth" });
@@ -262,8 +330,9 @@ export function CustomerPrintFlow({ shop: initialShop, identifier, initialPricin
     }
 
     setBusy(true);
+    setUploadProgress(0);
     try {
-      setUploadStatus(files.length > 1 ? `Uploading ${files.length} documents...` : "Uploading document...");
+      setUploadStatus(files.length > 1 ? `Uploading ${files.length} documents (0%)...` : "Uploading document (0%)...");
       const form = new FormData();
       form.append("shopIdentifier", identifier);
       if (isAppending && orderId && accessToken) {
@@ -271,47 +340,83 @@ export function CustomerPrintFlow({ shop: initialShop, identifier, initialPricin
         form.append("accessToken", accessToken);
       }
       files.forEach((file) => form.append("files", file));
-      const response = await fetch("/api/customer/upload", { method: "POST", body: form });
-      const uploadRes = await safeFetchJson<{
+
+      const uploadRes = await uploadWithProgress<{
         orderId: string;
         orderPublicId: string;
         accessToken: string;
         documents: CustomerDocument[];
-      }>(response);
+      }>("/api/customer/upload", form, (percent) => {
+        setUploadProgress(percent);
+        if (percent >= 99) {
+          setUploadStatus("Processing documents & analyzing pages...");
+        } else {
+          setUploadStatus(files.length > 1 ? `Uploading ${files.length} documents (${percent}%)...` : `Uploading document (${percent}%)...`);
+        }
+      });
 
       if (!uploadRes.ok || !uploadRes.data) {
         throw new Error(uploadRes.error || "Upload failed. Please try uploading again.");
       }
       const result = uploadRes.data;
 
-      const newDocs: CustomerDocument[] = result.documents.map((document: CustomerDocument) => ({
-        ...document,
-        filename: document.filename,
-        pageCount: document.pageCount,
-        ranges: [
-          {
-            startPage: 1,
-            endPage: document.pageCount,
-            colorMode: "black_and_white",
-            paperSize: "a4",
-            sideMode: "single_sided",
-            copies: 1,
-          },
-        ],
-      }));
+      const newDocs: CustomerDocument[] = result.documents.map((document: CustomerDocument, index: number) => {
+        const matchingFile = files[index];
+        const isImg = matchingFile ? Boolean(matchingFile.type.startsWith("image/")) : Boolean(document.filename.match(/\.(jpg|jpeg|png|webp|gif|bmp)$/i));
+        const previewUrl = matchingFile && isImg ? URL.createObjectURL(matchingFile) : undefined;
+
+        return {
+          ...document,
+          filename: document.filename,
+          pageCount: document.pageCount,
+          isImage: isImg,
+          originalFile: matchingFile,
+          previewUrl,
+          ranges: [
+            {
+              startPage: 1,
+              endPage: document.pageCount,
+              colorMode: "black_and_white",
+              paperSize: "a4",
+              sideMode: "single_sided",
+              copies: 1,
+            },
+          ],
+        };
+      });
 
       const mergedDocs = isAppending ? [...documents, ...newDocs] : newDocs;
+
+      // Calculate instant price snapshot locally with 0ms delay
+      if (pricingRules.length > 0) {
+        try {
+          const instant = calculatePricing(mergedDocs.flatMap((d) => d.ranges), pricingRules, "customer_fee");
+          setEstimate({
+            total: instant.total,
+            subtotal: instant.subtotal,
+            platformFee: instant.platformFee,
+            currency: "INR",
+            totalPages: instant.totalPages,
+            colorPages: instant.colorPages,
+            blackAndWhitePages: instant.blackAndWhitePages,
+          });
+        } catch {
+          // Fallback to server sync
+        }
+      }
 
       setDocuments(mergedDocs);
       setOrderId(result.orderId);
       setAccessToken(result.accessToken);
       if (isAppending) {
-        setActiveDocument(documents.length); // Switch focus to the newly added document
+        setActiveDocument(documents.length);
       }
 
-      // Automatically fetch initial estimate and move directly to Configure & Pay step
-      await fetchEstimate(mergedDocs, result.orderId, result.accessToken);
+      // Advance directly to Step 1: Configure & Crop
       setStep(1);
+
+      // Sync server estimate asynchronously in background
+      void fetchEstimate(mergedDocs, result.orderId, result.accessToken);
     } catch (uploadError) {
       let msg = uploadError instanceof Error ? uploadError.message : "Could not process or upload the files.";
       if (msg.includes("Unexpected end of JSON input")) {
@@ -321,6 +426,7 @@ export function CustomerPrintFlow({ shop: initialShop, identifier, initialPricin
     } finally {
       setBusy(false);
       setUploadStatus(null);
+      setUploadProgress(null);
     }
   }
 
@@ -331,27 +437,26 @@ export function CustomerPrintFlow({ shop: initialShop, identifier, initialPricin
   function updateRange(index: number, field: keyof PrintRange, value: string | number) {
     updateDocument((document) => ({
       ...document,
-      ranges: document.ranges.map((range, rangeIndex) =>
-        rangeIndex === index
-          ? {
-              ...range,
-              [field]:
-                field === "startPage" || field === "endPage" || field === "copies"
-                  ? Math.max(1, Number(value) || 1)
-                  : value,
-            }
-          : range,
-      ),
-    }));
-  }
-
-  function setDocumentCopies(copies: number) {
-    updateDocument((document) => ({
-      ...document,
-      ranges: document.ranges.map((range) => ({
-        ...range,
-        copies: Math.max(1, copies),
-      })),
+      ranges: document.ranges.map((range, rangeIndex) => {
+        if (rangeIndex !== index) return range;
+        if (field === "sideMode") {
+          const sideValue = document.pageCount <= 1 ? "single_sided" : value;
+          return { ...range, sideMode: sideValue as "single_sided" | "double_sided" };
+        }
+        if (field === "startPage" || field === "endPage" || field === "copies") {
+          if (value === "" || value === undefined || value === null) {
+            return { ...range, [field]: "" as unknown as number };
+          }
+          const cleaned = String(value).replace(/[^0-9]/g, "");
+          if (!cleaned) return { ...range, [field]: "" as unknown as number };
+          const num = parseInt(cleaned, 10);
+          return {
+            ...range,
+            [field]: isNaN(num) ? ("" as unknown as number) : num,
+          };
+        }
+        return { ...range, [field]: value };
+      }),
     }));
   }
 
@@ -360,7 +465,7 @@ export function CustomerPrintFlow({ shop: initialShop, identifier, initialPricin
     const lastRange = current.ranges[current.ranges.length - 1];
     const defaultMode = lastRange?.colorMode ?? "black_and_white";
     const defaultSize = lastRange?.paperSize ?? "a4";
-    const defaultSide = lastRange?.sideMode ?? "single_sided";
+    const defaultSide = current.pageCount <= 1 ? "single_sided" : (lastRange?.sideMode ?? "single_sided");
     const defaultCopies = lastRange?.copies ?? 1;
     updateDocument((document) => ({
       ...document,
@@ -388,7 +493,7 @@ export function CustomerPrintFlow({ shop: initialShop, identifier, initialPricin
 
   function removeDocument(index: number) {
     if (documents.length <= 1) {
-      setError("An order needs at least one document. Upload another PDF first.");
+      setError("An order needs at least one document. Upload another file first.");
       return;
     }
     const nextDocuments = documents.filter((_, documentIndex) => documentIndex !== index);
@@ -407,6 +512,67 @@ export function CustomerPrintFlow({ shop: initialShop, identifier, initialPricin
     setEstimate(null);
     setTokenDetails(null);
     setError(null);
+  }
+
+  // Handle applied crop from ImageCropperModal
+  async function handleApplyCrop(croppedBlob: Blob, croppedDataUrl: string) {
+    if (cropTargetDocIndex === null) return;
+    const targetDoc = documents[cropTargetDocIndex];
+    if (!targetDoc) return;
+
+    // Update local preview immediately
+    setDocuments((docs) =>
+      docs.map((doc, idx) =>
+        idx === cropTargetDocIndex
+          ? {
+              ...doc,
+              previewUrl: croppedDataUrl,
+              croppedImageUrl: croppedDataUrl,
+            }
+          : doc
+      )
+    );
+
+    // Re-upload cropped image in background to update normalized print PDF on server
+    if (orderId && accessToken) {
+      try {
+        const croppedFile = new File([croppedBlob], targetDoc.filename || "image.jpg", {
+          type: "image/jpeg",
+        });
+        const form = new FormData();
+        form.append("shopIdentifier", identifier);
+        form.append("orderId", orderId);
+        form.append("accessToken", accessToken);
+        form.append("files", croppedFile);
+
+        const uploadRes = await safeFetchJson<{
+          orderId: string;
+          documents: CustomerDocument[];
+        }>(
+          await fetch("/api/customer/upload", {
+            method: "POST",
+            body: form,
+          })
+        );
+
+        if (uploadRes.ok && uploadRes.data && uploadRes.data.documents.length > 0) {
+          const updatedServerDoc = uploadRes.data.documents[uploadRes.data.documents.length - 1];
+          setDocuments((docs) =>
+            docs.map((doc, idx) =>
+              idx === cropTargetDocIndex
+                ? {
+                    ...doc,
+                    id: updatedServerDoc.id,
+                    sizeBytes: updatedServerDoc.sizeBytes,
+                  }
+                : doc
+            )
+          );
+        }
+      } catch {
+        // Fallback gracefully
+      }
+    }
   }
 
   async function handleProceedToCounterToken() {
@@ -447,7 +613,8 @@ export function CustomerPrintFlow({ shop: initialShop, identifier, initialPricin
       }
 
       setTokenDetails(counterData.data);
-      setStep(3);
+      // Advance to Step 4: Counter Token
+      setStep(4);
     } catch (err) {
       let msg = err instanceof Error ? err.message : "Could not submit counter order.";
       if (msg.includes("Unexpected end of JSON input")) {
@@ -500,8 +667,8 @@ export function CustomerPrintFlow({ shop: initialShop, identifier, initialPricin
         throw new Error(configData.error || "Could not save order configuration.");
       }
 
-      // Proceed to payment execution
-      setStep(2);
+      // Advance to Step 3: Online Payment
+      setStep(3);
     } catch (err) {
       let msg = err instanceof Error ? err.message : "Could not prepare configuration for payment.";
       if (msg.includes("Unexpected end of JSON input")) {
@@ -514,36 +681,66 @@ export function CustomerPrintFlow({ shop: initialShop, identifier, initialPricin
   }
 
   return (
-    <div className="mt-8 space-y-6">
-      {/* Streamlined Progress Indicator */}
+    <div className="mt-2.5 sm:mt-8 space-y-3.5 sm:space-y-6">
+      {/* 4-Stage Step Progress Indicator */}
       <StepIndicator step={step} />
 
       {error ? <Alert tone="error">{error}</Alert> : null}
 
-      {step === 0 ? <UploadStep busy={busy} uploadStatus={uploadStatus} onSubmit={(files) => uploadFiles(files, false)} shop={shop} /> : null}
+      {/* Stage 0: Upload Document */}
+      {step === 0 ? (
+        <UploadStep
+          busy={busy}
+          uploadStatus={uploadStatus}
+          uploadProgress={uploadProgress}
+          onSubmit={(files) => uploadFiles(files, false)}
+          shop={shop}
+        />
+      ) : null}
 
+      {/* Stage 1: Configure & Crop Options */}
       {step === 1 && current ? (
-        <ConfigureAndPayStep
+        <ConfigureAndCropStep
           shop={shop}
           documents={documents}
           current={current}
           activeDocument={activeDocument}
           setActiveDocument={setActiveDocument}
           updateRange={updateRange}
-          setDocumentCopies={setDocumentCopies}
           addRange={addRange}
           removeRange={removeRange}
           removeDocument={removeDocument}
           allValid={allValid}
           busy={busy}
           estimate={estimate}
-          onProceedToPay={handleProceedToPay}
-          onProceedToCounterToken={handleProceedToCounterToken}
+          onContinueToPreview={() => setStep(2)}
+          onOpenCropper={(docIndex) => {
+            setCropTargetDocIndex(docIndex);
+            setCropperOpen(true);
+          }}
           onAddMoreFiles={(files) => uploadFiles(files, true)}
         />
       ) : null}
 
-      {step === 2 && orderId && estimate ? (
+      {/* Stage 2: Print Preview & Review */}
+      {step === 2 && current ? (
+        <PrintPreviewStep
+          shop={shop}
+          documents={documents}
+          activeDocument={activeDocument}
+          setActiveDocument={setActiveDocument}
+          estimate={estimate}
+          busy={busy}
+          onBackToConfigure={() => setStep(1)}
+          onProceedToPay={handleProceedToPay}
+          onProceedToCounterToken={handleProceedToCounterToken}
+          selectedMode={selectedMode}
+          setSelectedMode={setSelectedMode}
+        />
+      ) : null}
+
+      {/* Stage 3: Online Payment */}
+      {step === 3 && orderId && estimate ? (
         <PaymentStep
           orderId={orderId}
           accessToken={accessToken}
@@ -555,7 +752,8 @@ export function CustomerPrintFlow({ shop: initialShop, identifier, initialPricin
         />
       ) : null}
 
-      {step === 3 && tokenDetails && orderId ? (
+      {/* Stage 4: Counter Token Queue */}
+      {step === 4 && tokenDetails && orderId ? (
         <CounterTokenStep
           tokenDetails={tokenDetails}
           shop={shop}
@@ -565,42 +763,71 @@ export function CustomerPrintFlow({ shop: initialShop, identifier, initialPricin
           onReset={resetOrder}
         />
       ) : null}
+
+      {/* Image Cropper Modal */}
+      {cropperOpen && cropTargetDocIndex !== null && documents[cropTargetDocIndex] && (
+        <ImageCropperModal
+          isOpen={cropperOpen}
+          imageUrl={
+            documents[cropTargetDocIndex].previewUrl ||
+            `/api/public/documents/${documents[cropTargetDocIndex].id}/preview`
+          }
+          filename={documents[cropTargetDocIndex].filename}
+          onClose={() => {
+            setCropperOpen(false);
+            setCropTargetDocIndex(null);
+          }}
+          onApplyCrop={handleApplyCrop}
+        />
+      )}
     </div>
   );
 }
 
 function StepIndicator({ step }: { step: number }) {
-  const displayStep = step === 2 || step === 3 ? 1 : step;
+  // Map internal steps (0, 1, 2, 3/4) to index (0, 1, 2, 3)
+  const displayStep = step >= 3 ? 3 : step;
+
+  const stepList = [
+    { short: "Upload", full: "1. Upload" },
+    { short: "Configure", full: "2. Configure & Crop" },
+    { short: "Preview", full: "3. Print Preview" },
+    { short: "Checkout", full: "4. Checkout & Pay" },
+  ];
+
   return (
-    <div className="grid grid-cols-2 gap-2 rounded-2xl border border-slate-200/80 bg-white p-1.5 shadow-xs">
-      {steps.map((label, index) => {
+    <div className="grid grid-cols-4 gap-1 sm:gap-2 rounded-xl sm:rounded-2xl border border-slate-200/80 bg-white p-1 sm:p-1.5 shadow-xs">
+      {stepList.map((item, index) => {
         const isCurrent = displayStep === index;
         const isCompleted = displayStep > index;
         return (
           <div
             className={cn(
-              "flex items-center justify-center gap-2 rounded-xl py-2.5 px-3 text-center text-xs font-bold transition-all",
+              "flex items-center justify-center gap-1 sm:gap-1.5 rounded-lg sm:rounded-xl py-1 px-1 sm:py-2 sm:px-2 text-center text-[10px] sm:text-xs font-bold transition-all select-none min-w-0",
               isCurrent
                 ? "bg-gradient-to-r from-emerald-700 via-emerald-600 to-teal-700 text-white shadow-md shadow-emerald-900/15"
                 : isCompleted
                 ? "bg-emerald-50 text-emerald-800 border border-emerald-200/70"
                 : "bg-slate-50 text-slate-400 border border-slate-200/60"
             )}
-            key={label}
+            key={item.full}
           >
             {isCompleted ? (
-              <CheckCircle2 className="size-4 text-emerald-600 shrink-0" />
+              <CheckCircle2 className="size-3 sm:size-3.5 text-emerald-600 shrink-0" />
             ) : (
               <span
                 className={cn(
-                  "flex size-5 shrink-0 items-center justify-center rounded-full text-[11px] font-black",
+                  "flex size-3.5 sm:size-4.5 shrink-0 items-center justify-center rounded-full text-[9px] sm:text-[10px] font-black",
                   isCurrent ? "bg-white/20 text-white" : "bg-slate-200 text-slate-600"
                 )}
               >
                 {index + 1}
               </span>
             )}
-            <span className="truncate">{label}</span>
+            <span className="truncate">
+              <span className="sm:hidden">{item.short}</span>
+              <span className="hidden sm:inline">{item.full}</span>
+            </span>
           </div>
         );
       })}
@@ -612,11 +839,13 @@ function UploadStep({
   shop,
   busy,
   uploadStatus,
+  uploadProgress,
   onSubmit,
 }: {
   shop: PublicShop;
   busy: boolean;
   uploadStatus: string | null;
+  uploadProgress: number | null;
   onSubmit: (files: File[]) => void;
 }) {
   const [selectedFiles, setSelectedFiles] = useState<File[]>([]);
@@ -732,7 +961,7 @@ function UploadStep({
             <button
               type="button"
               onClick={() => fileInputRef.current?.click()}
-              className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-2 text-xs font-bold text-slate-800 shadow-xs transition hover:bg-slate-50 hover:border-emerald-500 hover:text-emerald-700 active:scale-95"
+              className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-2 text-xs font-bold text-slate-800 shadow-xs transition hover:bg-slate-50 hover:border-emerald-500 hover:text-emerald-700 active:scale-95 cursor-pointer"
             >
               <FileUp className="size-3.5 text-emerald-600" />
               Browse Files
@@ -740,7 +969,7 @@ function UploadStep({
             <button
               type="button"
               onClick={() => cameraInputRef.current?.click()}
-              className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-2 text-xs font-bold text-slate-800 shadow-xs transition hover:bg-slate-50 hover:border-emerald-500 hover:text-emerald-700 active:scale-95"
+              className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-2 text-xs font-bold text-slate-800 shadow-xs transition hover:bg-slate-50 hover:border-emerald-500 hover:text-emerald-700 active:scale-95 cursor-pointer"
             >
               <Camera className="size-3.5 text-emerald-600" />
               Take Photo / Scan
@@ -758,7 +987,7 @@ function UploadStep({
               <button
                 type="button"
                 onClick={() => fileInputRef.current?.click()}
-                className="inline-flex items-center gap-1 text-xs font-bold text-emerald-700 hover:text-emerald-800"
+                className="inline-flex items-center gap-1 text-xs font-bold text-emerald-700 hover:text-emerald-800 cursor-pointer"
               >
                 <Plus className="size-3.5" /> Add more
               </button>
@@ -797,7 +1026,7 @@ function UploadStep({
                     <button
                       type="button"
                       onClick={() => setSelectedFiles((files) => files.filter((_, i) => i !== idx))}
-                      className="rounded-lg p-1.5 text-slate-400 hover:bg-rose-50 hover:text-rose-600 transition"
+                      className="rounded-lg p-1.5 text-slate-400 hover:bg-rose-50 hover:text-rose-600 transition cursor-pointer"
                       aria-label="Remove file"
                     >
                       <Trash2 className="size-4" />
@@ -809,8 +1038,26 @@ function UploadStep({
           </div>
         ) : null}
 
-        {/* PRIMARY CONTINUE BUTTON: Tactile, Prominent, Never Dead */}
-        <div className="mt-5">
+        {/* PRIMARY CONTINUE BUTTON */}
+        <div className="mt-5 space-y-3">
+          {busy && (
+            <div className="space-y-1.5 rounded-xl border border-emerald-200 bg-emerald-50/70 p-3">
+              <div className="flex items-center justify-between text-xs font-bold text-emerald-900">
+                <span className="flex items-center gap-1.5">
+                  <LoaderCircle className="size-3.5 animate-spin text-emerald-600" />
+                  {uploadStatus || "Uploading documents..."}
+                </span>
+                {uploadProgress !== null && <span>{uploadProgress}%</span>}
+              </div>
+              <div className="h-2 w-full overflow-hidden rounded-full bg-emerald-200/60">
+                <div
+                  className="h-full rounded-full bg-gradient-to-r from-emerald-500 to-teal-600 transition-all duration-150"
+                  style={{ width: `${uploadProgress ?? 100}%` }}
+                />
+              </div>
+            </div>
+          )}
+
           {selectedFiles.length === 0 ? (
             <button
               type="button"
@@ -878,22 +1125,21 @@ function UploadStep({
   );
 }
 
-function ConfigureAndPayStep({
+function ConfigureAndCropStep({
   shop,
   documents,
   current,
   activeDocument,
   setActiveDocument,
   updateRange,
-  setDocumentCopies,
   addRange,
   removeRange,
   removeDocument,
   allValid,
   busy,
   estimate,
-  onProceedToPay,
-  onProceedToCounterToken,
+  onContinueToPreview,
+  onOpenCropper,
   onAddMoreFiles,
 }: {
   shop: PublicShop;
@@ -902,37 +1148,33 @@ function ConfigureAndPayStep({
   activeDocument: number;
   setActiveDocument: (index: number) => void;
   updateRange: (index: number, field: keyof PrintRange, value: string | number) => void;
-  setDocumentCopies: (copies: number) => void;
   addRange: () => void;
   removeRange: (index: number) => void;
   removeDocument: (index: number) => void;
   allValid: boolean;
   busy: boolean;
   estimate: Estimate | null;
-  onProceedToPay: () => void;
-  onProceedToCounterToken: () => void;
+  onContinueToPreview: () => void;
+  onOpenCropper: (docIndex: number) => void;
   onAddMoreFiles: (files: File[]) => void;
 }) {
   const modes = useMemo(() => countModes(current.ranges), [current.ranges]);
   const rangeError = validateRanges(current.ranges, current.pageCount);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  const shopPaymentMode = shop.payment_mode || "both";
-  const [selectedMode, setSelectedMode] = useState<"online" | "counter">(
-    shopPaymentMode === "counter" ? "counter" : "online"
-  );
-
   const fallbackTotalPages = documents.reduce((sum, doc) => {
     const docPages = doc.ranges.reduce((acc, r) => {
-      const span = Math.max(0, r.endPage - r.startPage + 1);
-      return acc + span * Math.max(1, r.copies ?? 1);
+      const start = Number(r.startPage) || 1;
+      const end = Number(r.endPage) || start;
+      const span = Math.max(0, end - start + 1);
+      return acc + span * Math.max(1, Number(r.copies) || 1);
     }, 0);
     return sum + docPages;
   }, 0);
 
   const requestsColorMode = documents.some((doc) => doc.ranges.some((r) => r.colorMode === "color"));
   const colorPrinterUnavailable = requestsColorMode && shop.color_printer_status !== "ready";
-  const printerOffline = shop.printer_status !== "ready";
+  const isImageDoc = current.isImage || Boolean(current.filename.match(/\.(png|jpg|jpeg|webp|gif|bmp)$/i)) || Boolean(current.previewUrl);
 
   return (
     <div className="space-y-6">
@@ -974,7 +1216,7 @@ function ConfigureAndPayStep({
               type="button"
               disabled={busy || documents.length >= 10}
               onClick={() => fileInputRef.current?.click()}
-              className="inline-flex items-center gap-1.5 rounded-xl border border-slate-200 bg-white px-2.5 sm:px-3 py-1.5 text-xs font-bold text-slate-700 shadow-2xs hover:bg-slate-50 hover:border-emerald-500 transition active:scale-95"
+              className="inline-flex items-center gap-1.5 rounded-xl border border-slate-200 bg-white px-2.5 sm:px-3 py-1.5 text-xs font-bold text-slate-700 shadow-2xs hover:bg-slate-50 hover:border-emerald-500 transition active:scale-95 cursor-pointer"
             >
               <Plus className="size-3.5 text-emerald-600" /> Add File
             </button>
@@ -988,7 +1230,7 @@ function ConfigureAndPayStep({
               key={document.id}
               onClick={() => setActiveDocument(index)}
               className={cn(
-                "flex items-center gap-1.5 shrink-0 rounded-xl border px-3 py-2 text-left text-xs transition-all",
+                "flex items-center gap-1.5 shrink-0 rounded-xl border px-3 py-2 text-left text-xs transition-all cursor-pointer",
                 index === activeDocument
                   ? "border-emerald-600 bg-emerald-50/90 font-bold text-emerald-950 shadow-xs ring-1 ring-emerald-500/20"
                   : "border-slate-200 bg-white text-slate-600 hover:bg-slate-50"
@@ -1006,56 +1248,38 @@ function ConfigureAndPayStep({
         {/* Active Document Details Box */}
         <div className="mt-3 rounded-2xl bg-slate-50/80 border border-slate-200/80 p-3.5 sm:p-5">
           <div className="flex flex-wrap items-center justify-between gap-2 pb-3 border-b border-slate-200/60">
-            <div className="min-w-0 max-w-[70%]">
+            <div className="min-w-0 max-w-[65%]">
               <p className="font-bold text-slate-900 text-xs sm:text-base truncate">{current.filename}</p>
               <p className="text-[11px] text-slate-500">
                 {(current.sizeBytes / 1024 / 1024).toFixed(2)} MB · {current.pageCount} pages in PDF
               </p>
             </div>
             <div className="flex items-center gap-2">
-              <div className="text-right text-[11px] sm:text-xs text-slate-600">
-                <span>B&amp;W: <b className="text-slate-900">{modes.black_and_white}p</b></span>
-                <span className="mx-1">·</span>
-                <span>Color: <b className="text-slate-900">{modes.color}p</b></span>
-              </div>
+              {/* Crop Image Button for Image uploads */}
+              {isImageDoc && (
+                <button
+                  type="button"
+                  onClick={() => onOpenCropper(activeDocument)}
+                  className="inline-flex items-center gap-1.5 rounded-xl border border-emerald-300 bg-emerald-50 px-2.5 sm:px-3 py-1.5 text-xs font-bold text-emerald-800 shadow-2xs hover:bg-emerald-100 transition active:scale-95 cursor-pointer"
+                >
+                  <Crop className="size-3.5 text-emerald-700" />
+                  <span>Crop Image</span>
+                </button>
+              )}
+
               <button
                 type="button"
                 disabled={documents.length <= 1}
                 onClick={() => removeDocument(activeDocument)}
-                className="rounded-lg border border-slate-200 bg-white px-2 py-1 text-xs font-semibold text-rose-600 hover:bg-rose-50 disabled:opacity-40 transition"
+                className="rounded-lg border border-slate-200 bg-white px-2 py-1 text-xs font-semibold text-rose-600 hover:bg-rose-50 disabled:opacity-40 transition cursor-pointer"
               >
                 <Trash2 className="size-3.5" />
               </button>
             </div>
           </div>
 
-          {/* Quick Document Copies Bar */}
-          <div className="mt-3 flex flex-wrap items-center justify-between gap-2 rounded-xl bg-white p-2.5 sm:p-3 border border-slate-200/90 shadow-2xs">
-            <div className="flex items-center gap-2">
-              <span className="flex size-6 sm:size-7 items-center justify-center rounded-lg bg-emerald-100 text-emerald-700 font-bold text-xs">
-                #
-              </span>
-              <div>
-                <span className="text-xs font-bold text-slate-900 block leading-tight">Document Copies</span>
-                <span className="text-[10px] sm:text-[11px] text-slate-500">Apply to whole document</span>
-              </div>
-            </div>
-            <div className="flex flex-wrap items-center gap-1">
-              {[1, 2, 3, 5, 10].map((count) => (
-                <button
-                  key={count}
-                  type="button"
-                  onClick={() => setDocumentCopies(count)}
-                  className="rounded-lg border border-slate-200 bg-slate-50 px-2 sm:px-2.5 py-1 text-xs font-bold text-slate-700 hover:border-emerald-500 hover:bg-emerald-50 hover:text-emerald-900 transition active:scale-95"
-                >
-                  {count} {count === 1 ? "Copy" : "Copies"}
-                </button>
-              ))}
-            </div>
-          </div>
-
           {/* Quick Page Presets */}
-          <div className="mt-2.5 flex flex-wrap items-center gap-1.5">
+          <div className="mt-3 flex flex-wrap items-center gap-1.5">
             <span className="text-[11px] font-bold text-slate-500">Presets:</span>
             <button
               type="button"
@@ -1063,7 +1287,7 @@ function ConfigureAndPayStep({
                 updateRange(0, "startPage", 1);
                 updateRange(0, "endPage", current.pageCount);
               }}
-              className="rounded-lg border border-slate-200 bg-white px-2.5 py-1 text-xs font-semibold text-slate-700 hover:border-emerald-500 hover:bg-emerald-50/50 transition active:scale-95"
+              className="rounded-lg border border-slate-200 bg-white px-2.5 py-1 text-xs font-semibold text-slate-700 hover:border-emerald-500 hover:bg-emerald-50/50 transition active:scale-95 cursor-pointer"
             >
               All Pages (1 - {current.pageCount})
             </button>
@@ -1073,29 +1297,43 @@ function ConfigureAndPayStep({
                 updateRange(0, "startPage", 1);
                 updateRange(0, "endPage", 1);
               }}
-              className="rounded-lg border border-slate-200 bg-white px-2.5 py-1 text-xs font-semibold text-slate-700 hover:border-emerald-500 hover:bg-emerald-50/50 transition active:scale-95"
+              className="rounded-lg border border-slate-200 bg-white px-2.5 py-1 text-xs font-semibold text-slate-700 hover:border-emerald-500 hover:bg-emerald-50/50 transition active:scale-95 cursor-pointer"
             >
               Page 1 Only
             </button>
             {current.pageCount >= 2 && (
-              <button
-                type="button"
-                onClick={() => {
-                  updateRange(0, "startPage", 1);
-                  updateRange(0, "endPage", 2);
-                }}
-                className="rounded-lg border border-slate-200 bg-white px-2.5 py-1 text-xs font-semibold text-slate-700 hover:border-emerald-500 hover:bg-emerald-50/50 transition active:scale-95"
-              >
-                Pages 1 - 2 Only
-              </button>
+              <>
+                <button
+                  type="button"
+                  onClick={() => {
+                    updateRange(0, "startPage", 2);
+                    updateRange(0, "endPage", current.pageCount);
+                  }}
+                  className="rounded-lg border border-emerald-300 bg-emerald-50/60 px-2.5 py-1 text-xs font-bold text-emerald-800 hover:bg-emerald-100 transition active:scale-95 cursor-pointer"
+                >
+                  Start from Page 2 (2 - {current.pageCount})
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    updateRange(0, "startPage", 2);
+                    updateRange(0, "endPage", 2);
+                  }}
+                  className="rounded-lg border border-slate-200 bg-white px-2.5 py-1 text-xs font-semibold text-slate-700 hover:border-emerald-500 hover:bg-emerald-50/50 transition active:scale-95 cursor-pointer"
+                >
+                  Page 2 Only
+                </button>
+              </>
             )}
           </div>
 
           {/* Page Ranges List */}
           {current.ranges.map((range, index) => {
-            const pageSpan = Math.max(0, range.endPage - range.startPage + 1);
-            const copies = Math.max(1, range.copies ?? 1);
-            const rangePrintedPages = pageSpan * copies;
+            const startNum = Number(range.startPage) || 1;
+            const endNum = Number(range.endPage) || startNum;
+            const copiesNum = Number(range.copies) || 1;
+            const pageSpan = Math.max(0, endNum - startNum + 1);
+            const rangePrintedPages = pageSpan * copiesNum;
 
             return (
               <div
@@ -1111,8 +1349,14 @@ function ConfigureAndPayStep({
                       min="1"
                       max={current.pageCount}
                       type="number"
+                      placeholder="1"
                       value={range.startPage}
                       onChange={(event) => updateRange(index, "startPage", event.target.value)}
+                      onBlur={() => {
+                        if (!range.startPage || Number(range.startPage) < 1) {
+                          updateRange(index, "startPage", 1);
+                        }
+                      }}
                     />
                   </label>
                   <label className="text-xs font-semibold text-slate-600">
@@ -1122,8 +1366,14 @@ function ConfigureAndPayStep({
                       min="1"
                       max={current.pageCount}
                       type="number"
+                      placeholder={String(current.pageCount)}
                       value={range.endPage}
                       onChange={(event) => updateRange(index, "endPage", event.target.value)}
+                      onBlur={() => {
+                        if (!range.endPage || Number(range.endPage) < 1) {
+                          updateRange(index, "endPage", current.pageCount);
+                        }
+                      }}
                     />
                   </label>
 
@@ -1133,9 +1383,9 @@ function ConfigureAndPayStep({
                     <div className="mt-1 flex h-10 items-center rounded-xl border border-slate-200 bg-white overflow-hidden shadow-2xs">
                       <button
                         type="button"
-                        onClick={() => updateRange(index, "copies", Math.max(1, copies - 1))}
-                        disabled={copies <= 1}
-                        className="flex h-full w-8 sm:w-9 items-center justify-center bg-slate-50 text-slate-700 hover:bg-slate-100 disabled:opacity-30 transition font-bold text-base select-none"
+                        onClick={() => updateRange(index, "copies", Math.max(1, copiesNum - 1))}
+                        disabled={copiesNum <= 1}
+                        className="flex h-full w-8 sm:w-9 items-center justify-center bg-slate-50 text-slate-700 hover:bg-slate-100 disabled:opacity-30 transition font-bold text-base select-none cursor-pointer"
                       >
                         -
                       </button>
@@ -1144,13 +1394,19 @@ function ConfigureAndPayStep({
                         min="1"
                         max="100"
                         type="number"
-                        value={copies}
+                        placeholder="1"
+                        value={range.copies}
                         onChange={(event) => updateRange(index, "copies", event.target.value)}
+                        onBlur={() => {
+                          if (!range.copies || Number(range.copies) < 1) {
+                            updateRange(index, "copies", 1);
+                          }
+                        }}
                       />
                       <button
                         type="button"
-                        onClick={() => updateRange(index, "copies", copies + 1)}
-                        className="flex h-full w-8 sm:w-9 items-center justify-center bg-slate-50 text-slate-700 hover:bg-slate-100 transition font-bold text-base select-none"
+                        onClick={() => updateRange(index, "copies", copiesNum + 1)}
+                        className="flex h-full w-8 sm:w-9 items-center justify-center bg-slate-50 text-slate-700 hover:bg-slate-100 transition font-bold text-base select-none cursor-pointer"
                       >
                         +
                       </button>
@@ -1182,11 +1438,14 @@ function ConfigureAndPayStep({
                   </Select>
                   <Select
                     label="Print Sides"
-                    value={range.sideMode ?? "single_sided"}
+                    value={current.pageCount <= 1 ? "single_sided" : (range.sideMode ?? "single_sided")}
                     onChange={(event) => updateRange(index, "sideMode", event.target.value)}
+                    disabled={current.pageCount <= 1}
                   >
                     <option value="single_sided">📄 Single-Sided (1 Side)</option>
-                    <option value="double_sided">📑 Double-Sided (Both Sides)</option>
+                    <option value="double_sided" disabled={current.pageCount <= 1}>
+                      📑 Double-Sided (Both Sides) {current.pageCount <= 1 ? "(Requires 2+ pages)" : ""}
+                    </option>
                   </Select>
                 </div>
 
@@ -1197,42 +1456,23 @@ function ConfigureAndPayStep({
                       {range.startPage === range.endPage ? `P.${range.startPage}` : `P.${range.startPage}–${range.endPage}`}
                     </span>
                     <span>({pageSpan}p)</span>
-                    <span className="font-bold text-emerald-700">× {copies} {copies === 1 ? "copy" : "copies"}</span>
+                    <span className="font-bold text-emerald-700">× {copiesNum} {copiesNum === 1 ? "copy" : "copies"}</span>
                     <span>=</span>
                     <span className="rounded-md bg-emerald-50 px-2 py-0.5 font-black text-emerald-800 border border-emerald-200">
                       {rangePrintedPages} Printed {rangePrintedPages === 1 ? "Page" : "Pages"}
                     </span>
                   </div>
 
-                  <div className="flex items-center gap-1.5 ml-auto">
-                    <div className="flex items-center gap-1">
-                      {[1, 2, 3, 5].map((c) => (
-                        <button
-                          key={c}
-                          type="button"
-                          onClick={() => updateRange(index, "copies", c)}
-                          className={cn(
-                            "rounded-md px-1.5 py-0.5 text-[10px] font-bold border transition active:scale-95",
-                            copies === c
-                              ? "border-emerald-500 bg-emerald-50 text-emerald-800"
-                              : "border-slate-200 bg-slate-50 text-slate-600 hover:border-slate-300"
-                          )}
-                        >
-                          {c}x
-                        </button>
-                      ))}
-                    </div>
-                    {current.ranges.length > 1 && (
-                      <button
-                        type="button"
-                        className="rounded-lg p-1.5 text-rose-600 hover:bg-rose-50 transition active:scale-95"
-                        aria-label="Remove page range"
-                        onClick={() => removeRange(index)}
-                      >
-                        <Trash2 className="size-4" />
-                      </button>
-                    )}
-                  </div>
+                  {current.ranges.length > 1 && (
+                    <button
+                      type="button"
+                      className="ml-auto rounded-lg p-1.5 text-rose-600 hover:bg-rose-50 transition active:scale-95 cursor-pointer"
+                      aria-label="Remove page range"
+                      onClick={() => removeRange(index)}
+                    >
+                      <Trash2 className="size-4" />
+                    </button>
+                  )}
                 </div>
               </div>
             );
@@ -1249,190 +1489,26 @@ function ConfigureAndPayStep({
           <button
             type="button"
             onClick={addRange}
-            className="mt-3 inline-flex items-center gap-1.5 rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-bold text-slate-700 shadow-2xs hover:bg-slate-50 hover:border-emerald-500 transition active:scale-95"
+            className="mt-3 inline-flex items-center gap-1.5 rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-bold text-slate-700 shadow-2xs hover:bg-slate-50 hover:border-emerald-500 transition active:scale-95 cursor-pointer"
           >
             <Plus className="size-3.5 text-emerald-600" /> Add Another Page Range
           </button>
         </div>
       </Card>
 
-      {/* 2. Order Summary & Payment Mode Selection */}
-      <Card className="overflow-hidden border-emerald-200/80 bg-gradient-to-br from-white via-emerald-50/20 to-slate-50 p-4 sm:p-7 shadow-lg rounded-3xl">
-        <div className="flex items-center justify-between border-b border-slate-200/60 pb-3">
-          <div className="flex items-center gap-2 sm:gap-2.5">
-            <div className="flex size-8 sm:size-9 items-center justify-center rounded-xl bg-gradient-to-br from-emerald-600 to-teal-700 text-white shadow-xs">
-              <Sparkles className="size-4 sm:size-5" />
-            </div>
-            <div>
-              <h3 className="text-base sm:text-lg font-bold text-slate-900">Order Summary</h3>
-              <p className="text-[11px] sm:text-xs text-slate-500">Authoritative slab pricing</p>
-            </div>
-          </div>
-          <span className="rounded-full bg-emerald-100 px-2.5 py-0.5 text-[10px] sm:text-xs font-bold text-emerald-800">
-            {selectedMode === "counter" ? "TOKEN QUEUE" : "INSTANT AUTO-PRINT"}
-          </span>
-        </div>
-
-        {/* 3 Metric Cards Optimized for Mobile */}
-        <div className="mt-3.5 grid grid-cols-2 sm:grid-cols-3 gap-2.5 sm:gap-3">
-          <div className="rounded-2xl border border-slate-200/80 bg-white p-3 sm:p-4 shadow-2xs">
-            <span className="text-[11px] sm:text-xs font-semibold text-slate-500">Documents</span>
-            <div className="mt-0.5 text-base sm:text-lg font-black text-slate-900">{documents.length} File{documents.length === 1 ? "" : "s"}</div>
-          </div>
-          <div className="rounded-2xl border border-slate-200/80 bg-white p-3 sm:p-4 shadow-2xs">
-            <span className="text-[11px] sm:text-xs font-semibold text-slate-500">Total Pages</span>
-            <div className="mt-0.5 text-base sm:text-lg font-black text-slate-900">
-              {estimate ? estimate.totalPages : fallbackTotalPages} Pages
-            </div>
-            {estimate ? (
-              <span className="text-[10px] sm:text-[11px] text-slate-500 block truncate">
-                ({estimate.blackAndWhitePages} B&amp;W, {estimate.colorPages} Color)
-              </span>
-            ) : null}
-          </div>
-          <div className="col-span-2 sm:col-span-1 rounded-2xl border border-emerald-200/80 bg-emerald-50/50 p-3 sm:p-4 shadow-2xs flex sm:block items-center justify-between">
-            <span className="text-[11px] sm:text-xs font-bold text-emerald-900">Total Payable</span>
-            <div className="text-xl sm:text-2xl font-black text-emerald-800 font-mono">
-              ₹{estimate ? estimate.total.toFixed(2) : (fallbackTotalPages * 5).toFixed(2)}
-            </div>
-          </div>
-        </div>
-
-        {/* Payment Mode Selector */}
-        {shopPaymentMode === "both" ? (
-          <div className="mt-4 sm:mt-6">
-            <label className="text-xs font-bold uppercase tracking-wider text-slate-600 block mb-2">
-              Choose How to Pay
-            </label>
-            <div className="grid gap-2.5 sm:grid-cols-2">
-              <button
-                type="button"
-                onClick={() => setSelectedMode("counter")}
-                className={cn(
-                  "flex items-start gap-3 rounded-2xl border-2 p-3 sm:p-4 text-left transition-all cursor-pointer active:scale-98",
-                  selectedMode === "counter"
-                    ? "border-emerald-600 bg-emerald-50/90 shadow-md ring-2 ring-emerald-500/20"
-                    : "border-slate-200 bg-white hover:border-slate-300 hover:bg-slate-50/80"
-                )}
-              >
-                <div
-                  className={cn(
-                    "flex size-9 sm:size-10 shrink-0 items-center justify-center rounded-xl font-bold transition",
-                    selectedMode === "counter" ? "bg-emerald-600 text-white shadow-xs" : "bg-slate-100 text-slate-600"
-                  )}
-                >
-                  <Ticket className="size-4 sm:size-5" />
-                </div>
-                <div>
-                  <div className="flex items-center gap-1.5 font-bold text-xs sm:text-sm text-slate-900">
-                    Pay at Counter
-                    <span className="rounded-full bg-emerald-100 px-2 py-0.2 text-[9px] sm:text-[10px] font-bold text-emerald-800">
-                      TOKEN
-                    </span>
-                  </div>
-                  <p className="mt-0.5 text-[11px] sm:text-xs text-slate-500 leading-snug">
-                    Generate token &amp; pay cash/UPI at counter. Valid for 1 hr.
-                  </p>
-                </div>
-              </button>
-
-              <button
-                type="button"
-                onClick={() => setSelectedMode("online")}
-                className={cn(
-                  "flex items-start gap-3 rounded-2xl border-2 p-3 sm:p-4 text-left transition-all cursor-pointer active:scale-98",
-                  selectedMode === "online"
-                    ? "border-emerald-600 bg-emerald-50/90 shadow-md ring-2 ring-emerald-500/20"
-                    : "border-slate-200 bg-white hover:border-slate-300 hover:bg-slate-50/80"
-                )}
-              >
-                <div
-                  className={cn(
-                    "flex size-9 sm:size-10 shrink-0 items-center justify-center rounded-xl font-bold transition",
-                    selectedMode === "online" ? "bg-emerald-600 text-white shadow-xs" : "bg-slate-100 text-slate-600"
-                  )}
-                >
-                  <CreditCard className="size-4 sm:size-5" />
-                </div>
-                <div>
-                  <div className="flex items-center gap-1.5 font-bold text-xs sm:text-sm text-slate-900">
-                    Pay Online
-                    <span className="rounded-full bg-emerald-100 px-2 py-0.2 text-[9px] sm:text-[10px] font-bold text-emerald-800">
-                      INSTANT
-                    </span>
-                  </div>
-                  <p className="mt-0.5 text-[11px] sm:text-xs text-slate-500 leading-snug">
-                    Pay via UPI, Cards, NetBanking for instant auto-print.
-                  </p>
-                </div>
-              </button>
-            </div>
-          </div>
-        ) : null}
-
-        {/* Tactile Primary Action Button */}
-        <div className="mt-5 sm:mt-6">
-          {selectedMode === "counter" ? (
-            <button
-              type="button"
-              disabled={!allValid || busy}
-              onClick={onProceedToCounterToken}
-              className="flex w-full items-center justify-center gap-2 rounded-2xl bg-gradient-to-r from-emerald-600 via-emerald-700 to-teal-800 px-4 sm:px-6 py-3.5 sm:py-4 text-sm sm:text-base font-bold text-white shadow-[0_4px_0_#065f46,0_12px_24px_-2px_rgba(5,150,105,0.4)] transition-all hover:from-emerald-500 hover:to-emerald-600 hover:-translate-y-0.5 active:translate-y-1 active:shadow-[0_1px_0_#065f46] cursor-pointer disabled:opacity-50 disabled:pointer-events-none"
-            >
-              {busy ? (
-                <>
-                  <LoaderCircle className="size-4 sm:size-5 animate-spin" />
-                  <span>Generating Counter Token...</span>
-                </>
-              ) : (
-                <>
-                  <Ticket className="size-4 sm:size-5 shrink-0" />
-                  <span className="truncate">
-                    Generate Token (₹{estimate ? estimate.total.toFixed(2) : (fallbackTotalPages * 5).toFixed(2)})
-                  </span>
-                  <ArrowRight className="size-4 shrink-0" />
-                </>
-              )}
-            </button>
-          ) : (
-            <button
-              type="button"
-              disabled={!allValid || busy}
-              onClick={onProceedToPay}
-              className="flex w-full items-center justify-center gap-2 rounded-2xl bg-gradient-to-r from-emerald-700 via-teal-800 to-slate-900 px-4 sm:px-6 py-3.5 sm:py-4 text-sm sm:text-base font-bold text-white shadow-[0_4px_0_#064e3b,0_12px_24px_-2px_rgba(6,78,59,0.4)] transition-all hover:from-emerald-600 hover:to-teal-700 hover:-translate-y-0.5 active:translate-y-1 active:shadow-[0_1px_0_#064e3b] cursor-pointer disabled:opacity-50 disabled:pointer-events-none"
-            >
-              {busy ? (
-                <>
-                  <LoaderCircle className="size-4 sm:size-5 animate-spin" />
-                  <span>Preparing Payment...</span>
-                </>
-              ) : (
-                <>
-                  <CreditCard className="size-4 sm:size-5 shrink-0" />
-                  <span className="truncate">
-                    Proceed to Pay ₹{estimate ? estimate.total.toFixed(2) : (fallbackTotalPages * 5).toFixed(2)} Online
-                  </span>
-                  <ArrowRight className="size-4 shrink-0" />
-                </>
-              )}
-            </button>
-          )}
-        </div>
-
-        <div className="mt-3.5 flex items-center justify-center gap-1.5 text-[11px] text-slate-500 text-center">
-          {selectedMode === "counter" ? (
-            <>
-              <Store className="size-3.5 text-emerald-600 shrink-0" />
-              <span>Token generated immediately · Show at counter within 1 hr</span>
-            </>
-          ) : (
-            <>
-              <ShieldCheck className="size-3.5 text-emerald-600 shrink-0" />
-              <span>256-Bit Encrypted Payment · Instant Auto-Print</span>
-            </>
-          )}
-        </div>
-      </Card>
+      {/* Advance to Step 2: Print Preview & Review */}
+      <div className="pt-2">
+        <button
+          type="button"
+          disabled={!allValid || busy}
+          onClick={onContinueToPreview}
+          className="flex w-full items-center justify-center gap-2.5 rounded-2xl bg-gradient-to-r from-emerald-600 via-emerald-700 to-teal-800 px-6 py-4 text-base font-bold text-white shadow-[0_4px_0_#065f46,0_12px_24px_-2px_rgba(5,150,105,0.4)] transition-all hover:from-emerald-500 hover:to-emerald-600 hover:-translate-y-0.5 active:translate-y-1 active:shadow-[0_1px_0_#065f46] cursor-pointer disabled:opacity-50 disabled:pointer-events-none"
+        >
+          <Eye className="size-5" />
+          <span>Continue to Print Preview ({fallbackTotalPages} Pages)</span>
+          <ArrowRight className="size-4" />
+        </button>
+      </div>
     </div>
   );
 }
@@ -1473,7 +1549,7 @@ function CounterTokenStep({
     return () => clearInterval(timer);
   }, [tokenDetails.expiresAt]);
 
-  // Real-time status polling so customer sees when shop owner clicks "Print"
+  // Real-time status polling
   useEffect(() => {
     const controller = new AbortController();
     const refresh = async () => {
@@ -1572,7 +1648,7 @@ function CounterTokenStep({
           <button
             type="button"
             onClick={handleCopyToken}
-            className="inline-flex items-center gap-1.5 rounded-xl border border-slate-200 bg-slate-50 px-3.5 py-1.5 text-xs font-bold text-slate-700 hover:bg-emerald-50 hover:text-emerald-800 hover:border-emerald-300 transition active:scale-95"
+            className="inline-flex items-center gap-1.5 rounded-xl border border-slate-200 bg-slate-50 px-3.5 py-1.5 text-xs font-bold text-slate-700 hover:bg-emerald-50 hover:text-emerald-800 hover:border-emerald-300 transition active:scale-95 cursor-pointer"
           >
             {copied ? (
               <>
@@ -2054,7 +2130,7 @@ function PaymentStep({
       <div className="mt-6">
         <Button
           variant="primary"
-          className="w-full text-base py-4 font-bold shadow-xl shadow-brand-900/15"
+          className="w-full text-base py-4 font-bold shadow-xl shadow-brand-900/15 cursor-pointer"
           loading={paymentStatus === "creating_order" || paymentStatus === "verifying"}
           onClick={() => void initiatePayment()}
         >

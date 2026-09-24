@@ -1,7 +1,7 @@
 import { hasSubscriptionAccess, subscriptionEnd, subscriptionWarningDays } from "@/lib/subscription";
 import Link from "next/link";
 import { Download, ExternalLink, Printer } from "lucide-react";
-import { getShopContext, formatStatus, isHeartbeatFresh } from "@/lib/shop-portal";
+import { getShopContext, formatStatus, isHeartbeatFresh, getISTStartOfDay } from "@/lib/shop-portal";
 import { ShopPageHeader, MetricCard, StatusRow } from "@/components/shop-page";
 import { Alert } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
@@ -20,8 +20,8 @@ export default async function ShopDashboardPage() {
         No shop membership is connected to this account.
       </Alert>
     );
-  const start = new Date();
-  start.setHours(0, 0, 0, 0);
+  const start = getISTStartOfDay();
+
   const [settings, subscription, agent, printer, jobs, pages] = await Promise.all([
     context.client.from("shop_settings").select("accepting_orders").eq("shop_id", context.shop.id).maybeSingle(),
     context.client

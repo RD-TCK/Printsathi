@@ -13,7 +13,9 @@ import {
   RotateCw,
   Layers,
   Sparkles,
+  Trash2,
 } from "lucide-react";
+
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -162,10 +164,51 @@ export function CounterQueueCenter({ shopName }: { shopName: string }) {
     }
   };
 
+  // Handle Discard Misprint / Customer Rejection
+  const handleDiscardOrder = async (orderId: string, tokenNumber?: number | null, amount?: number) => {
+    const tokenDisplay = tokenNumber != null ? `Token #${tokenNumber}` : `this print request`;
+    const amountDisplay = amount != null ? ` (₹${amount.toFixed(2)})` : "";
+    if (
+      !confirm(
+        `Discard ${tokenDisplay}${amountDisplay} as a customer-rejected misprint?\n\nThis will mark the job as discarded and completely exclude it from your shop's revenue and analytics calculation.`
+      )
+    ) {
+      return;
+    }
+
+    setActionLoading(`discard-${orderId}`);
+    setStatusMessage(null);
+    try {
+      const res = await fetch("/api/shop/discard-job", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          orderId,
+          reason: "Customer rejected misprint (Discarded by shop owner)",
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Discard failed");
+      setStatusMessage({
+        text: `${tokenDisplay} discarded. Excluded from shop revenue & analytics calculation.`,
+        type: "success",
+      });
+      await fetchQueue();
+    } catch (err) {
+      setStatusMessage({
+        text: err instanceof Error ? err.message : "Could not discard print request.",
+        type: "error",
+      });
+    } finally {
+      setActionLoading(null);
+    }
+  };
+
   // Dismiss popup
   const handleDismissPopup = (orderId: string) => {
     setDismissedPopups((prev) => new Set([...prev, orderId]));
   };
+
 
   // Filter active pending orders that need immediate attention and are not dismissed
   const activePendingOrders = queue.filter(
@@ -285,53 +328,53 @@ export function CounterQueueCenter({ shopName }: { shopName: string }) {
                   </div>
 
                   {/* Actions */}
-                  <div className="flex flex-wrap items-center gap-2 self-center sm:self-auto">
+                  <div className="flex flex-wrap items-center gap-2.5 self-center sm:self-auto">
                     {isDouble ? (
                       !isOddDone ? (
-                        <Button
-                          variant="primary"
-                          className="bg-emerald-600 hover:bg-emerald-700 text-white font-bold py-2.5 px-4 shadow-md shadow-emerald-700/20"
-                          loading={actionLoading === `${item.id}-odd`}
+                        <button
+                          type="button"
+                          disabled={actionLoading === `${item.id}-odd`}
+                          className="inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-xl bg-gradient-to-b from-emerald-500 via-emerald-600 to-emerald-700 px-5 py-3 text-sm font-black uppercase tracking-wider text-white shadow-[0_4px_0_0_#064e3b,0_10px_20px_rgba(5,150,105,0.35)] border-t border-emerald-300/40 hover:from-emerald-400 hover:to-emerald-600 active:translate-y-[3px] active:shadow-[0_1px_0_0_#064e3b] disabled:opacity-50 transition-all cursor-pointer select-none"
                           onClick={() => handleApprovePrint(item.id, "odd")}
                         >
-                          <Printer className="size-4" />
-                          Print Front Side (Odd Pages)
-                        </Button>
+                          <Printer className="size-5 shrink-0 drop-shadow-xs" />
+                          <span>{actionLoading === `${item.id}-odd` ? "Printing..." : "Print Front (Odd)"}</span>
+                        </button>
                       ) : (
-                        <Button
-                          variant="primary"
-                          className="bg-amber-600 hover:bg-amber-700 text-white font-bold py-2.5 px-4 shadow-md shadow-amber-700/20"
-                          loading={actionLoading === `${item.id}-even`}
+                        <button
+                          type="button"
+                          disabled={actionLoading === `${item.id}-even`}
+                          className="inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-xl bg-gradient-to-b from-amber-500 via-amber-600 to-amber-700 px-5 py-3 text-sm font-black uppercase tracking-wider text-white shadow-[0_4px_0_0_#78350f,0_10px_20px_rgba(217,119,6,0.4)] border-t border-amber-300/40 hover:from-amber-400 hover:to-amber-600 active:translate-y-[3px] active:shadow-[0_1px_0_0_#78350f] disabled:opacity-50 transition-all cursor-pointer select-none animate-pulse"
                           onClick={() => handleApprovePrint(item.id, "even")}
                         >
-                          <Printer className="size-4" />
-                          Print Back Side (Even Pages)
-                        </Button>
+                          <RotateCw className="size-5 shrink-0 drop-shadow-xs" />
+                          <span>{actionLoading === `${item.id}-even` ? "Printing..." : "Print Next Side"}</span>
+                        </button>
                       )
                     ) : (
-                      <Button
-                        variant="primary"
-                        className="bg-emerald-600 hover:bg-emerald-700 text-white font-bold py-2.5 px-5 shadow-md shadow-emerald-700/20"
-                        loading={actionLoading === `${item.id}-all`}
+                      <button
+                        type="button"
+                        disabled={actionLoading === `${item.id}-all`}
+                        className="inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-xl bg-gradient-to-b from-emerald-500 via-emerald-600 to-emerald-700 px-6 py-3 text-sm font-black uppercase tracking-wider text-white shadow-[0_4px_0_0_#064e3b,0_10px_20px_rgba(5,150,105,0.35)] border-t border-emerald-300/40 hover:from-emerald-400 hover:to-emerald-600 active:translate-y-[3px] active:shadow-[0_1px_0_0_#064e3b] disabled:opacity-50 transition-all cursor-pointer select-none"
                         onClick={() => handleApprovePrint(item.id, "all")}
                       >
-                        <Printer className="size-4" />
-                        Print Document
-                      </Button>
+                        <Printer className="size-5 shrink-0 drop-shadow-xs" />
+                        <span>{actionLoading === `${item.id}-all` ? "Printing..." : "Print Document"}</span>
+                      </button>
                     )}
-
-                    <Button
-                      variant="secondary"
-                      size="sm"
-                      onClick={() => handleDismissPopup(item.id)}
-                      title="Keep this request in queue and attend to it later"
-                    >
-                      Keep in Queue
-                    </Button>
 
                     <button
                       type="button"
-                      className="rounded-lg p-2 text-slate-400 hover:bg-red-50 hover:text-red-600 transition"
+                      onClick={() => handleDismissPopup(item.id)}
+                      className="inline-flex items-center justify-center gap-1.5 whitespace-nowrap rounded-xl bg-gradient-to-b from-slate-100 to-slate-200 border border-slate-300 px-4 py-3 text-xs font-bold text-slate-700 shadow-[0_3px_0_0_#94a3b8] hover:bg-slate-200 active:translate-y-[2px] active:shadow-none transition-all cursor-pointer select-none"
+                      title="Keep this request in queue and attend to it later"
+                    >
+                      Keep in Queue
+                    </button>
+
+                    <button
+                      type="button"
+                      className="inline-flex items-center justify-center rounded-xl bg-gradient-to-b from-rose-50 to-rose-100 border border-rose-200 p-3 text-rose-600 shadow-[0_3px_0_0_#fda4af] hover:bg-rose-100 hover:text-rose-700 active:translate-y-[2px] active:shadow-none transition-all cursor-pointer select-none"
                       title="Cancel print request"
                       onClick={() => handleCancelOrder(item.id)}
                     >
@@ -489,7 +532,7 @@ export function CounterQueueCenter({ shopName }: { shopName: string }) {
                                 : item.isExpired
                                 ? "EXPIRED (1 HR)"
                                 : isCancelled
-                                ? "CANCELLED"
+                                ? "DISCARDED (MISPRINT)"
                                 : "WAITING AT COUNTER"}
                             </Badge>
 
@@ -529,95 +572,77 @@ export function CounterQueueCenter({ shopName }: { shopName: string }) {
                       </div>
 
                       {/* Right: Actions inside Token Bar */}
-                      <div className="flex flex-wrap items-center gap-2">
+                      <div className="flex flex-wrap items-center gap-2 shrink-0">
                         {!isPaid && !isCancelled && !item.isExpired ? (
                           <>
                             {isDouble ? (
                               !isOddDone ? (
-                                <Button
-                                  variant="primary"
-                                  size="sm"
-                                  className="bg-emerald-600 hover:bg-emerald-700 text-white font-bold shadow-sm"
-                                  loading={actionLoading === `${item.id}-odd`}
+                                <button
+                                  type="button"
+                                  disabled={actionLoading === `${item.id}-odd`}
+                                  className="inline-flex items-center justify-center gap-1.5 whitespace-nowrap rounded-lg bg-gradient-to-b from-emerald-500 via-emerald-600 to-emerald-700 px-3 py-1.5 text-xs font-black uppercase tracking-wide text-white shadow-[0_2.5px_0_0_#064e3b,0_4px_8px_rgba(5,150,105,0.25)] border-t border-emerald-300/40 hover:from-emerald-400 hover:to-emerald-600 active:translate-y-[2px] active:shadow-[0_1px_0_0_#064e3b] disabled:opacity-50 transition-all cursor-pointer select-none"
                                   onClick={() => handleApprovePrint(item.id, "odd")}
                                 >
-                                  <Printer className="size-3.5" />
-                                  Print Front (Odd: {oddPages}p)
-                                </Button>
+                                  <Printer className="size-3.5 shrink-0 drop-shadow-xs" />
+                                  <span>{actionLoading === `${item.id}-odd` ? "Printing..." : `Print Front (Odd: ${oddPages}p)`}</span>
+                                </button>
                               ) : (
-                                <Button
-                                  variant="primary"
-                                  size="sm"
-                                  className="bg-amber-600 hover:bg-amber-700 text-white font-bold shadow-md shadow-amber-700/20 ring-2 ring-amber-300 animate-pulse"
-                                  loading={actionLoading === `${item.id}-even`}
+                                <button
+                                  type="button"
+                                  disabled={actionLoading === `${item.id}-even`}
+                                  className="inline-flex items-center justify-center gap-1.5 whitespace-nowrap rounded-lg bg-gradient-to-b from-amber-500 via-amber-600 to-amber-700 px-3 py-1.5 text-xs font-black uppercase tracking-wide text-white shadow-[0_2.5px_0_0_#78350f,0_4px_8px_rgba(217,119,6,0.3)] border-t border-amber-300/40 hover:from-amber-400 hover:to-amber-600 active:translate-y-[2px] active:shadow-[0_1px_0_0_#78350f] disabled:opacity-50 transition-all cursor-pointer select-none animate-pulse"
                                   onClick={() => handleApprovePrint(item.id, "even")}
                                 >
-                                  <RotateCw className="size-3.5" />
-                                  Print Back (Even: {evenPages}p)
-                                </Button>
+                                  <RotateCw className="size-3.5 shrink-0 drop-shadow-xs" />
+                                  <span>{actionLoading === `${item.id}-even` ? "Printing..." : `Print Next Side (${evenPages}p)`}</span>
+                                </button>
                               )
                             ) : (
-                              <Button
-                                variant="primary"
-                                size="sm"
-                                className="bg-emerald-600 hover:bg-emerald-700 text-white font-bold shadow-sm"
-                                loading={actionLoading === `${item.id}-all`}
+                              <button
+                                type="button"
+                                disabled={actionLoading === `${item.id}-all`}
+                                className="inline-flex items-center justify-center gap-1.5 whitespace-nowrap rounded-lg bg-gradient-to-b from-emerald-500 via-emerald-600 to-emerald-700 px-3 py-1.5 text-xs font-black uppercase tracking-wide text-white shadow-[0_2.5px_0_0_#064e3b,0_4px_8px_rgba(5,150,105,0.25)] border-t border-emerald-300/40 hover:from-emerald-400 hover:to-emerald-600 active:translate-y-[2px] active:shadow-[0_1px_0_0_#064e3b] disabled:opacity-50 transition-all cursor-pointer select-none"
                                 onClick={() => handleApprovePrint(item.id, "all")}
                               >
-                                <Printer className="size-3.5" />
-                                Print Document
-                              </Button>
+                                <Printer className="size-3.5 shrink-0 drop-shadow-xs" />
+                                <span>{actionLoading === `${item.id}-all` ? "Printing..." : "Print Document"}</span>
+                              </button>
                             )}
 
-                            <Button
-                              variant="secondary"
-                              size="sm"
-                              className="text-red-600 hover:bg-red-50"
+                            <button
+                              type="button"
+                              disabled={actionLoading === item.id}
+                              className="inline-flex items-center justify-center gap-1 whitespace-nowrap rounded-lg bg-gradient-to-b from-slate-100 via-slate-200 to-slate-300 px-2.5 py-1.5 text-[11px] font-bold text-slate-700 border border-slate-300 shadow-[0_2px_0_0_#94a3b8] hover:from-slate-50 hover:to-slate-200 active:translate-y-[1px] active:shadow-none transition-all cursor-pointer select-none"
                               onClick={() => handleCancelOrder(item.id)}
                             >
-                              Cancel
-                            </Button>
+                              <XCircle className="size-3 text-slate-500" />
+                              <span>Cancel</span>
+                            </button>
                           </>
                         ) : isPaid ? (
-                          <div className="flex items-center gap-2">
-                            <span className="text-xs font-semibold text-emerald-700 inline-flex items-center gap-1">
-                              <CheckCircle2 className="size-3.5" /> Approved
+                          <div className="flex flex-wrap items-center gap-2">
+                            <span className="inline-flex items-center gap-1 rounded-lg bg-emerald-50 border border-emerald-200 px-2.5 py-1 text-[11px] font-bold text-emerald-800 shadow-2xs">
+                              <CheckCircle2 className="size-3.5 text-emerald-600" /> Approved
                             </span>
-                            {item.jobs[0]?.id && (
-                              <div className="flex items-center gap-1">
-                                {isDouble ? (
-                                  <>
-                                    <a
-                                      href={`/api/shop/print-document?jobId=${item.jobs[0].id}&duplexStep=odd`}
-                                      target="_blank"
-                                      rel="noopener noreferrer"
-                                      className="inline-flex items-center gap-1 rounded-lg border border-line bg-white px-2 py-1 text-[11px] font-bold text-slate-700 hover:bg-slate-50"
-                                      title="Reprint Odd pages"
-                                    >
-                                      <Printer className="size-3" /> Odd (Front)
-                                    </a>
-                                    <a
-                                      href={`/api/shop/print-document?jobId=${item.jobs[0].id}&duplexStep=even`}
-                                      target="_blank"
-                                      rel="noopener noreferrer"
-                                      className="inline-flex items-center gap-1 rounded-lg border border-line bg-white px-2 py-1 text-[11px] font-bold text-slate-700 hover:bg-slate-50"
-                                      title="Reprint Even pages"
-                                    >
-                                      <Printer className="size-3" /> Even (Back)
-                                    </a>
-                                  </>
-                                ) : (
-                                  <a
-                                    href={`/api/shop/print-document?jobId=${item.jobs[0].id}`}
-                                    target="_blank"
-                                    rel="noopener noreferrer"
-                                    className="inline-flex items-center gap-1 rounded-lg border border-line bg-white px-2 py-1 text-xs text-brand-700 hover:bg-slate-50"
-                                  >
-                                    <Printer className="size-3" /> Reprint
-                                  </a>
-                                )}
-                              </div>
-                            )}
+                            <button
+                              type="button"
+                              disabled={actionLoading === `discard-${item.id}`}
+                              className="inline-flex items-center justify-center gap-1 whitespace-nowrap rounded-lg bg-gradient-to-b from-rose-500 via-rose-600 to-rose-700 px-2.5 py-1.5 text-[11px] font-black uppercase tracking-wider text-white shadow-[0_2.5px_0_0_#881337,0_4px_8px_rgba(225,29,72,0.25)] border-t border-rose-300/40 hover:from-rose-400 hover:to-rose-600 active:translate-y-[2px] active:shadow-[0_1px_0_0_#881337] disabled:opacity-50 transition-all cursor-pointer select-none"
+                              onClick={() => handleDiscardOrder(item.id, item.tokenNumber, item.totalAmount)}
+                              title="Customer rejected print or defective misprint. Excludes amount from revenue."
+                            >
+                              <Trash2 className="size-3 shrink-0 drop-shadow-xs" />
+                              <span>Discard Misprint</span>
+                            </button>
+                          </div>
+                        ) : isCancelled ? (
+                          <div className="flex flex-col items-end text-right">
+                            <span className="inline-flex items-center gap-1 rounded-lg bg-rose-50 border border-rose-200 px-2 py-0.5 text-[11px] font-extrabold text-rose-700">
+                              <Trash2 className="size-3 text-rose-500" /> Discarded Misprint
+                            </span>
+                            <span className="mt-0.5 text-[9px] text-rose-600 font-semibold">
+                              Excluded from revenue (₹0.00 counted)
+                            </span>
                           </div>
                         ) : (
                           <span className="text-xs text-muted italic">
@@ -633,7 +658,7 @@ export function CounterQueueCenter({ shopName }: { shopName: string }) {
                         <div className="flex items-center gap-2 text-xs font-semibold">
                           <RotateCw className="size-4 shrink-0 text-amber-700" />
                           <span>
-                            <b>Step 1 Complete:</b> {oddPages} Odd Pages printed on Front. <b>👉 Turn/flip sheets &amp; reload them in the printer tray</b>, then click <b>Print Back (Even: {evenPages}p)</b>.
+                            <b>Step 1 Complete:</b> {oddPages} Odd Pages printed on Front. <b>👉 Turn/flip sheets &amp; reload them in the printer tray</b>, then click <b>Print Next Side ({evenPages}p)</b>.
                           </span>
                         </div>
                         <Button
@@ -644,7 +669,7 @@ export function CounterQueueCenter({ shopName }: { shopName: string }) {
                           onClick={() => handleApprovePrint(item.id, "even")}
                         >
                           <Printer className="size-3.5" />
-                          Print Back Side
+                          Print Next Side
                         </Button>
                       </div>
                     )}

@@ -4,6 +4,7 @@ import { Alert } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Table } from "@/components/ui/table";
 import { WebAutoPrintStation, WebPrintButton } from "@/components/web-auto-print";
+import { DiscardJobButton } from "@/components/discard-job-button";
 import { FileText } from "lucide-react";
 
 export const dynamic = "force-dynamic";
@@ -60,7 +61,7 @@ export default async function ShopJobsPage() {
       <ShopPageHeader
         eyebrow="Operations"
         title="Print jobs"
-        description="Monitor paid jobs picked up by the Windows agent. Confirm completion only after checking the printed pages."
+        description="Monitor paid jobs picked up by the Windows agent. You can also discard defective or customer-rejected prints to exclude them from revenue."
       />
 
       {/* Zero-Touch Web Auto-Print Station */}
@@ -79,7 +80,7 @@ export default async function ShopJobsPage() {
               "Amount",
               "Payment",
               "Print Status",
-              "Web Print Action",
+              "Actions & Discard",
               "Created",
             ]}
             rows={jobs.map((job) => {
@@ -88,6 +89,9 @@ export default async function ShopJobsPage() {
               const doc = Array.isArray(job.documents) ? job.documents[0] : job.documents;
               const isVerified = payment?.status === "verified";
               const rawPages = Array.isArray(job.print_job_pages) ? job.print_job_pages : [];
+              const isDiscarded =
+                job.status === "failed" &&
+                Boolean(job.failure_reason && /discard|reject|misprint|defective/i.test(job.failure_reason));
 
               let paymentBadgeTone: "success" | "warning" | "danger" = "warning";
               let paymentLabel = "Awaiting Payment";
@@ -146,29 +150,51 @@ export default async function ShopJobsPage() {
                 <Badge
                   key="status"
                   tone={
-                    job.status === "completed"
-                      ? "success"
-                      : job.status === "failed"
-                        ? "danger"
-                        : isVerified
-                          ? "success"
-                          : "warning"
+                    isDiscarded
+                      ? "danger"
+                      : job.status === "completed"
+                        ? "success"
+                        : job.status === "failed"
+                          ? "danger"
+                          : isVerified
+                            ? "success"
+                            : "warning"
                   }
                 >
-                  {job.status === "completed" ? "PRINTED" : job.status === "failed" ? "Failed (Retryable)" : formatStatus(job.status)}
+                  {isDiscarded
+                    ? "DISCARDED (MISPRINT)"
+                    : job.status === "completed"
+                      ? "PRINTED"
+                      : job.status === "failed"
+                        ? "Failed (Retryable)"
+                        : formatStatus(job.status)}
                 </Badge>,
-                <WebPrintButton
-                  key="action"
-                  jobId={job.id}
-                  documentName={doc?.original_filename || "Document.pdf"}
-                  status={job.status}
-                />,
-                new Date(job.created_at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
+                <div key="actions" className="flex flex-wrap items-center gap-1.5">
+                  <WebPrintButton
+                    jobId={job.id}
+                    documentName={doc?.original_filename || "Document.pdf"}
+                    status={job.status}
+                  />
+                  <DiscardJobButton
+                    jobId={job.id}
+                    orderId={job.order_id}
+                    status={job.status}
+                    failureReason={job.failure_reason}
+                    amount={Number(job.total_amount || 0)}
+                  />
+                </div>,
+                new Date(job.created_at).toLocaleTimeString("en-IN", {
+                  timeZone: "Asia/Kolkata",
+                  hour: "2-digit",
+                  minute: "2-digit",
+                  hour12: true,
+                }) + " IST",
               ];
             })}
           />
         </div>
       ) : (
+
         <ComingSoon
           title="No printing activity yet"
           description="Jobs will appear here as customers configure and complete verified payments."

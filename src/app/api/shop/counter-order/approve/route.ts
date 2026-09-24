@@ -70,41 +70,65 @@ export async function POST(request: Request) {
     });
   }
 
-  // 1. Create verified counter payment record
-  const providerPaymentId = `counter_${order.public_id}_${Date.now()}`;
-  const { error: paymentError } = await adminClient.from("payments").insert({
-    order_id: order.id,
-    provider: "counter",
-    payment_method: "counter_cash",
-    status: "verified",
-    provider_payment_id: providerPaymentId,
-    amount: order.total_amount,
-    currency: "INR",
-    verified_at: new Date().toISOString(),
-  });
+  // Idempotency guard for "Print Next Side" (even step):
+  // If the even-step jobs are already queued or printing, don't re-queue them.
+  if (duplexStep === "even") {
+    const { data: existingJobs } = await adminClient
+      .from("print_jobs")
+      .select("id, status, duplex_step")
+      .eq("order_id", orderId)
+      .eq("shop_id", shopId);
+    const alreadyQueued = existingJobs?.some(
+      (j) => j.duplex_step === "even" && ["queued", "printing", "submitted"].includes(j.status)
+    );
+    if (alreadyQueued) {
+      return NextResponse.json({
+        success: true,
+        message: `Token #${order.token_number || order.public_id}: Back side is already queued for printing.`,
+        order: { id: order.id, publicId: order.public_id, tokenNumber: order.token_number, status: order.status },
+      });
+    }
+  }
 
-  if (paymentError) {
-    // If unique constraint triggers on order_id, update the existing payment
-    await adminClient
-      .from("payments")
-      .update({
-        provider: "counter",
-        payment_method: "counter_cash",
-        status: "verified",
-        provider_payment_id: providerPaymentId,
-        amount: order.total_amount,
-        verified_at: new Date().toISOString(),
-      })
-      .eq("order_id", order.id);
+  // 1. Create verified counter payment record
+  // Only insert/update payment on the first approval (odd step or single-sided).
+  // For "Print Next Side" (even step), the payment record already exists from Step 1.
+  const isEvenStep = duplexStep === "even";
+  if (!isEvenStep) {
+    const providerPaymentId = `counter_${order.public_id}_${Date.now()}`;
+    const { error: paymentError } = await adminClient.from("payments").insert({
+      order_id: order.id,
+      provider: "counter",
+      payment_method: "counter_cash",
+      status: "verified",
+      provider_payment_id: providerPaymentId,
+      amount: order.total_amount,
+      currency: "INR",
+      verified_at: new Date().toISOString(),
+    });
+
+    if (paymentError) {
+      // If unique constraint triggers on order_id, update the existing payment
+      await adminClient
+        .from("payments")
+        .update({
+          provider: "counter",
+          payment_method: "counter_cash",
+          status: "verified",
+          provider_payment_id: providerPaymentId,
+          amount: order.total_amount,
+          verified_at: new Date().toISOString(),
+        })
+        .eq("order_id", order.id);
+    }
   }
 
   // Determine status and duplex step
   const isOddStep = duplexStep === "odd";
-  const isEvenStep = duplexStep === "even";
 
   const targetOrderStatus = isOddStep ? "partially_printed" : "paid";
-  const targetJobStatus = isOddStep ? "partially_printed" : "paid";
-  const targetDuplexStep = isOddStep ? "odd_printed" : isEvenStep ? "completed" : "none";
+  const targetJobStatus = "queued";
+  const targetDuplexStep = isOddStep ? "odd" : isEvenStep ? "even" : "none";
 
   // 2. Update order status
   const { error: updateOrderError } = await adminClient
@@ -120,7 +144,7 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Could not update order status." }, { status: 500 });
   }
 
-  // 3. Update print jobs status to paid / queued and update duplex_step
+  // 3. Update print jobs status to queued and update duplex_step
   await adminClient
     .from("print_jobs")
     .update({

@@ -71,3 +71,45 @@ export function isHeartbeatFresh(lastHeartbeatAt: string | null | undefined, thr
   const currentTime = new Date().getTime();
   return currentTime - heartbeatTime < thresholdMs;
 }
+
+export function getISTStartOfDay(date = new Date()): Date {
+  const formatter = new Intl.DateTimeFormat("en-US", {
+    timeZone: "Asia/Kolkata",
+    year: "numeric",
+    month: "numeric",
+    day: "numeric",
+  });
+  const parts = formatter.formatToParts(date);
+  const year = parseInt(parts.find((p) => p.type === "year")?.value || String(date.getFullYear()), 10);
+  const month = parseInt(parts.find((p) => p.type === "month")?.value || String(date.getMonth() + 1), 10) - 1;
+  const day = parseInt(parts.find((p) => p.type === "day")?.value || String(date.getDate()), 10);
+
+  const istMidnightUtc = Date.UTC(year, month, day, 0, 0, 0) - (5 * 60 + 30) * 60 * 1000;
+  return new Date(istMidnightUtc);
+}
+
+export function getISTDateString(date: Date | string = new Date()): string {
+  const d = typeof date === "string" ? new Date(date) : date;
+  return new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Asia/Kolkata",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).format(d);
+}
+
+export function formatISTDateTime(date: Date | string): string {
+  const d = typeof date === "string" ? new Date(date) : date;
+  return (
+    d.toLocaleString("en-IN", {
+      timeZone: "Asia/Kolkata",
+      day: "numeric",
+      month: "short",
+      year: "numeric",
+      hour: "2-digit",
+      minute: "2-digit",
+      hour12: true,
+    }) + " IST"
+  );
+}
+
