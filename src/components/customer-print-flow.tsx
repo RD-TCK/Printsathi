@@ -1,7 +1,8 @@
 "use client";
 
-import { useMemo, useState, useEffect, useCallback, useRef } from "react";
+import { useMemo, useState, useEffect, useCallback, useRef, useSyncExternalStore } from "react";
 import {
+  AlertCircle,
   CheckCircle2,
   CreditCard,
   FileUp,
@@ -20,11 +21,19 @@ import {
   Store,
   Crop,
   Eye,
+  Info,
+  History,
+  Copy,
+  Check,
+  X,
+  ExternalLink,
+  LayoutGrid,
 } from "lucide-react";
 import type { PublicShop, PublicPricingRule } from "@/lib/shops/public-lookup";
-import { countModes, type PrintRange, validateRanges } from "@/lib/customer-print";
+import { type PrintRange, validateRanges } from "@/lib/customer-print";
 import { calculatePricing, type PricingRule } from "@/lib/pricing-engine";
 import { ImageCropperModal } from "@/components/image-cropper-modal";
+import { MultiImagePageModal } from "@/components/multi-image-page-modal";
 import { PrintPreviewStep } from "@/components/print-preview-step";
 
 import { Alert } from "@/components/ui/alert";
@@ -47,7 +56,7 @@ export type CustomerDocument = {
 };
 
 type Props = { shop: PublicShop; identifier: string; initialPricingRules?: PublicPricingRule[] };
-type TokenDetails = {
+export type TokenDetails = {
   tokenNumber: number;
   publicOrderId: string;
   totalAmount: number;
@@ -56,6 +65,81 @@ type TokenDetails = {
   blackAndWhitePages: number;
   expiresAt: string;
 };
+
+export type StoredToken = {
+  tokenNumber: number;
+  publicOrderId: string;
+  orderId?: string;
+  accessToken?: string;
+  shopIdentifier: string;
+  shopName: string;
+  totalAmount: number;
+  totalPages: number;
+  colorPages: number;
+  blackAndWhitePages: number;
+  createdAt: string;
+  expiresAt: string;
+  documentNames: string[];
+};
+
+const TOKENS_STORAGE_KEY = "printsathi_customer_tokens_v1";
+
+function subscribeToTokens(callback: () => void) {
+  if (typeof window === "undefined") return () => {};
+  window.addEventListener("storage", callback);
+  window.addEventListener("printsathi_tokens_changed", callback);
+  return () => {
+    window.removeEventListener("storage", callback);
+    window.removeEventListener("printsathi_tokens_changed", callback);
+  };
+}
+
+function getTokensSnapshot(): string {
+  if (typeof window === "undefined") return "[]";
+  return localStorage.getItem(TOKENS_STORAGE_KEY) || "[]";
+}
+
+function getServerSnapshot(): string {
+  return "[]";
+}
+
+export function saveTokenToStorage(token: StoredToken) {
+  if (typeof window === "undefined") return;
+  try {
+    const raw = localStorage.getItem(TOKENS_STORAGE_KEY);
+    const existing: StoredToken[] = raw ? JSON.parse(raw) : [];
+    const filtered = Array.isArray(existing) ? existing.filter((t) => t.publicOrderId !== token.publicOrderId) : [];
+    const updated = [token, ...filtered].slice(0, 30);
+    localStorage.setItem(TOKENS_STORAGE_KEY, JSON.stringify(updated));
+    window.dispatchEvent(new Event("printsathi_tokens_changed"));
+  } catch {
+    // Ignore storage quota or privacy mode errors
+  }
+}
+
+export function removeTokenFromStorage(publicOrderId: string) {
+  if (typeof window === "undefined") return;
+  try {
+    const raw = localStorage.getItem(TOKENS_STORAGE_KEY);
+    const existing: StoredToken[] = raw ? JSON.parse(raw) : [];
+    const updated = Array.isArray(existing) ? existing.filter((t) => t.publicOrderId !== publicOrderId) : [];
+    localStorage.setItem(TOKENS_STORAGE_KEY, JSON.stringify(updated));
+    window.dispatchEvent(new Event("printsathi_tokens_changed"));
+  } catch {
+    // Ignore
+  }
+}
+
+export function clearAllStoredTokens() {
+  if (typeof window === "undefined") return;
+  try {
+    localStorage.removeItem(TOKENS_STORAGE_KEY);
+    window.dispatchEvent(new Event("printsathi_tokens_changed"));
+  } catch {
+    // Ignore
+  }
+}
+
 export type Estimate = {
   total: number;
   subtotal?: number;
@@ -66,7 +150,7 @@ export type Estimate = {
   blackAndWhitePages: number;
 };
 
-const steps = ["1. Upload", "2. Configure & Crop", "3. Print Preview", "4. Checkout & Pay"];
+
 
 async function safeFetchJson<T = unknown>(
   response: Response,
@@ -111,11 +195,107 @@ async function safeFetchJson<T = unknown>(
   }
 }
 
+async function optimizeImageForUpload(file: File): Promise<File> {
+  const isImage = file.type.startsWith("image/") || /\.(png|jpg|jpeg|webp|bmp|tif|tiff)$/i.test(file.name);
+  // Only optimize raster images larger than 3.5MB to maximize upload speed without unnecessary processing
+  if (!isImage || file.size <= 3.5 * 1024 * 1024) {
+    return file;
+  }
+
+  try {
+    let width = 0;
+    let height = 0;
+    let source: ImageBitmap | HTMLImageElement;
+
+    if (typeof createImageBitmap === "function") {
+      try {
+        source = await createImageBitmap(file);
+        width = source.width;
+        height = source.height;
+      } catch {
+        // Fallback to Image element
+        source = await new Promise<HTMLImageElement>((resolve, reject) => {
+          const img = new Image();
+          const url = URL.createObjectURL(file);
+          img.onload = () => {
+            URL.revokeObjectURL(url);
+            resolve(img);
+          };
+          img.onerror = () => {
+            URL.revokeObjectURL(url);
+            reject(new Error("Image decode failed"));
+          };
+          img.src = url;
+        });
+        width = source.width;
+        height = source.height;
+      }
+    } else {
+      source = await new Promise<HTMLImageElement>((resolve, reject) => {
+        const img = new Image();
+        const url = URL.createObjectURL(file);
+        img.onload = () => {
+          URL.revokeObjectURL(url);
+          resolve(img);
+        };
+        img.onerror = () => {
+          URL.revokeObjectURL(url);
+          reject(new Error("Image decode failed"));
+        };
+        img.src = url;
+      });
+      width = source.width;
+      height = source.height;
+    }
+
+    const maxDimension = 3840; // 4K resolution — superior quality for 300 DPI A4/A3 photo print
+    let targetWidth = width;
+    let targetHeight = height;
+
+    if (width > maxDimension || height > maxDimension) {
+      if (width > height) {
+        targetHeight = Math.round((height * maxDimension) / width);
+        targetWidth = maxDimension;
+      } else {
+        targetWidth = Math.round((width * maxDimension) / height);
+        targetHeight = maxDimension;
+      }
+    }
+
+    const canvas = document.createElement("canvas");
+    canvas.width = targetWidth;
+    canvas.height = targetHeight;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) {
+      if ("close" in source && typeof source.close === "function") source.close();
+      return file;
+    }
+
+    ctx.imageSmoothingEnabled = true;
+    ctx.imageSmoothingQuality = "high";
+    ctx.fillStyle = "#FFFFFF";
+    ctx.fillRect(0, 0, targetWidth, targetHeight);
+    ctx.drawImage(source, 0, 0, targetWidth, targetHeight);
+
+    if ("close" in source && typeof source.close === "function") source.close();
+
+    const blob = await new Promise<Blob | null>((res) => canvas.toBlob(res, "image/jpeg", 0.92));
+    if (!blob || blob.size >= file.size) {
+      return file;
+    }
+
+    const cleanName = file.name.replace(/\.[^/.]+$/, "") + ".jpg";
+    return new File([blob], cleanName, { type: "image/jpeg" });
+  } catch {
+    return file;
+  }
+}
+
 function uploadWithProgress<T>(
   url: string,
   formData: FormData,
   onProgress: (percent: number) => void
-): Promise<{ ok: boolean; status: number; data?: T; error?: string }> {
+): Promise<{ ok: boolean; status: number; data?: T; error?: string; failedFilename?: string }> {
   return new Promise((resolve) => {
     const xhr = new XMLHttpRequest();
     xhr.open("POST", url);
@@ -133,10 +313,23 @@ function uploadWithProgress<T>(
         if (xhr.status >= 200 && xhr.status < 300) {
           resolve({ ok: true, status: xhr.status, data });
         } else {
-          resolve({ ok: false, status: xhr.status, error: data?.error || `Upload failed (HTTP ${xhr.status})` });
+          const fallbackError =
+            xhr.status === 413
+              ? "File is too large for upload (413 Payload Too Large). Please choose a file under 25 MB or upload as PDF."
+              : `Upload failed (HTTP ${xhr.status})`;
+          resolve({
+            ok: false,
+            status: xhr.status,
+            error: data?.error || fallbackError,
+            failedFilename: data?.failedFilename,
+          });
         }
       } catch {
-        resolve({ ok: false, status: xhr.status, error: `Upload failed (HTTP ${xhr.status}). Please try again.` });
+        const fallbackError =
+          xhr.status === 413
+            ? "File is too large for upload (413 Payload Too Large). Please choose a file under 25 MB or upload as PDF."
+            : `Upload failed (HTTP ${xhr.status}). Please try again.`;
+        resolve({ ok: false, status: xhr.status, error: fallbackError });
       }
     };
 
@@ -192,7 +385,50 @@ export function CustomerPrintFlow({ shop: initialShop, identifier, initialPricin
   const [uploadStatus, setUploadStatus] = useState<string | null>(null);
   const [uploadProgress, setUploadProgress] = useState<number | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [failedFiles, setFailedFiles] = useState<Record<string, string>>({});
   const [tokenDetails, setTokenDetails] = useState<TokenDetails | null>(null);
+  // Stable snapshot of current time — initialized once per mount
+  const [nowSnapshot] = useState(() => Date.now());
+
+  const rawTokensSnapshot = useSyncExternalStore(subscribeToTokens, getTokensSnapshot, getServerSnapshot);
+  const savedTokens = useMemo<StoredToken[]>(() => {
+    try {
+      const parsed = JSON.parse(rawTokensSnapshot);
+      if (!Array.isArray(parsed)) return [];
+      const cutoff = nowSnapshot - 48 * 60 * 60 * 1000;
+      return parsed.filter(
+        (t) => t && typeof t.tokenNumber === "number" && t.publicOrderId && new Date(t.createdAt || t.expiresAt).getTime() > cutoff
+      );
+    } catch {
+      return [];
+    }
+  }, [rawTokensSnapshot, nowSnapshot]);
+  const [historyModalOpen, setHistoryModalOpen] = useState(false);
+
+  function restoreSavedToken(token: StoredToken) {
+    setTokenDetails({
+      tokenNumber: token.tokenNumber,
+      publicOrderId: token.publicOrderId,
+      totalAmount: token.totalAmount,
+      totalPages: token.totalPages,
+      colorPages: token.colorPages,
+      blackAndWhitePages: token.blackAndWhitePages,
+      expiresAt: token.expiresAt,
+    });
+    setOrderId(token.orderId || token.publicOrderId);
+    setAccessToken(token.accessToken || "");
+    setDocuments(
+      (token.documentNames || []).map((name, i) => ({
+        id: `restored-doc-${i}`,
+        filename: name,
+        pageCount: token.totalPages,
+        sizeBytes: 0,
+        ranges: [],
+      }))
+    );
+    setStep(4);
+    setError(null);
+  }
 
   // Selected payment mode ("counter" or "online")
   const [selectedMode, setSelectedMode] = useState<"counter" | "online">(() =>
@@ -202,6 +438,36 @@ export function CustomerPrintFlow({ shop: initialShop, identifier, initialPricin
   // Image Cropper State
   const [cropperOpen, setCropperOpen] = useState(false);
   const [cropTargetDocIndex, setCropTargetDocIndex] = useState<number | null>(null);
+
+  // Multi-Image Sheet State (Multiple Photos on 1 Page)
+  const [multiImageModalOpen, setMultiImageModalOpen] = useState(false);
+  const [multiImageInitialImages, setMultiImageInitialImages] = useState<{ dataUrl: string; filename: string }[]>([]);
+
+  const existingDocImages = useMemo(() => {
+    return documents
+      .filter((d) => d.previewUrl || d.isImage || /\.(png|jpg|jpeg|webp|gif|bmp)$/i.test(d.filename))
+      .map((d) => ({
+        dataUrl: d.previewUrl || `/api/public/documents/${d.id}/preview`,
+        filename: d.filename,
+      }));
+  }, [documents]);
+
+  const handleOpenMultiImage = (initialDocIndex?: number) => {
+    if (typeof initialDocIndex === "number" && documents[initialDocIndex]) {
+      const doc = documents[initialDocIndex];
+      const dataUrl = doc.previewUrl || `/api/public/documents/${doc.id}/preview`;
+      setMultiImageInitialImages([{ dataUrl, filename: doc.filename }]);
+    } else {
+      setMultiImageInitialImages([]);
+    }
+    setMultiImageModalOpen(true);
+  };
+
+  const activeTokenForShop = useMemo(() => {
+    return savedTokens.find(
+      (t) => t.shopIdentifier === identifier && new Date(t.expiresAt).getTime() > nowSnapshot
+    );
+  }, [savedTokens, identifier, nowSnapshot]);
 
   const current = documents[activeDocument];
   const allValid =
@@ -213,6 +479,7 @@ export function CustomerPrintFlow({ shop: initialShop, identifier, initialPricin
       const allRanges = documents.flatMap((d) => d.ranges);
       try {
         const instant = calculatePricing(allRanges, pricingRules, "customer_fee");
+        // eslint-disable-next-line react-hooks/set-state-in-effect
         setEstimate({
           total: instant.total,
           subtotal: instant.subtotal,
@@ -299,6 +566,7 @@ export function CustomerPrintFlow({ shop: initialShop, identifier, initialPricin
 
   async function uploadFiles(files: File[], isAppending = false) {
     setError(null);
+    setFailedFiles({});
     if (!files.length) {
       setError("Choose at least one document or image.");
       return;
@@ -316,14 +584,12 @@ export function CustomerPrintFlow({ shop: initialShop, identifier, initialPricin
     for (const f of files) {
       const ext = f.name.slice(f.name.lastIndexOf(".")).toLowerCase();
       if (!allowedExtensions.has(ext)) {
+        setFailedFiles({ [f.name]: "Unsupported file format" });
         setError(`"${f.name}" has an unsupported format. Please upload PDF, images, or Office documents.`);
         return;
       }
-      if (f.size > 25 * 1024 * 1024) {
-        setError(`"${f.name}" exceeds the 25 MB limit. Please choose a smaller file.`);
-        return;
-      }
       if (f.size === 0) {
+        setFailedFiles({ [f.name]: "File is empty (0 bytes)" });
         setError(`"${f.name}" is empty (0 bytes).`);
         return;
       }
@@ -332,36 +598,56 @@ export function CustomerPrintFlow({ shop: initialShop, identifier, initialPricin
     setBusy(true);
     setUploadProgress(0);
     try {
-      setUploadStatus(files.length > 1 ? `Uploading ${files.length} documents (0%)...` : "Uploading document (0%)...");
+      setUploadStatus(
+        files.some((f) => f.type.startsWith("image/") || /\.(png|jpg|jpeg|webp|bmp|tif|tiff)$/i.test(f.name))
+          ? "Optimizing & preparing images..."
+          : "Preparing documents for upload..."
+      );
+      const processedFiles = await Promise.all(files.map((file) => optimizeImageForUpload(file)));
+
+      for (const f of processedFiles) {
+        if (f.size > 25 * 1024 * 1024) {
+          setFailedFiles({ [f.name]: "Exceeds 25 MB upload limit" });
+          setError(`"${f.name}" exceeds the 25 MB limit. Please choose a smaller file.`);
+          setBusy(false);
+          return;
+        }
+      }
+
+      setUploadStatus(processedFiles.length > 1 ? `Uploading ${processedFiles.length} documents (0%)...` : "Uploading document (0%)...");
       const form = new FormData();
       form.append("shopIdentifier", identifier);
       if (isAppending && orderId && accessToken) {
         form.append("orderId", orderId);
         form.append("accessToken", accessToken);
       }
-      files.forEach((file) => form.append("files", file));
+      processedFiles.forEach((file) => form.append("files", file));
 
       const uploadRes = await uploadWithProgress<{
         orderId: string;
         orderPublicId: string;
         accessToken: string;
         documents: CustomerDocument[];
+        failedFilename?: string;
       }>("/api/customer/upload", form, (percent) => {
         setUploadProgress(percent);
         if (percent >= 99) {
           setUploadStatus("Processing documents & analyzing pages...");
         } else {
-          setUploadStatus(files.length > 1 ? `Uploading ${files.length} documents (${percent}%)...` : `Uploading document (${percent}%)...`);
+          setUploadStatus(processedFiles.length > 1 ? `Uploading ${processedFiles.length} documents (${percent}%)...` : `Uploading document (${percent}%)...`);
         }
       });
 
       if (!uploadRes.ok || !uploadRes.data) {
+        if (uploadRes.failedFilename) {
+          setFailedFiles({ [uploadRes.failedFilename]: uploadRes.error || "Failed to process" });
+        }
         throw new Error(uploadRes.error || "Upload failed. Please try uploading again.");
       }
       const result = uploadRes.data;
 
       const newDocs: CustomerDocument[] = result.documents.map((document: CustomerDocument, index: number) => {
-        const matchingFile = files[index];
+        const matchingFile = processedFiles[index];
         const isImg = matchingFile ? Boolean(matchingFile.type.startsWith("image/")) : Boolean(document.filename.match(/\.(jpg|jpeg|png|webp|gif|bmp)$/i));
         const previewUrl = matchingFile && isImg ? URL.createObjectURL(matchingFile) : undefined;
 
@@ -575,6 +861,16 @@ export function CustomerPrintFlow({ shop: initialShop, identifier, initialPricin
     }
   }
 
+  // Handle multi-image page creation (compiles multiple photos onto 1 A4 page)
+  async function handleApplyMultiImageSheet(blob: Blob, _dataUrl: string, filename: string) {
+    const file = new File([blob], filename, { type: "image/jpeg" });
+    if (step === 0) {
+      await uploadFiles([file], false);
+    } else {
+      await uploadFiles([file], true);
+    }
+  }
+
   async function handleProceedToCounterToken() {
     if (!orderId || !accessToken || !allValid) return;
     setBusy(true);
@@ -613,6 +909,24 @@ export function CustomerPrintFlow({ shop: initialShop, identifier, initialPricin
       }
 
       setTokenDetails(counterData.data);
+
+      // Save token in customer local browser storage (valid for 1+ hours & history)
+      saveTokenToStorage({
+        tokenNumber: counterData.data.tokenNumber,
+        publicOrderId: counterData.data.publicOrderId,
+        orderId,
+        accessToken,
+        shopIdentifier: identifier,
+        shopName: shop.name,
+        totalAmount: counterData.data.totalAmount,
+        totalPages: counterData.data.totalPages,
+        colorPages: counterData.data.colorPages,
+        blackAndWhitePages: counterData.data.blackAndWhitePages,
+        createdAt: new Date().toISOString(),
+        expiresAt: counterData.data.expiresAt,
+        documentNames: documents.map((d) => d.filename),
+      });
+
       // Advance to Step 4: Counter Token
       setStep(4);
     } catch (err) {
@@ -682,6 +996,54 @@ export function CustomerPrintFlow({ shop: initialShop, identifier, initialPricin
 
   return (
     <div className="mt-2.5 sm:mt-8 space-y-3.5 sm:space-y-6">
+      {/* Header Bar with Shop Name & Print History / Saved Tokens Button */}
+      <div className="flex items-center justify-between gap-2 px-1">
+        <div className="flex items-center gap-1.5 text-xs text-slate-500 font-medium">
+          <Store className="size-3.5 text-emerald-600 shrink-0" />
+          <span className="truncate max-w-[200px] sm:max-w-xs">{shop.name}</span>
+        </div>
+        {savedTokens.length > 0 && (
+          <button
+            type="button"
+            onClick={() => setHistoryModalOpen(true)}
+            className="inline-flex items-center gap-1.5 rounded-full border border-emerald-200 bg-emerald-50/90 px-2.5 py-1 text-[11px] sm:text-xs font-bold text-emerald-800 hover:bg-emerald-100 hover:border-emerald-300 transition active:scale-95 cursor-pointer shadow-2xs"
+          >
+            <History className="size-3.5 text-emerald-600" />
+            <span>Print History ({savedTokens.length})</span>
+          </button>
+        )}
+      </div>
+
+      {/* Active Token Recovery Banner on Step 0 */}
+      {step === 0 && activeTokenForShop && (
+        <div className="flex items-center justify-between gap-3 rounded-2xl border border-emerald-300 bg-gradient-to-r from-emerald-50 via-teal-50 to-emerald-50 p-3.5 sm:p-4 text-emerald-950 shadow-sm">
+          <div className="flex items-center gap-2.5 min-w-0">
+            <div className="flex size-9 sm:size-10 shrink-0 items-center justify-center rounded-xl bg-emerald-600 text-white font-black font-mono shadow-xs text-sm sm:text-base">
+              #{activeTokenForShop.tokenNumber}
+            </div>
+            <div className="min-w-0">
+              <p className="text-xs sm:text-sm font-bold text-slate-900 truncate">
+                Active Token #{activeTokenForShop.tokenNumber} in progress
+              </p>
+              <p className="text-[11px] text-emerald-700 flex items-center gap-1">
+                <Clock3 className="size-3 shrink-0" />
+                <span>
+                  Expires in {Math.max(1, Math.round((new Date(activeTokenForShop.expiresAt).getTime() - nowSnapshot) / 60000))}m · ₹{activeTokenForShop.totalAmount.toFixed(2)}
+                </span>
+              </p>
+            </div>
+          </div>
+          <button
+            type="button"
+            onClick={() => restoreSavedToken(activeTokenForShop)}
+            className="inline-flex items-center gap-1.5 rounded-xl bg-emerald-700 px-3 py-1.5 text-xs font-bold text-white hover:bg-emerald-800 transition active:scale-95 shadow-xs cursor-pointer shrink-0"
+          >
+            <span>View Token</span>
+            <ArrowRight className="size-3.5" />
+          </button>
+        </div>
+      )}
+
       {/* 4-Stage Step Progress Indicator */}
       <StepIndicator step={step} />
 
@@ -693,7 +1055,17 @@ export function CustomerPrintFlow({ shop: initialShop, identifier, initialPricin
           busy={busy}
           uploadStatus={uploadStatus}
           uploadProgress={uploadProgress}
+          failedFiles={failedFiles}
+          onClearFailedFile={(filename) => {
+            setFailedFiles((prev) => {
+              const next = { ...prev };
+              delete next[filename];
+              return next;
+            });
+            setError(null);
+          }}
           onSubmit={(files) => uploadFiles(files, false)}
+          onOpenMultiImage={() => handleOpenMultiImage()}
           shop={shop}
         />
       ) : null}
@@ -712,12 +1084,13 @@ export function CustomerPrintFlow({ shop: initialShop, identifier, initialPricin
           removeDocument={removeDocument}
           allValid={allValid}
           busy={busy}
-          estimate={estimate}
+
           onContinueToPreview={() => setStep(2)}
           onOpenCropper={(docIndex) => {
             setCropTargetDocIndex(docIndex);
             setCropperOpen(true);
           }}
+          onOpenMultiImage={(docIndex) => handleOpenMultiImage(docIndex)}
           onAddMoreFiles={(files) => uploadFiles(files, true)}
         />
       ) : null}
@@ -778,6 +1151,37 @@ export function CustomerPrintFlow({ shop: initialShop, identifier, initialPricin
             setCropTargetDocIndex(null);
           }}
           onApplyCrop={handleApplyCrop}
+          onSwitchToMultiImage={() => {
+            setCropperOpen(false);
+            handleOpenMultiImage(cropTargetDocIndex);
+          }}
+        />
+      )}
+
+      {/* Multi-Image Page Layout Modal (Multiple Photos on 1 Page) */}
+      {multiImageModalOpen && (
+        <MultiImagePageModal
+          isOpen={multiImageModalOpen}
+          initialImages={multiImageInitialImages}
+          existingDocImages={existingDocImages}
+          onClose={() => {
+            setMultiImageModalOpen(false);
+            setMultiImageInitialImages([]);
+          }}
+          onApply={handleApplyMultiImageSheet}
+        />
+      )}
+
+      {/* Print History & Stored Tokens Modal */}
+      {historyModalOpen && (
+        <RecentTokensModal
+          isOpen={historyModalOpen}
+          onClose={() => setHistoryModalOpen(false)}
+          tokens={savedTokens}
+          onSelectToken={(t) => {
+            restoreSavedToken(t);
+            setHistoryModalOpen(false);
+          }}
         />
       )}
     </div>
@@ -840,13 +1244,19 @@ function UploadStep({
   busy,
   uploadStatus,
   uploadProgress,
+  failedFiles = {},
+  onClearFailedFile,
   onSubmit,
+  onOpenMultiImage,
 }: {
   shop: PublicShop;
   busy: boolean;
   uploadStatus: string | null;
   uploadProgress: number | null;
+  failedFiles?: Record<string, string>;
+  onClearFailedFile?: (filename: string) => void;
   onSubmit: (files: File[]) => void;
+  onOpenMultiImage?: () => void;
 }) {
   const [selectedFiles, setSelectedFiles] = useState<File[]>([]);
   const [isDragging, setIsDragging] = useState(false);
@@ -961,7 +1371,7 @@ function UploadStep({
             <button
               type="button"
               onClick={() => fileInputRef.current?.click()}
-              className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-2 text-xs font-bold text-slate-800 shadow-xs transition hover:bg-slate-50 hover:border-emerald-500 hover:text-emerald-700 active:scale-95 cursor-pointer"
+              className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-3.5 py-2 text-xs font-bold text-slate-800 shadow-xs transition hover:bg-slate-50 hover:border-emerald-500 hover:text-emerald-700 active:scale-95 cursor-pointer"
             >
               <FileUp className="size-3.5 text-emerald-600" />
               Browse Files
@@ -969,11 +1379,21 @@ function UploadStep({
             <button
               type="button"
               onClick={() => cameraInputRef.current?.click()}
-              className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-2 text-xs font-bold text-slate-800 shadow-xs transition hover:bg-slate-50 hover:border-emerald-500 hover:text-emerald-700 active:scale-95 cursor-pointer"
+              className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-3.5 py-2 text-xs font-bold text-slate-800 shadow-xs transition hover:bg-slate-50 hover:border-emerald-500 hover:text-emerald-700 active:scale-95 cursor-pointer"
             >
               <Camera className="size-3.5 text-emerald-600" />
               Take Photo / Scan
             </button>
+            {onOpenMultiImage && (
+              <button
+                type="button"
+                onClick={onOpenMultiImage}
+                className="inline-flex items-center gap-2 rounded-xl border border-emerald-300 bg-emerald-50/90 px-3.5 py-2 text-xs font-bold text-emerald-900 shadow-xs transition hover:bg-emerald-100 hover:border-emerald-400 active:scale-95 cursor-pointer"
+              >
+                <LayoutGrid className="size-3.5 text-emerald-600" />
+                Multiple Photos on 1 Page
+              </button>
+            )}
           </div>
         </div>
 
@@ -993,48 +1413,80 @@ function UploadStep({
               </button>
             </div>
 
-            <div className="max-h-48 space-y-1.5 overflow-y-auto pr-1">
+            <div className="max-h-56 space-y-2 overflow-y-auto pr-1">
               {selectedFiles.map((file, idx) => {
                 const ext = file.name.slice(file.name.lastIndexOf(".")).toUpperCase();
                 const isPdf = ext === ".PDF";
                 const isImg = [".PNG", ".JPG", ".JPEG", ".WEBP"].includes(ext);
+                const fileError = failedFiles[file.name];
 
                 return (
                   <div
                     key={`${file.name}-${idx}`}
-                    className="flex items-center justify-between rounded-xl border border-slate-200 bg-slate-50/80 px-3.5 py-2.5 text-xs transition hover:bg-white hover:border-slate-300"
+                    className={cn(
+                      "flex flex-col gap-1 rounded-xl border p-3 text-xs transition",
+                      fileError
+                        ? "border-rose-300 bg-rose-50/80 ring-2 ring-rose-400/20"
+                        : "border-slate-200 bg-slate-50/80 hover:bg-white hover:border-slate-300"
+                    )}
                   >
-                    <div className="flex items-center gap-2.5 truncate pr-2">
-                      <span
-                        className={cn(
-                          "rounded-md px-1.5 py-0.5 text-[10px] font-black uppercase shrink-0",
-                          isPdf
-                            ? "bg-rose-100 text-rose-700"
-                            : isImg
-                            ? "bg-purple-100 text-purple-700"
-                            : "bg-blue-100 text-blue-700"
-                        )}
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-2.5 truncate pr-2">
+                        <span
+                          className={cn(
+                            "rounded-md px-1.5 py-0.5 text-[10px] font-black uppercase shrink-0",
+                            fileError
+                              ? "bg-rose-200 text-rose-800"
+                              : isPdf
+                              ? "bg-rose-100 text-rose-700"
+                              : isImg
+                              ? "bg-emerald-100 text-emerald-800"
+                              : "bg-blue-100 text-blue-700"
+                          )}
+                        >
+                          {ext.replace(".", "") || "DOC"}
+                        </span>
+                        <span className={cn("truncate font-semibold", fileError ? "text-rose-900 line-through decoration-rose-400" : "text-slate-800")}>
+                          {file.name}
+                        </span>
+                        <span className="text-[11px] text-slate-400 shrink-0">
+                          ({(file.size / 1024 / 1024).toFixed(1)} MB)
+                        </span>
+                      </div>
+
+                      <button
+                        type="button"
+                        onClick={() => {
+                          onClearFailedFile?.(file.name);
+                          setSelectedFiles((files) => files.filter((_, i) => i !== idx));
+                        }}
+                        className="rounded-lg p-1.5 text-slate-400 hover:bg-rose-100 hover:text-rose-700 transition cursor-pointer shrink-0"
+                        aria-label="Remove file"
+                        title="Remove file"
                       >
-                        {ext.replace(".", "") || "DOC"}
-                      </span>
-                      <span className="truncate font-semibold text-slate-800">{file.name}</span>
-                      <span className="text-[11px] text-slate-400 shrink-0">
-                        ({(file.size / 1024 / 1024).toFixed(1)} MB)
-                      </span>
+                        <Trash2 className={cn("size-4", fileError ? "text-rose-600" : "text-slate-400")} />
+                      </button>
                     </div>
 
-                    <button
-                      type="button"
-                      onClick={() => setSelectedFiles((files) => files.filter((_, i) => i !== idx))}
-                      className="rounded-lg p-1.5 text-slate-400 hover:bg-rose-50 hover:text-rose-600 transition cursor-pointer"
-                      aria-label="Remove file"
-                    >
-                      <Trash2 className="size-4" />
-                    </button>
+                    {fileError && (
+                      <div className="flex items-center gap-1.5 text-[11px] font-bold text-rose-600 pl-0.5">
+                        <AlertCircle className="size-3.5 shrink-0 text-rose-600" />
+                        <span className="truncate">{fileError} (Click trash icon to remove)</span>
+                      </div>
+                    )}
                   </div>
                 );
               })}
             </div>
+
+            {selectedFiles.some((f) => /\.(docx?|odt|rtf|pptx?|xlsx?)$/i.test(f.name)) && (
+              <div className="flex items-start gap-2.5 rounded-xl bg-blue-50/80 p-2.5 text-xs text-blue-900 border border-blue-200/70">
+                <Info className="size-4 text-blue-600 shrink-0 mt-0.5" />
+                <span>
+                  <strong>Layout tip:</strong> Word documents are automatically prepared for printing. For 100% exact fonts and margins as seen on your screen, uploading as <strong>PDF</strong> is recommended.
+                </span>
+              </div>
+            )}
           </div>
         ) : null}
 
@@ -1137,9 +1589,10 @@ function ConfigureAndCropStep({
   removeDocument,
   allValid,
   busy,
-  estimate,
+  // estimate prop intentionally removed — not displayed in configure step
   onContinueToPreview,
   onOpenCropper,
+  onOpenMultiImage,
   onAddMoreFiles,
 }: {
   shop: PublicShop;
@@ -1153,12 +1606,12 @@ function ConfigureAndCropStep({
   removeDocument: (index: number) => void;
   allValid: boolean;
   busy: boolean;
-  estimate: Estimate | null;
   onContinueToPreview: () => void;
   onOpenCropper: (docIndex: number) => void;
+  onOpenMultiImage: (initialDocIndex?: number) => void;
   onAddMoreFiles: (files: File[]) => void;
 }) {
-  const modes = useMemo(() => countModes(current.ranges), [current.ranges]);
+  // countModes removed — color/bw breakdown is handled by the pricing engine directly
   const rangeError = validateRanges(current.ranges, current.pageCount);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -1215,6 +1668,14 @@ function ConfigureAndCropStep({
             <button
               type="button"
               disabled={busy || documents.length >= 10}
+              onClick={() => onOpenMultiImage()}
+              className="inline-flex items-center gap-1.5 rounded-xl border border-emerald-300 bg-emerald-50/80 px-2.5 sm:px-3 py-1.5 text-xs font-bold text-emerald-800 shadow-2xs hover:bg-emerald-100 transition active:scale-95 cursor-pointer"
+            >
+              <LayoutGrid className="size-3.5 text-emerald-600" /> Multiple Photos on 1 Page
+            </button>
+            <button
+              type="button"
+              disabled={busy || documents.length >= 10}
               onClick={() => fileInputRef.current?.click()}
               className="inline-flex items-center gap-1.5 rounded-xl border border-slate-200 bg-white px-2.5 sm:px-3 py-1.5 text-xs font-bold text-slate-700 shadow-2xs hover:bg-slate-50 hover:border-emerald-500 transition active:scale-95 cursor-pointer"
             >
@@ -1257,14 +1718,24 @@ function ConfigureAndCropStep({
             <div className="flex items-center gap-2">
               {/* Crop Image Button for Image uploads */}
               {isImageDoc && (
-                <button
-                  type="button"
-                  onClick={() => onOpenCropper(activeDocument)}
-                  className="inline-flex items-center gap-1.5 rounded-xl border border-emerald-300 bg-emerald-50 px-2.5 sm:px-3 py-1.5 text-xs font-bold text-emerald-800 shadow-2xs hover:bg-emerald-100 transition active:scale-95 cursor-pointer"
-                >
-                  <Crop className="size-3.5 text-emerald-700" />
-                  <span>Crop Image</span>
-                </button>
+                <>
+                  <button
+                    type="button"
+                    onClick={() => onOpenCropper(activeDocument)}
+                    className="inline-flex items-center gap-1.5 rounded-xl border border-emerald-300 bg-emerald-50 px-2.5 sm:px-3 py-1.5 text-xs font-bold text-emerald-800 shadow-2xs hover:bg-emerald-100 transition active:scale-95 cursor-pointer"
+                  >
+                    <Crop className="size-3.5 text-emerald-700" />
+                    <span>Crop Image</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => onOpenMultiImage(activeDocument)}
+                    className="inline-flex items-center gap-1.5 rounded-xl border border-emerald-300 bg-emerald-50/80 px-2.5 sm:px-3 py-1.5 text-xs font-bold text-emerald-800 shadow-2xs hover:bg-emerald-100 transition active:scale-95 cursor-pointer"
+                  >
+                    <LayoutGrid className="size-3.5 text-emerald-600" />
+                    <span>Multiple Photos on 1 Page</span>
+                  </button>
+                </>
               )}
 
               <button
@@ -2023,6 +2494,7 @@ function PaymentStep({
   );
 
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     void initiatePayment();
   }, [initiatePayment]);
 
@@ -2165,3 +2637,278 @@ function PaymentStep({
     </Card>
   );
 }
+
+function RecentTokensModal({
+  isOpen,
+  onClose,
+  tokens,
+  onSelectToken,
+}: {
+  isOpen: boolean;
+  onClose: () => void;
+  tokens: StoredToken[];
+  onSelectToken: (token: StoredToken) => void;
+}) {
+  const [now] = useState(() => Date.now());
+  const [copiedId, setCopiedId] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!isOpen) return;
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape") onClose();
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [isOpen, onClose]);
+
+  if (!isOpen) return null;
+
+  const activeTokens = tokens.filter((t) => new Date(t.expiresAt).getTime() > now);
+  const pastTokens = tokens.filter((t) => new Date(t.expiresAt).getTime() <= now);
+
+  const handleCopy = (t: StoredToken, e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (typeof navigator !== "undefined" && navigator.clipboard) {
+      navigator.clipboard.writeText(String(t.tokenNumber));
+      setCopiedId(t.publicOrderId);
+      setTimeout(() => setCopiedId(null), 2000);
+    }
+  };
+
+  const handleDelete = (publicOrderId: string, e: React.MouseEvent) => {
+    e.stopPropagation();
+    removeTokenFromStorage(publicOrderId);
+  };
+
+  const handleClearAll = () => {
+    if (window.confirm("Clear all saved token history from this browser?")) {
+      clearAllStoredTokens();
+    }
+  };
+
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/70 p-3 backdrop-blur-sm sm:p-4 animate-fade-in"
+      onClick={onClose}
+    >
+      <div
+        className="relative flex max-h-[90vh] w-full max-w-lg flex-col overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-2xl"
+        onClick={(e) => e.stopPropagation()}
+      >
+        {/* Modal Header */}
+        <div className="flex items-center justify-between border-b border-slate-100 px-5 py-4 sm:px-6">
+          <div className="flex items-center gap-2.5">
+            <div className="flex size-9 items-center justify-center rounded-xl bg-emerald-100 text-emerald-800">
+              <History className="size-5" />
+            </div>
+            <div>
+              <h3 className="text-base sm:text-lg font-bold text-slate-900">Print History &amp; Saved Tokens</h3>
+              <p className="text-[11px] sm:text-xs text-slate-500">Stored in your browser for quick counter access</p>
+            </div>
+          </div>
+          <button
+            type="button"
+            onClick={onClose}
+            className="rounded-xl p-2 text-slate-400 hover:bg-slate-100 hover:text-slate-700 transition cursor-pointer"
+            aria-label="Close"
+          >
+            <X className="size-5" />
+          </button>
+        </div>
+
+        {/* Modal Body / Token List */}
+        <div className="flex-1 overflow-y-auto p-4 sm:p-6 space-y-4 max-h-[60vh]">
+          {tokens.length === 0 ? (
+            <div className="py-12 text-center text-slate-500">
+              <Ticket className="mx-auto size-10 text-slate-300 mb-2" />
+              <p className="text-sm font-semibold text-slate-700">No print tokens found in this browser</p>
+              <p className="text-xs text-slate-400 mt-1">Generated tokens will be saved here automatically for 1+ hour.</p>
+            </div>
+          ) : (
+            <>
+              {/* Active Tokens Section */}
+              {activeTokens.length > 0 && (
+                <div className="space-y-2.5">
+                  <div className="flex items-center justify-between text-xs font-bold text-emerald-800 uppercase tracking-wider px-1">
+                    <span className="flex items-center gap-1.5">
+                      <span className="size-2 rounded-full bg-emerald-500 animate-pulse" />
+                      Active Tokens ({activeTokens.length})
+                    </span>
+                    <span className="text-[10px] font-normal lowercase text-slate-400">valid for 1 hour</span>
+                  </div>
+
+                  {activeTokens.map((token) => {
+                    const minsRemaining = Math.max(1, Math.round((new Date(token.expiresAt).getTime() - now) / 60000));
+                    const isCopied = copiedId === token.publicOrderId;
+
+                    return (
+                      <div
+                        key={token.publicOrderId}
+                        className="group relative rounded-2xl border-2 border-emerald-300 bg-gradient-to-br from-emerald-50/60 via-white to-teal-50/40 p-4 transition shadow-xs hover:shadow-md"
+                      >
+                        <div className="flex items-start justify-between gap-3">
+                          <div className="flex items-center gap-3">
+                            <div className="flex size-14 items-center justify-center rounded-2xl bg-gradient-to-br from-emerald-600 to-teal-700 text-white font-mono font-black text-2xl shadow-md shadow-emerald-900/15">
+                              #{token.tokenNumber}
+                            </div>
+                            <div>
+                              <div className="flex items-center gap-1.5">
+                                <span className="inline-flex items-center gap-1 rounded-full bg-emerald-100 px-2 py-0.5 text-[10px] font-extrabold text-emerald-800">
+                                  <Clock3 className="size-3" />
+                                  {minsRemaining}m left
+                                </span>
+                                <span className="text-[11px] text-slate-400">Order #{token.publicOrderId}</span>
+                              </div>
+                              <p className="font-bold text-slate-900 text-sm mt-0.5 flex items-center gap-1">
+                                <Store className="size-3.5 text-emerald-600 shrink-0" />
+                                <span className="truncate max-w-[180px]">{token.shopName}</span>
+                              </p>
+                              <p className="text-[11px] text-slate-500 mt-0.5">
+                                {token.totalPages} pages · ₹{token.totalAmount.toFixed(2)}
+                              </p>
+                            </div>
+                          </div>
+
+                          <div className="flex items-center gap-1.5">
+                            <button
+                              type="button"
+                              onClick={(e) => handleCopy(token, e)}
+                              className="rounded-xl border border-slate-200 bg-white p-2 text-slate-600 hover:border-emerald-500 hover:text-emerald-700 hover:bg-emerald-50 transition active:scale-95 cursor-pointer"
+                              title="Copy Token Number"
+                            >
+                              {isCopied ? <Check className="size-4 text-emerald-600" /> : <Copy className="size-4" />}
+                            </button>
+                            <button
+                              type="button"
+                              onClick={(e) => handleDelete(token.publicOrderId, e)}
+                              className="rounded-xl border border-slate-200 bg-white p-2 text-slate-400 hover:text-rose-600 hover:bg-rose-50 hover:border-rose-300 transition active:scale-95 cursor-pointer"
+                              title="Delete from history"
+                            >
+                              <Trash2 className="size-4" />
+                            </button>
+                          </div>
+                        </div>
+
+                        {token.documentNames && token.documentNames.length > 0 && (
+                          <p className="mt-2 text-[11px] text-slate-500 truncate border-t border-emerald-200/60 pt-2">
+                            📄 {token.documentNames.join(", ")}
+                          </p>
+                        )}
+
+                        <div className="mt-3">
+                          <button
+                            type="button"
+                            onClick={() => onSelectToken(token)}
+                            className="w-full inline-flex items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-emerald-600 to-teal-700 px-4 py-2.5 text-xs font-bold text-white shadow-xs hover:from-emerald-500 hover:to-teal-600 transition active:scale-98 cursor-pointer"
+                          >
+                            <span>Open Token Screen</span>
+                            <ArrowRight className="size-3.5" />
+                          </button>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+
+              {/* Past / Expired Tokens Section */}
+              {pastTokens.length > 0 && (
+                <div className="space-y-2">
+                  <div className="text-xs font-bold text-slate-500 uppercase tracking-wider px-1 pt-2">
+                    Previous History ({pastTokens.length})
+                  </div>
+
+                  {pastTokens.map((token) => {
+                    const isCopied = copiedId === token.publicOrderId;
+                    const dateStr = token.createdAt
+                      ? new Date(token.createdAt).toLocaleDateString(undefined, {
+                          month: "short",
+                          day: "numeric",
+                          hour: "2-digit",
+                          minute: "2-digit",
+                        })
+                      : "Past order";
+
+                    return (
+                      <div
+                        key={token.publicOrderId}
+                        className="group flex items-center justify-between rounded-xl border border-slate-200 bg-slate-50/70 p-3 text-xs transition hover:bg-white hover:border-slate-300"
+                      >
+                        <div className="flex items-center gap-3 min-w-0">
+                          <div className="flex size-11 shrink-0 items-center justify-center rounded-xl bg-slate-200 text-slate-700 font-mono font-bold text-lg">
+                            #{token.tokenNumber}
+                          </div>
+                          <div className="min-w-0">
+                            <div className="flex items-center gap-1.5">
+                              <span className="font-bold text-slate-800 truncate max-w-[150px] sm:max-w-xs">
+                                {token.shopName}
+                              </span>
+                              <span className="rounded-md bg-slate-200/80 px-1.5 py-0.2 text-[9px] font-bold text-slate-600 uppercase">
+                                Expired
+                              </span>
+                            </div>
+                            <p className="text-[11px] text-slate-400 mt-0.5">
+                              {dateStr} · {token.totalPages}p · ₹{token.totalAmount.toFixed(2)}
+                            </p>
+                          </div>
+                        </div>
+
+                        <div className="flex items-center gap-1.5 shrink-0">
+                          <button
+                            type="button"
+                            onClick={(e) => handleCopy(token, e)}
+                            className="rounded-lg border border-slate-200 bg-white p-1.5 text-slate-600 hover:text-emerald-700 hover:border-emerald-300 transition active:scale-95 cursor-pointer"
+                            title="Copy Token Number"
+                          >
+                            {isCopied ? <Check className="size-3.5 text-emerald-600" /> : <Copy className="size-3.5" />}
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => onSelectToken(token)}
+                            className="inline-flex items-center gap-1 rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-[11px] font-bold text-slate-700 hover:bg-slate-100 transition active:scale-95 cursor-pointer"
+                          >
+                            <span>View</span>
+                            <ExternalLink className="size-3 text-slate-400" />
+                          </button>
+                          <button
+                            type="button"
+                            onClick={(e) => handleDelete(token.publicOrderId, e)}
+                            className="rounded-lg p-1.5 text-slate-400 hover:text-rose-600 hover:bg-rose-50 transition cursor-pointer"
+                            title="Delete"
+                          >
+                            <Trash2 className="size-3.5" />
+                          </button>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </>
+          )}
+        </div>
+
+        {/* Modal Footer */}
+        {tokens.length > 0 && (
+          <div className="flex items-center justify-between border-t border-slate-100 bg-slate-50/70 px-5 py-3 sm:px-6">
+            <button
+              type="button"
+              onClick={handleClearAll}
+              className="text-xs font-semibold text-rose-600 hover:text-rose-700 transition cursor-pointer"
+            >
+              Clear all history
+            </button>
+            <button
+              type="button"
+              onClick={onClose}
+              className="rounded-xl border border-slate-200 bg-white px-4 py-1.5 text-xs font-bold text-slate-700 hover:bg-slate-50 transition cursor-pointer shadow-2xs"
+            >
+              Close
+            </button>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+

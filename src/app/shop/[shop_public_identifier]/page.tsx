@@ -1,6 +1,6 @@
 import type { Metadata } from "next";
 import Link from "next/link";
-import { Clock3, Printer, QrCode, ShieldCheck, Sparkles, CheckCircle2, FileText } from "lucide-react";
+import { Printer, QrCode, ShieldCheck, Sparkles, FileText } from "lucide-react";
 import { notFound } from "next/navigation";
 import { getPublicPricing, getPublicShop } from "@/lib/shops/public-lookup";
 import { CustomerPrintFlow } from "@/components/customer-print-flow";

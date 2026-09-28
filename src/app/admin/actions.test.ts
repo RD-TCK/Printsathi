@@ -15,7 +15,9 @@ describe("clearShopDataAction", () => {
     }),
   };
 
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const createQueryMock = (data: any = []) => {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const q: any = {
       select: vi.fn().mockReturnThis(),
       eq: vi.fn().mockReturnThis(),
@@ -25,6 +27,7 @@ describe("clearShopDataAction", () => {
       delete: vi.fn().mockReturnThis(),
       update: vi.fn().mockReturnThis(),
       maybeSingle: vi.fn().mockResolvedValue({ data: data?.[0] || data, error: null }),
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       then: (resolve: any) => Promise.resolve({ data, error: null }).then(resolve),
     };
     return q;

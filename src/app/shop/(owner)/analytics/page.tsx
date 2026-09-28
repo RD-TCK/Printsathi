@@ -1,18 +1,15 @@
-import { getShopContext, getISTDateString, formatISTDateTime } from "@/lib/shop-portal";
-import { ShopPageHeader, MetricCard, ComingSoon } from "@/components/shop-page";
+import { getShopContext, getISTDateString } from "@/lib/shop-portal";
+import { MetricCard, ComingSoon } from "@/components/shop-page";
 import { Alert } from "@/components/ui/alert";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import {
   TrendingUp,
-  Calendar,
   Layers,
-  FileCheck2,
   Trash2,
   Coins,
   IndianRupee,
   Clock,
-  Sparkles,
 } from "lucide-react";
 
 export const dynamic = "force-dynamic";
@@ -114,6 +111,7 @@ export default async function ShopAnalyticsPage() {
   }> = [];
 
   for (let i = 6; i >= 0; i--) {
+    // eslint-disable-next-line react-hooks/purity
     const d = new Date(Date.now() - i * 24 * 60 * 60 * 1000);
     const dateStr = getISTDateString(d);
     const isToday = i === 0 || dateStr === todayIST;
@@ -230,12 +228,8 @@ export default async function ShopAnalyticsPage() {
   // Weekly Stats (Sum across last 7 days)
   let weeklyRevenue = 0;
   let weeklyJobs = 0;
-  let weeklyOrdersSet = new Set<string>();
+  const weeklyOrdersSet = new Set<string>();
   let weeklyPages = 0;
-  let weeklyColor = 0;
-  let weeklyBw = 0;
-  let weeklyDiscardedCount = 0;
-  let weeklyDiscardedAmount = 0;
 
   const weeklyBreakdown = last7Days.map((day) => {
     const b = dailyBuckets.get(day.dateStr) || {
@@ -253,10 +247,6 @@ export default async function ShopAnalyticsPage() {
     weeklyJobs += b.completedJobs;
     b.completedOrders.forEach((o) => weeklyOrdersSet.add(o));
     weeklyPages += b.totalPages;
-    weeklyColor += b.colorPages;
-    weeklyBw += b.bwPages;
-    weeklyDiscardedCount += b.discardedCount;
-    weeklyDiscardedAmount += b.discardedAmount;
 
     return {
       ...day,
@@ -278,7 +268,7 @@ export default async function ShopAnalyticsPage() {
   let allTimePages = 0;
   let allTimeColor = 0;
   let allTimeBw = 0;
-  let allTimeOrdersSet = new Set<string>();
+  const allTimeOrdersSet = new Set<string>();
   let allTimeDiscardedCount = 0;
   let allTimeDiscardedAmount = 0;
 

@@ -2,7 +2,6 @@ import { describe, expect, it } from "vitest";
 import crypto from "node:crypto";
 import {
   fromPaise,
-  getPlatformRazorpayClient,
   getRazorpayClient,
   toPaise,
   verifyPaymentSignature,

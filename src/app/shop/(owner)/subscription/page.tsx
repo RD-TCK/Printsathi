@@ -1,10 +1,9 @@
-import { effectiveBillingMode, hasSubscriptionAccess } from "@/lib/subscription";
+import { hasSubscriptionAccess } from "@/lib/subscription";
 import { getShopContext, formatStatus } from "@/lib/shop-portal";
 import { ShopPageHeader } from "@/components/shop-page";
 import { Alert } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
-import { BillingModeToggle } from "@/components/billing-mode-toggle";
 import { SubscriptionCheckout } from "@/components/subscription-checkout";
 
 export const dynamic = "force-dynamic";
@@ -23,18 +22,11 @@ export default async function SubscriptionPage({
   const context = await getShopContext();
   if (!context) return <Alert tone="error">Shop workspace unavailable.</Alert>;
 
-  const [{ data: subscription, error }, { data: settings }] = await Promise.all([
-    context.client
-      .from("subscriptions")
-      .select("status, trial_start, trial_end, current_period_start, current_period_end, provider_subscription_id")
-      .eq("shop_id", context.shop.id)
-      .maybeSingle(),
-    context.client
-      .from("shop_settings")
-      .select("billing_mode")
-      .eq("shop_id", context.shop.id)
-      .maybeSingle(),
-  ]);
+  const { data: subscription, error } = await context.client
+    .from("subscriptions")
+    .select("status, trial_start, trial_end, current_period_start, current_period_end, provider_subscription_id")
+    .eq("shop_id", context.shop.id)
+    .maybeSingle();
 
   if (error)
     return (
@@ -53,7 +45,6 @@ export default async function SubscriptionPage({
   if (!hasSubscriptionAccess(subscription)) subscription.status = "expired";
   const trialDays = daysRemaining(subscription.trial_end);
   const activeDays = daysRemaining(subscription.current_period_end);
-  const currentBillingMode = effectiveBillingMode(settings?.billing_mode, subscription);
 
   return (
     <div className="space-y-8">

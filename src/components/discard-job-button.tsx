@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useTransition } from "react";
-import { Trash2, AlertTriangle, X, CheckCircle2, RotateCcw } from "lucide-react";
+import { Trash2, AlertTriangle, X } from "lucide-react";
 import { useRouter } from "next/navigation";
 
 type DiscardJobButtonProps = {

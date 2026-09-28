@@ -112,6 +112,7 @@ describe("PDF print submission", () => {
 
     const oddResult = await prepareAndPrintDocument(multiPageSource, duplexJobOdd, printerName);
     expect(oddResult.success).toBe(true);
+    expect(oddSlicedPdfPath).toBeDefined();
     // 2 odd pages (1, 3)
     expect(oddResult.pagesSubmitted).toBe(2);
 

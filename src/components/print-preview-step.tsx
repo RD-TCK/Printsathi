@@ -109,7 +109,7 @@ export function PrintPreviewStep({
   useEffect(() => {
     if (selectedPreviewPage === null) return;
 
-    const handlePopState = (e: PopStateEvent) => {
+    const handlePopState = () => {
       // Intercept browser back button to only close the preview modal
       closeFullscreenPreview();
     };
@@ -268,8 +268,8 @@ export function PrintPreviewStep({
                         className={cn(
                           "rounded-md px-1.5 py-0.5 text-[9px] font-bold",
                           isColor
-                            ? "bg-purple-100 text-purple-800"
-                            : "bg-slate-100 text-slate-700"
+                            ? "bg-emerald-50 text-emerald-800 border border-emerald-200/80"
+                            : "bg-slate-100 text-slate-700 border border-slate-200/60"
                         )}
                       >
                         {isColor ? "🎨 Color" : "📄 B&W"}
@@ -304,10 +304,10 @@ export function PrintPreviewStep({
                         <FileText
                           className={cn(
                             "size-8 mx-auto transition-colors",
-                            isIncluded ? (isColor ? "text-purple-600" : "text-slate-600") : "text-slate-300"
+                            isIncluded ? (isColor ? "text-emerald-600" : "text-slate-600") : "text-slate-300"
                           )}
                         />
-                        <span className={cn("block text-[10px] font-bold", isIncluded ? (isColor ? "text-purple-900" : "text-slate-700") : "text-slate-600")}>
+                        <span className={cn("block text-[10px] font-bold", isIncluded ? (isColor ? "text-emerald-900" : "text-slate-700") : "text-slate-600")}>
                           Sheet #{pageNum}
                         </span>
                         {isIncluded && (
@@ -537,23 +537,23 @@ export function PrintPreviewStep({
 
       {/* 4. FULLSCREEN / MOBILE ZOOMED SHEET INSPECTOR MODAL */}
       {selectedPreviewPage !== null && (
-        <div className="fixed inset-0 z-50 flex flex-col bg-slate-950/90 backdrop-blur-md animate-in fade-in duration-200">
+        <div className="fixed inset-0 z-50 flex flex-col bg-slate-950/70 backdrop-blur-md animate-in fade-in duration-200">
           {/* Top Bar with Back button */}
-          <div className="flex items-center justify-between border-b border-slate-800 bg-slate-900/90 px-4 py-3 text-white">
+          <div className="flex items-center justify-between border-b border-slate-200 bg-white px-4 py-3 text-slate-900 shadow-xs">
             <button
               type="button"
               onClick={closeFullscreenPreview}
-              className="inline-flex items-center gap-1.5 rounded-xl border border-slate-700 bg-gradient-to-b from-slate-750 via-slate-800 to-slate-900 px-2.5 sm:px-3 py-1.5 text-[11px] sm:text-xs font-bold text-white shadow-[0_2px_0_#020617,0_3px_6px_rgba(0,0,0,0.4)] hover:from-slate-700 hover:to-slate-800 hover:-translate-y-0.5 active:translate-y-0.5 active:shadow-none transition cursor-pointer"
+              className="inline-flex items-center gap-1.5 rounded-xl border border-slate-200 bg-white px-2.5 sm:px-3 py-1.5 text-[11px] sm:text-xs font-bold text-slate-700 shadow-2xs hover:bg-slate-50 hover:border-slate-300 transition cursor-pointer"
             >
               <ArrowLeft className="size-3.5" />
               <span>Back</span>
             </button>
 
             <div className="text-center">
-              <span className="block text-xs font-bold text-white truncate max-w-[180px] sm:max-w-xs">
+              <span className="block text-xs font-bold text-slate-900 truncate max-w-[180px] sm:max-w-xs">
                 {current.filename}
               </span>
-              <span className="text-[11px] text-slate-400">
+              <span className="text-[11px] text-slate-500 font-medium">
                 Page {selectedPreviewPage} of {totalPagesInDoc}
               </span>
             </div>
@@ -561,14 +561,14 @@ export function PrintPreviewStep({
             <button
               type="button"
               onClick={closeFullscreenPreview}
-              className="rounded-xl p-2 text-slate-400 hover:bg-slate-800 hover:text-white transition cursor-pointer"
+              className="rounded-xl p-2 text-slate-400 hover:bg-slate-100 hover:text-slate-700 transition cursor-pointer"
             >
               <X className="size-5" />
             </button>
           </div>
 
           {/* Large Sheet Viewport */}
-          <div className="relative flex flex-1 items-center justify-center p-3 sm:p-6 overflow-auto select-none">
+          <div className="relative flex flex-1 items-center justify-center p-3 sm:p-6 overflow-auto select-none bg-slate-100/90">
             {(() => {
               const config = includedPagesMap.get(selectedPreviewPage);
               const isIncluded = Boolean(config);
@@ -578,24 +578,24 @@ export function PrintPreviewStep({
               return (
                 <div className="relative flex flex-col items-center justify-center max-w-md sm:max-w-lg w-full">
                   {/* Sheet Status Badges */}
-                  <div className="mb-2 flex items-center gap-2 text-xs">
+                  <div className="mb-2.5 flex items-center gap-2 text-xs">
                     <span
                       className={cn(
                         "rounded-full px-3 py-1 font-bold",
                         isIncluded
-                          ? "bg-emerald-500/20 text-emerald-300 border border-emerald-500/40"
-                          : "bg-slate-800 text-slate-400 border border-slate-700"
+                          ? "bg-emerald-100 text-emerald-900 border border-emerald-300/90 shadow-2xs"
+                          : "bg-white text-slate-500 border border-slate-200"
                       )}
                     >
                       {isIncluded ? "🟢 Included in Print" : "⚪ Excluded (Skipped)"}
                     </span>
                     {isIncluded && (
-                      <span className="rounded-full bg-purple-500/20 text-purple-300 border border-purple-500/40 px-3 py-1 font-bold">
+                      <span className="rounded-full bg-emerald-50 text-emerald-800 border border-emerald-200/90 px-3 py-1 font-bold shadow-2xs">
                         {isColor ? "🎨 Full Color" : "📄 B&W Grayscale"}
                       </span>
                     )}
                     {isIncluded && (
-                      <span className="rounded-full bg-slate-800 text-slate-300 border border-slate-700 px-3 py-1 font-semibold">
+                      <span className="rounded-full bg-white text-slate-700 border border-slate-200 px-3 py-1 font-semibold shadow-2xs">
                         {isDuplex ? "📑 Both Sides" : "📄 Single Sided"}
                       </span>
                     )}
@@ -604,8 +604,8 @@ export function PrintPreviewStep({
                   {/* Simulated Paper Sheet */}
                   <div
                     className={cn(
-                      "relative flex aspect-[1/1.414] w-full max-h-[70vh] items-center justify-center rounded-2xl bg-white p-4 shadow-2xl overflow-hidden border-4 transition-all",
-                      isIncluded ? "border-emerald-500" : "border-slate-700 opacity-60"
+                      "relative flex aspect-[1/1.414] w-full max-h-[70vh] items-center justify-center rounded-2xl bg-white p-4 shadow-2xl overflow-hidden border-2 transition-all",
+                      isIncluded ? "border-emerald-500 ring-2 ring-emerald-500/20" : "border-slate-300 opacity-60"
                     )}
                   >
                     {current?.previewUrl && totalPagesInDoc === 1 ? (
@@ -624,7 +624,7 @@ export function PrintPreviewStep({
                         <FileText
                           className={cn(
                             "size-16 mx-auto transition-colors",
-                            isIncluded ? (isColor ? "text-purple-600" : "text-slate-800") : "text-slate-300"
+                            isIncluded ? (isColor ? "text-emerald-600" : "text-slate-800") : "text-slate-300"
                           )}
                         />
                         <div>
@@ -649,18 +649,18 @@ export function PrintPreviewStep({
           </div>
 
           {/* Bottom Navigation & Controls */}
-          <div className="flex items-center justify-between border-t border-slate-800 bg-slate-900/90 px-4 py-3">
+          <div className="flex items-center justify-between border-t border-slate-200 bg-white px-4 py-3 text-slate-700 shadow-xs">
             <button
               type="button"
               disabled={selectedPreviewPage <= 1}
               onClick={() => setSelectedPreviewPage((p) => (p && p > 1 ? p - 1 : p))}
-              className="inline-flex items-center gap-1.5 rounded-xl bg-slate-800 px-3.5 py-2 text-xs font-bold text-white hover:bg-slate-700 disabled:opacity-30 transition cursor-pointer"
+              className="inline-flex items-center gap-1.5 rounded-xl border border-slate-200 bg-white px-3.5 py-2 text-xs font-bold text-slate-700 hover:bg-slate-50 hover:border-slate-300 disabled:opacity-30 shadow-2xs transition cursor-pointer"
             >
               <ChevronLeft className="size-4" />
               <span>Previous Page</span>
             </button>
 
-            <span className="text-xs font-mono font-bold text-slate-300">
+            <span className="text-xs font-mono font-bold text-slate-800">
               {selectedPreviewPage} / {totalPagesInDoc}
             </span>
 
@@ -668,7 +668,7 @@ export function PrintPreviewStep({
               type="button"
               disabled={selectedPreviewPage >= totalPagesInDoc}
               onClick={() => setSelectedPreviewPage((p) => (p && p < totalPagesInDoc ? p + 1 : p))}
-              className="inline-flex items-center gap-1.5 rounded-xl bg-slate-800 px-3.5 py-2 text-xs font-bold text-white hover:bg-slate-700 disabled:opacity-30 transition cursor-pointer"
+              className="inline-flex items-center gap-1.5 rounded-xl border border-slate-200 bg-white px-3.5 py-2 text-xs font-bold text-slate-700 hover:bg-slate-50 hover:border-slate-300 disabled:opacity-30 shadow-2xs transition cursor-pointer"
             >
               <span>Next Page</span>
               <ChevronRight className="size-4" />

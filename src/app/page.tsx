@@ -6,7 +6,6 @@ import {
   FileStack,
   Play,
   Printer,
-  QrCode,
   ShieldCheck,
   Sparkles,
   Zap,

@@ -40,18 +40,37 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "This shop is not accepting orders." }, { status: 409 });
   const maxSize = Number(settings?.max_upload_size_bytes || 26214400);
   for (const file of files) {
-    if (file.size < 1 || file.size > maxSize)
-      return NextResponse.json({ error: `${file.name} exceeds the shop upload limit.` }, { status: 400 });
+    if (file.size < 1) {
+      return NextResponse.json(
+        { error: `"${file.name}" is empty (0 bytes).`, failedFilename: file.name },
+        { status: 400 }
+      );
+    }
+    if (file.size > maxSize) {
+      const maxMb = (maxSize / (1024 * 1024)).toFixed(0);
+      return NextResponse.json(
+        { error: `"${file.name}" exceeds the ${maxMb} MB upload limit.`, failedFilename: file.name },
+        { status: 400 }
+      );
+    }
   }
 
   if (files.reduce((sum, file) => sum + file.size, 0) > 100 * 1024 * 1024)
     return NextResponse.json({ error: "Combined upload size must be under 100 MB." }, { status: 400 });
   
-  let normalized: Array<{ bytes: Buffer; pageCount: number; filename: string }>;
-  try {
-    normalized = await Promise.all(files.map((file) => normalizeDocument(file)));
-  } catch (error) {
-    return NextResponse.json({ error: error instanceof Error ? error.message : "Document conversion failed." }, { status: 400 });
+  const normalized: Array<{ bytes: Buffer; pageCount: number; filename: string }> = [];
+  for (const file of files) {
+    try {
+      const norm = await normalizeDocument(file);
+      normalized.push(norm);
+    } catch (error) {
+      const rawMessage = error instanceof Error ? error.message : "Document conversion failed.";
+      const errorMsg = rawMessage.includes(file.name) ? rawMessage : `Failed to process "${file.name}": ${rawMessage}`;
+      return NextResponse.json(
+        { error: errorMsg, failedFilename: file.name },
+        { status: 400 }
+      );
+    }
   }
 
   let customerId: string | null = null;

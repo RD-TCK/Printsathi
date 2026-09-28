@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { Check, Sparkles, ShieldCheck, Zap, Loader2 } from "lucide-react";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
@@ -61,12 +61,12 @@ export function SubscriptionCheckout({ shopName, shopId }: { shopName: string; s
   const [loadingPlan, setLoadingPlan] = useState<"monthly" | "yearly" | null>(null);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [successMsg, setSuccessMsg] = useState<string | null>(null);
-  const [paymentId, setPaymentId] = useState("");
-  const [recovering, setRecovering] = useState(false);
   const storageKey = `subscription-payment-${shopId}`;
-  useEffect(() => {
-    try { setPaymentId(localStorage.getItem(storageKey) || ""); } catch { /* Storage may be disabled. */ }
-  }, [storageKey]);
+  const [paymentId, setPaymentId] = useState(() => {
+    try { return localStorage.getItem(`subscription-payment-${shopId}`) || ""; } catch { return ""; }
+  });
+  const [recovering, setRecovering] = useState(false);
+
 
   function rememberPayment(id: string) {
     setPaymentId(id);

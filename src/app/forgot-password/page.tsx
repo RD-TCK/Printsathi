@@ -19,7 +19,7 @@ export default async function ForgotPasswordPage({
           <p className="text-sm font-bold text-brand-600">Printiva</p>
           <h1 className="mt-2 text-2xl font-semibold text-brand-950">Reset your password</h1>
           <p className="mt-1 text-sm text-muted">
-            Enter your email and we'll send you a link to reset your password.
+            Enter your email and we&apos;ll send you a link to reset your password.
           </p>
         </CardHeader>
         <CardContent>

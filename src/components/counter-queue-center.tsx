@@ -12,7 +12,6 @@ import {
   BellRing,
   RotateCw,
   Layers,
-  Sparkles,
   Trash2,
 } from "lucide-react";
 
@@ -100,6 +99,7 @@ export function CounterQueueCenter({ shopName }: { shopName: string }) {
   }, []);
 
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     void fetchQueue();
     const timer = setInterval(() => {
       void fetchQueue();

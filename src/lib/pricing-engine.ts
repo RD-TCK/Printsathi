@@ -65,6 +65,8 @@ export function calculatePlatformFee(
   _totalPages: number,
   _billingMode: BillingMode = "customer_fee",
 ): number {
+  void _totalPages;
+  void _billingMode;
   return 0;
 }
 

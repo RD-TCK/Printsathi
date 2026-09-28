@@ -1,4 +1,5 @@
 import "server-only";
+import { existsSync } from "node:fs";
 import fs from "node:fs/promises";
 import path from "node:path";
 import os from "node:os";
@@ -28,20 +29,20 @@ export async function normalizeDocument(file: File): Promise<{ bytes: Buffer; pa
 
     if (isJpeg) {
       // Preserve 100% original JPEG quality without inflating into 30MB uncompressed PNG!
-      const processedJpeg = await sharp(bytes, { limitInputPixels: 40000000 })
+      const processedJpeg = await sharp(bytes, { limitInputPixels: 268402689 })
         .rotate()
         .jpeg({ quality: 100, chromaSubsampling: "4:4:4" })
         .toBuffer();
       embeddedImage = await pdf.embedJpg(processedJpeg);
     } else if (isPng) {
-      const processedPng = await sharp(bytes, { limitInputPixels: 40000000 })
+      const processedPng = await sharp(bytes, { limitInputPixels: 268402689 })
         .rotate()
         .png()
         .toBuffer();
       embeddedImage = await pdf.embedPng(processedPng);
     } else {
       // Other formats (WebP, GIF, BMP, TIFF) -> lossless PNG
-      const png = await sharp(bytes, { limitInputPixels: 40000000 })
+      const png = await sharp(bytes, { limitInputPixels: 268402689 })
         .rotate()
         .flatten({ background: "white" })
         .png()
@@ -56,20 +57,27 @@ export async function normalizeDocument(file: File): Promise<{ bytes: Buffer; pa
     page.drawImage(embeddedImage, { x: (595.28 - width) / 2, y: (841.89 - height) / 2, width, height });
     bytes = Buffer.from(await pdf.save());
   } else if (extension === ".docx" || extension === ".doc") {
-    // Pure Node.js mammoth pipeline for .docx — zero LibreOffice dependency.
+    // 1. High-fidelity conversion via LibreOffice (preserves exact layout, fonts, margins, tables, pagination)
     let converted = false;
     try {
-      const htmlResult = await mammoth.convertToHtml({ buffer: bytes });
-      const html = htmlResult.value ?? "";
-
-      bytes = Buffer.from(await renderDocxHtmlToPdf(html, file.name));
+      bytes = Buffer.from(await convertWithLibreOffice(file, extension, bytes));
       converted = true;
     } catch {
-      // If mammoth failed (e.g. legacy binary .doc format), try LibreOffice if available
+      // 2. LibreOffice not available or failed — fall back to pure JS mammoth pipeline
     }
 
     if (!converted) {
-      bytes = Buffer.from(await convertWithLibreOffice(file, extension, bytes));
+      try {
+        const htmlResult = await mammoth.convertToHtml({ buffer: bytes });
+        const html = htmlResult.value ?? "";
+
+        bytes = Buffer.from(await renderDocxHtmlToPdf(html, file.name));
+        converted = true;
+      } catch {
+        throw new Error(
+          `Could not convert "${file.name}" to PDF. Please export your Word document as a PDF and upload the PDF file instead.`
+        );
+      }
     }
   } else if (textExtensions.has(extension)) {
     // Plain text, CSV, Markdown — render directly without needing LibreOffice
@@ -94,6 +102,30 @@ export async function normalizeDocument(file: File): Promise<{ bytes: Buffer; pa
     throw new Error(`${file.name} must contain between 1 and 2,000 pages.`);
   }
   return { bytes, pageCount, filename: file.name };
+}
+
+/**
+ * Locate LibreOffice executable path across common Windows & Linux locations.
+ */
+function getLibreOfficePath(): string {
+  if (process.env.LIBREOFFICE_PATH) {
+    return process.env.LIBREOFFICE_PATH;
+  }
+  if (process.platform === "win32") {
+    const candidates = [
+      "C:\\Program Files\\LibreOffice\\program\\soffice.exe",
+      "C:\\Program Files (x86)\\LibreOffice\\program\\soffice.exe",
+      process.env.LOCALAPPDATA ? path.join(process.env.LOCALAPPDATA, "Programs", "LibreOffice", "program", "soffice.exe") : "",
+      process.env.PROGRAMFILES ? path.join(process.env.PROGRAMFILES, "LibreOffice", "program", "soffice.exe") : "",
+      process.env["PROGRAMFILES(X86)"] ? path.join(process.env["PROGRAMFILES(X86)"], "LibreOffice", "program", "soffice.exe") : "",
+    ].filter(Boolean);
+
+    for (const p of candidates) {
+      if (existsSync(p)) return p;
+    }
+    return "soffice.exe";
+  }
+  return "libreoffice";
 }
 
 /**
@@ -146,11 +178,7 @@ async function convertWithLibreOffice(file: File, extension: string, bytes: Buff
       path.join(profile, "user", "registrymodifications.xcu"),
       '<?xml version="1.0"?><oor:items xmlns:oor="http://openoffice.org/2001/registry"><item oor:path="/org.openoffice.Office.Common/Security/Scripting"><prop oor:name="MacroSecurityLevel" oor:op="fuse"><value>3</value></prop></item></oor:items>'
     );
-    const executable =
-      process.env.LIBREOFFICE_PATH ||
-      (process.platform === "win32"
-        ? "C:\\Program Files\\LibreOffice\\program\\soffice.exe"
-        : "libreoffice");
+    const executable = getLibreOfficePath();
     try {
       await execute(
         executable,
@@ -650,7 +678,7 @@ async function renderDocxHtmlToPdf(html: string, filename: string): Promise<Buff
       try {
         const imgBuffer = Buffer.from(block.imageBase64, "base64");
         // Normalize image to PNG via sharp
-        const pngBuffer = await sharp(imgBuffer, { limitInputPixels: 40000000 })
+        const pngBuffer = await sharp(imgBuffer, { limitInputPixels: 268402689 })
           .rotate()
           .flatten({ background: "white" })
           .png()
@@ -676,50 +704,6 @@ async function renderDocxHtmlToPdf(html: string, filename: string): Promise<Buff
         // Skip unrenderable embedded image
       }
     }
-  }
-
-  // Draw headers and footers on all pages
-  const totalPages = pages.length;
-  const cleanHeaderName = sanitizeForPdf(path.basename(filename)).slice(0, 50);
-
-  for (let p = 0; p < totalPages; p++) {
-    const page = pages[p];
-
-    // Top Header: Document filename
-    page.drawText(cleanHeaderName, {
-      x: margin,
-      y: a4Height - 28,
-      size: 8,
-      font: boldFont,
-      color: rgb(0.4, 0.4, 0.45),
-    });
-
-    // Top Header: Page X of Y
-    const pageStr = `Page ${p + 1} of ${totalPages}`;
-    page.drawText(pageStr, {
-      x: a4Width - margin - 55,
-      y: a4Height - 28,
-      size: 8,
-      font,
-      color: rgb(0.45, 0.45, 0.5),
-    });
-
-    // Header divider line
-    page.drawLine({
-      start: { x: margin, y: a4Height - 34 },
-      end: { x: a4Width - margin, y: a4Height - 34 },
-      thickness: 0.5,
-      color: rgb(0.88, 0.88, 0.9),
-    });
-
-    // Bottom Footer
-    page.drawText("Printed with PrintSathi", {
-      x: margin,
-      y: 20,
-      size: 7.5,
-      font,
-      color: rgb(0.6, 0.6, 0.65),
-    });
   }
 
   return Buffer.from(await pdfDoc.save());

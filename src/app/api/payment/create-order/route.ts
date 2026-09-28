@@ -8,7 +8,7 @@ import { hashGuestOrderToken } from "@/lib/guest-order";
 import { assertShopCanPrice, calculatePricing, type PricingRule } from "@/lib/pricing-engine";
 import { createRazorpayOrder, getRazorpayClient, toPaise } from "@/lib/razorpay/server";
 import type { PrintRange } from "@/lib/customer-print";
-import { mockPaymentsEnabled, isMockPayment } from "@/lib/mock-payments";
+import { mockPaymentsEnabled } from "@/lib/mock-payments";
 import { releasePaidOrder } from "@/lib/release-paid-order";
 
 const createPaymentOrderSchema = z.object({

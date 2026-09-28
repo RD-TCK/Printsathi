@@ -7,7 +7,6 @@ import {
   Printer,
   QrCode,
   ShieldCheck,
-  Sparkles,
   Workflow,
   Zap,
 } from "lucide-react";
