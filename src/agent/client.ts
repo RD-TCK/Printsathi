@@ -173,7 +173,7 @@ export class AgentApiClient {
     fs.writeFileSync(destinationFilePath, buffer);
   }
 
-  async reportSubmit(jobId: string): Promise<boolean> {
+  async reportSubmit(jobId: string, printerName?: string): Promise<boolean> {
     if (!this.token) {
       throw new Error("Agent is not authenticated.");
     }
@@ -182,7 +182,7 @@ export class AgentApiClient {
     const response = await fetch(url, {
       method: "POST",
       headers: this.getHeaders(),
-      body: JSON.stringify({ jobId }),
+      body: JSON.stringify({ jobId, ...(printerName ? { printerName } : {}) }),
     });
 
     const data = await response.json();

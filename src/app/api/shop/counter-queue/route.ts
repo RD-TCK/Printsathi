@@ -111,12 +111,15 @@ export async function GET(request: Request) {
     
     // Check if any job/page range has double-sided mode and collect copies info
     let isDoubleSided = false;
-    let duplexStep: "none" | "odd_pending" | "odd_printed" | "even_pending" | "completed" = "none";
+    // duplexStep reflects the current stage of manual duplex printing.
+    // Raw DB values from approve route: "odd" (queued for odd), "even" (queued for even)
+    // After agent submission: "odd_printed", "completed"
+    let duplexStep: "none" | "odd" | "odd_printed" | "even" | "completed" = "none";
     const copiesDescriptions: string[] = [];
 
     for (const j of rawJobs) {
       if (j.duplex_step && j.duplex_step !== "none") {
-        duplexStep = j.duplex_step;
+        duplexStep = j.duplex_step as typeof duplexStep;
       }
       const rawPages = Array.isArray(j.print_job_pages) ? j.print_job_pages : [];
       for (const p of rawPages as Array<{ side_mode?: string; start_page: number; end_page: number; copies?: number }>) {
@@ -134,8 +137,29 @@ export async function GET(request: Request) {
     }
 
     const totalPages = o.total_pages || 0;
-    const oddPagesCount = Math.ceil(totalPages / 2);
-    const evenPagesCount = Math.floor(totalPages / 2);
+    let oddPagesCount = 0;
+    let evenPagesCount = 0;
+
+    for (const j of rawJobs) {
+      const rawPages = Array.isArray(j.print_job_pages) ? j.print_job_pages : [];
+      for (const p of rawPages as Array<{ start_page: number; end_page: number; copies?: number }>) {
+        const start = Math.max(1, p.start_page);
+        const end = Math.max(start, p.end_page);
+        const copies = Math.max(1, p.copies ?? 1);
+        for (let i = start; i <= end; i++) {
+          if (i % 2 === 1) {
+            oddPagesCount += copies;
+          } else {
+            evenPagesCount += copies;
+          }
+        }
+      }
+    }
+
+    if (oddPagesCount === 0 && evenPagesCount === 0) {
+      oddPagesCount = Math.ceil(totalPages / 2);
+      evenPagesCount = Math.floor(totalPages / 2);
+    }
 
     return {
       id: o.id,

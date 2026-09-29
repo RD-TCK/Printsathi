@@ -145,11 +145,16 @@ export async function POST(request: Request) {
   }
 
   // 3. Update print jobs status to queued and update duplex_step
+  // For the even step: jobs coming from "print_submitted" (odd step done) need claim metadata cleared
+  // so the claim_next_print_job SQL can pick them up fresh.
   await adminClient
     .from("print_jobs")
     .update({
       status: targetJobStatus,
       duplex_step: targetDuplexStep,
+      // Clear stale claim metadata so the job is cleanly reclaimable
+      claimed_by_agent_id: null,
+      claim_expires_at: null,
       updated_at: new Date().toISOString(),
     })
     .eq("order_id", order.id)

@@ -104,28 +104,58 @@ describe("PDF print submission", () => {
       pagesConfig: [{ startPage: 1, endPage: 4, colorMode: "black_and_white", paperSize: "a4", sideMode: "double_sided" }],
     } as ClaimedJob;
 
-    let oddSlicedPdfPath!: string;
-    mocks.execute.mockImplementation((_file, args, _options, callback) => {
-      oddSlicedPdfPath = args.at(-1);
+    let oddPagesCount = 0;
+    mocks.execute.mockImplementation(async (_file, args, _options, callback) => {
+      const p = args.at(-1);
+      const doc = await PDFDocument.load(fs.readFileSync(p));
+      oddPagesCount = doc.getPageCount();
       callback(null, "", "");
     });
 
     const oddResult = await prepareAndPrintDocument(multiPageSource, duplexJobOdd, printerName);
     expect(oddResult.success).toBe(true);
-    expect(oddSlicedPdfPath).toBeDefined();
-    // 2 odd pages (1, 3)
+    // 2 odd pages (1, 3) - no separator blank page in manual duplex
+    expect(oddPagesCount).toBe(2);
     expect(oddResult.pagesSubmitted).toBe(2);
 
     const duplexJobEven = {
       id: "job-duplex-even",
       totalPages: 4,
       duplexStep: "even",
-      pagesConfig: [{ startPage: 1, endPage: 4, colorMode: "black_and_white", paperSize: "a4", sideMode: "double_sided" }],
+      pagesConfig: [{ startPage: 1, endPage: 4, colorMode: "black_and_white", paperSize: "a4" }],
     } as ClaimedJob;
+
+    let evenPagesCount = 0;
+    mocks.execute.mockImplementation(async (_file, args, _options, callback) => {
+      const p = args.at(-1);
+      const doc = await PDFDocument.load(fs.readFileSync(p));
+      evenPagesCount = doc.getPageCount();
+      callback(null, "", "");
+    });
 
     const evenResult = await prepareAndPrintDocument(multiPageSource, duplexJobEven, printerName);
     expect(evenResult.success).toBe(true);
-    // 2 even pages (2, 4)
+    // 2 even pages (2, 4) - no separator blank page in manual duplex
+    expect(evenPagesCount).toBe(2);
     expect(evenResult.pagesSubmitted).toBe(2);
+
+    // Single page document in even step should complete with 0 pages submitted and not invoke renderer
+    const singlePageSource = path.join(directory, "single_page.pdf");
+    const singlePagePdf = await PDFDocument.create();
+    singlePagePdf.addPage();
+    fs.writeFileSync(singlePageSource, await singlePagePdf.save());
+
+    mocks.execute.mockClear();
+    const singlePageJobEven = {
+      id: "job-single-even",
+      totalPages: 1,
+      duplexStep: "even",
+      pagesConfig: [{ startPage: 1, endPage: 1, colorMode: "black_and_white", paperSize: "a4" }],
+    } as ClaimedJob;
+
+    const singlePageResult = await prepareAndPrintDocument(singlePageSource, singlePageJobEven, printerName);
+    expect(singlePageResult.success).toBe(true);
+    expect(singlePageResult.pagesSubmitted).toBe(0);
+    expect(mocks.execute).not.toHaveBeenCalled();
   });
 });

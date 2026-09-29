@@ -81,9 +81,75 @@ export async function POST(request: Request) {
 
   const { data: jobDetails } = await adminClient
     .from("print_jobs")
-    .select("duplex_step")
+    .select("duplex_step, duplex_printer_name")
     .eq("id", claimed.job_id)
     .maybeSingle();
+
+  const isDoubleSided = (pages ?? []).some((p) => p.side_mode === "double_sided");
+  let effectiveDuplexStep = jobDetails?.duplex_step || "none";
+  if (isDoubleSided && (effectiveDuplexStep === "none" || !effectiveDuplexStep || effectiveDuplexStep === "odd_pending")) {
+    effectiveDuplexStep = "odd";
+  }
+
+  // For even-step jobs, the printer that processed the odd (front) side is persisted
+  // in duplex_printer_name. Return it as requiredPrinterName so the daemon is forced
+  // to route the back-side to the same physical printer, even after an agent restart.
+  const requiredPrinterName = effectiveDuplexStep === "even" ? (jobDetails?.duplex_printer_name ?? null) : null;
+
+  // Resolve pagesConfig dynamically on the server:
+  // For double-sided steps (odd or even), break the ranges down into exact individual odd or even pages.
+  // This allows ALL existing desktop agents in the field to slice and print odd/even passes perfectly
+  // without needing any agent updates or re-downloads.
+  const resolvedPagesConfig: Array<{
+    startPage: number;
+    endPage: number;
+    colorMode: "color" | "black_and_white";
+    paperSize: "a4" | "a3";
+    sideMode: "single_sided" | "double_sided";
+    copies: number;
+  }> = [];
+
+  for (const p of pages ?? []) {
+    const start = Math.max(1, p.start_page);
+    const end = Math.max(start, p.end_page);
+    const copies = Math.max(1, p.copies ?? 1);
+    const colorMode = (p.color_mode || "black_and_white") as "color" | "black_and_white";
+    const paperSize = (p.paper_size || "a4") as "a4" | "a3";
+    const isDouble = p.side_mode === "double_sided" || isDoubleSided;
+
+    if (isDouble && (effectiveDuplexStep === "odd" || effectiveDuplexStep === "even")) {
+      for (let i = start; i <= end; i++) {
+        if (effectiveDuplexStep === "odd" && i % 2 === 1) {
+          resolvedPagesConfig.push({
+            startPage: i,
+            endPage: i,
+            colorMode,
+            paperSize,
+            sideMode: "single_sided",
+            copies,
+          });
+        } else if (effectiveDuplexStep === "even" && i % 2 === 0) {
+          resolvedPagesConfig.push({
+            startPage: i,
+            endPage: i,
+            colorMode,
+            paperSize,
+            sideMode: "single_sided",
+            copies,
+          });
+        }
+      }
+    } else {
+      resolvedPagesConfig.push({
+        startPage: start,
+        endPage: end,
+        colorMode,
+        paperSize,
+        sideMode: (p.side_mode as "single_sided" | "double_sided") || "single_sided",
+        copies,
+      });
+    }
+  }
 
   return NextResponse.json({
     success: true,
@@ -100,7 +166,10 @@ export async function POST(request: Request) {
       claimedAt: claimed.claimed_at,
       claimExpiresAt: claimed.claim_expires_at,
       defaultPrinter: defaultPrinter?.name || null,
-      duplexStep: jobDetails?.duplex_step || "none",
+      // For even-step duplex jobs: the exact printer that printed the front (odd) side.
+      // The agent MUST route the back (even) side to this printer.
+      requiredPrinterName,
+      duplexStep: effectiveDuplexStep,
       document: {
         id: claimed.document_id,
         storagePath: claimed.document_storage_path,
@@ -109,14 +178,7 @@ export async function POST(request: Request) {
         sizeBytes: Number(claimed.document_size_bytes),
         pageCount: claimed.document_page_count,
       },
-      pagesConfig: (pages ?? []).map((p) => ({
-        startPage: p.start_page,
-        endPage: p.end_page,
-        colorMode: p.color_mode,
-        paperSize: p.paper_size,
-        sideMode: p.side_mode as "single_sided" | "double_sided",
-        copies: p.copies ?? 1,
-      })),
+      pagesConfig: resolvedPagesConfig,
     },
   });
 }

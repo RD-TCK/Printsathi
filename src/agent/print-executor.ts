@@ -94,7 +94,11 @@ export async function prepareAndPrintDocument(
     let effectivePagesCount = 0;
 
     let calculatedPages = 0;
-    const duplexStep = job.duplexStep;
+    const hasDoubleSidedConfig = (activeConfigs || []).some((c) => c.sideMode === "double_sided");
+    let duplexStep = job.duplexStep;
+    if (hasDoubleSidedConfig && (!duplexStep || duplexStep === "none")) {
+      duplexStep = "odd";
+    }
 
     if (activeConfigs && activeConfigs.length > 0) {
       for (const config of activeConfigs) {
@@ -103,10 +107,10 @@ export async function prepareAndPrintDocument(
         const copies = Math.max(1, config.copies ?? 1);
         const pageIndices: number[] = [];
         for (let i = start; i <= end; i++) {
-          if (config.sideMode === "double_sided" && duplexStep === "odd" && i % 2 === 0) {
+          if (duplexStep === "odd" && i % 2 === 0) {
             continue; // Skip even pages in odd step
           }
-          if (config.sideMode === "double_sided" && duplexStep === "even" && i % 2 !== 0) {
+          if (duplexStep === "even" && i % 2 !== 0) {
             continue; // Skip odd pages in even step
           }
           pageIndices.push(i - 1); // 0-indexed
@@ -133,8 +137,25 @@ export async function prepareAndPrintDocument(
       }
     }
 
-    // Add 1 blank page at the very end as a job separator (only for completed passes, never during odd pass of manual duplex)
-    if (duplexStep !== "odd") {
+    // If no pages were generated for this pass (e.g. Even step for a 1-page document), complete successfully
+    if (outputPdf.getPageCount() === 0) {
+      logger.info(`Job #${job.id.slice(0, 8)}: No pages to print for step "${duplexStep || "standard"}".`);
+      return {
+        success: true,
+        status: "PRINT_SUBMITTED",
+        printerName: targetPrinterName,
+        pagesSubmitted: 0,
+      };
+    }
+
+    // Add 1 blank separator page at the very end, ONLY for single-sided jobs.
+    // Never add for any double-sided job (odd pass, even pass, or full duplex)
+    // to prevent stray blank sheets in the physical stack.
+    const isAnyDoubleSidedJob =
+      duplexStep === "odd" ||
+      duplexStep === "even" ||
+      (activeConfigs || []).some((c) => c.sideMode === "double_sided");
+    if (!isAnyDoubleSidedJob) {
       const firstPage = outputPdf.getPageCount() > 0 ? outputPdf.getPage(0) : null;
       if (firstPage) {
         const { width, height } = firstPage.getSize();

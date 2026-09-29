@@ -279,9 +279,23 @@ export class AgentDaemon {
         else groups.push([range]);
       }
 
+      // Ensure double-sided jobs are handled with duplex state tracking
+      const isDoubleSided = configs.some((c) => c.sideMode === "double_sided");
+      if (isDoubleSided && (!job.duplexStep || job.duplexStep === "none")) {
+        job.duplexStep = "odd";
+      }
+
       // Check if this is Step 2 of a duplex job (Print Next Side)
       const isDuplexEvenStep = job.duplexStep === "even";
-      const reservedPrinterForJob = this.orderToReservedPrinter.get(job.orderId) || this.orderToReservedPrinter.get(job.id);
+      // Server-persisted printer name takes precedence over the in-memory map.
+      // This ensures the even side goes to the same printer even after an agent restart.
+      const reservedPrinterForJob =
+        job.requiredPrinterName ||
+        this.orderToReservedPrinter.get(job.orderId) ||
+        this.orderToReservedPrinter.get(job.id);
+      if (job.requiredPrinterName) {
+        logger.info(`Job #${job.id.slice(0, 8)}: Using server-persisted printer "${job.requiredPrinterName}" for even (back) side.`);
+      }
 
       // Build busy printers set (all active printing printers + all reserved duplex printers)
       const busyPrinters = new Set([
@@ -337,9 +351,13 @@ export class AgentDaemon {
         logger.info(`Downloading document "${job.document.originalFilename}" (${job.document.pageCount} pages)...`);
         await this.client.downloadDocument(job.document.id, job.id, tempFilePath);
 
-        // Persist the no-retry boundary BEFORE invoking the renderer
+        // Persist the no-retry boundary BEFORE invoking the renderer.
+        // Also tells the server which printer is handling this job (for duplex same-printer guarantee).
         submissionStarted = true;
-        await this.client.reportSubmit(job.id);
+        // We know the printer from the plan; send it along so the server can store it for the even step.
+        // plan[0].printer is available at this point because we validated plan above.
+        const firstPrinterName = plan[0]?.printer?.name;
+        await this.client.reportSubmit(job.id, firstPrinterName);
 
         let pagesSubmitted = 0;
         for (const part of plan) {

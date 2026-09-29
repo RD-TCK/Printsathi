@@ -5,6 +5,9 @@ import { authenticateAgent } from "@/lib/agent/auth";
 
 const submitSchema = z.object({
   jobId: z.string().uuid(),
+  // Optional: the Windows printer name used to print this pass.
+  // Required for duplex odd-step jobs so the even step can be routed to the same printer.
+  printerName: z.string().max(256).optional(),
 });
 
 export async function POST(request: Request) {
@@ -40,19 +43,30 @@ export async function POST(request: Request) {
   const isOddStep = existingJob?.duplex_step === "odd";
   const isEvenStep = existingJob?.duplex_step === "even";
 
-  const targetJobStatus = isOddStep ? "partially_printed" : "print_submitted";
+  // "print_submitted" is the only valid print_job_status for a job that has been
+  // sent to the Windows spooler. "partially_printed" is an ORDER status only —
+  // setting it on a print_job would violate the DB enum and cause a 400 error.
+  const targetJobStatus = "print_submitted";
   const targetDuplexStep = isOddStep ? "odd_printed" : isEvenStep ? "completed" : "none";
+  // Order stays "partially_printed" after odd step; moves to "paid" after even step or single-sided
   const targetOrderStatus = isOddStep ? "partially_printed" : "paid";
+
+  // For the odd step, persist the printer name so the even step routes to the same printer,
+  // even if the agent restarts between the two passes.
+  const updateFields: Record<string, unknown> = {
+    status: targetJobStatus,
+    duplex_step: targetDuplexStep,
+    claim_expires_at: null,
+    failure_reason: null,
+  };
+  if (isOddStep && parsed.data.printerName) {
+    updateFields.duplex_printer_name = parsed.data.printerName;
+  }
 
   // Reserve dispatch before Windows receives any bytes. Never allow an expired
   // lease to start printing, even if another agent has not reclaimed it yet.
   const { data: success, error } = await adminClient.from("print_jobs")
-    .update({
-      status: targetJobStatus,
-      duplex_step: targetDuplexStep,
-      claim_expires_at: null,
-      failure_reason: null,
-    })
+    .update(updateFields)
     .eq("id", parsed.data.jobId).eq("shop_id", auth.shop.id)
     .eq("claimed_by_agent_id", auth.agent.id).eq("status", "claimed")
     .gt("claim_expires_at", new Date().toISOString())

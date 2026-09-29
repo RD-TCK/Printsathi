@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import {
   FileText,
   Printer,
@@ -133,8 +133,46 @@ export function PrintPreviewStep({
     };
   }, [selectedPreviewPage, totalPagesInDoc, closeFullscreenPreview]);
 
+  const scrollContainerRef = useRef<HTMLDivElement>(null);
+  const [canScrollLeft, setCanScrollLeft] = useState(false);
+  const [canScrollRight, setCanScrollRight] = useState(false);
+  const [activeScrolledPage, setActiveScrolledPage] = useState(1);
+
+  const checkScroll = useCallback(() => {
+    const el = scrollContainerRef.current;
+    if (!el) return;
+    setCanScrollLeft(el.scrollLeft > 10);
+    setCanScrollRight(el.scrollLeft + el.clientWidth < el.scrollWidth - 10);
+
+    const cardWidth = el.firstElementChild ? (el.firstElementChild as HTMLElement).offsetWidth + 10 : 150;
+    const page = Math.min(totalPagesInDoc, Math.max(1, Math.round(el.scrollLeft / cardWidth) + 1));
+    setActiveScrolledPage(page);
+  }, [totalPagesInDoc]);
+
+  useEffect(() => {
+    const el = scrollContainerRef.current;
+    if (!el) return;
+    checkScroll();
+    el.addEventListener("scroll", checkScroll, { passive: true });
+    window.addEventListener("resize", checkScroll);
+    return () => {
+      el.removeEventListener("scroll", checkScroll);
+      window.removeEventListener("resize", checkScroll);
+    };
+  }, [checkScroll, activeDocument, totalPagesInDoc]);
+
+  const scrollByDirection = (direction: "left" | "right") => {
+    const el = scrollContainerRef.current;
+    if (!el) return;
+    const scrollAmount = Math.max(el.clientWidth * 0.75, 200);
+    el.scrollBy({
+      left: direction === "left" ? -scrollAmount : scrollAmount,
+      behavior: "smooth",
+    });
+  };
+
   return (
-    <div className="space-y-6">
+    <div className="space-y-6 pb-20 sm:pb-0">
       {/* 1. Header Banner */}
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
@@ -220,122 +258,187 @@ export function PrintPreviewStep({
           </div>
         )}
 
-        {/* Visual Print Sheet Layout Grid */}
+        {/* Visual Print Sheet Layout - Horizontal Scrollable Carousel */}
         <div className="mt-2">
-          <div className="flex items-center justify-between mb-2.5">
-            <span className="text-xs font-bold text-slate-700 uppercase tracking-wider flex items-center gap-1.5">
-              <Layers className="size-3.5 text-emerald-600" />
-              Simulated Print Output:
-            </span>
-            <span className="text-[11px] text-slate-500 font-semibold flex items-center gap-1">
-              <ZoomIn className="size-3 text-emerald-600" /> Tap sheet to enlarge &amp; inspect
-            </span>
+          <div className="flex items-center justify-between gap-2 mb-2.5">
+            <div className="flex items-center gap-1.5 min-w-0">
+              <Layers className="size-3.5 text-emerald-600 shrink-0" />
+              <span className="text-xs font-bold text-slate-700 uppercase tracking-wider truncate">
+                Simulated Output ({totalPagesInDoc} {totalPagesInDoc === 1 ? "page" : "pages"}):
+              </span>
+            </div>
+
+            {/* Scroll Navigation & Status */}
+            <div className="flex items-center gap-1.5 shrink-0">
+              {totalPagesInDoc > 2 && (
+                <div className="flex items-center gap-1">
+                  <span className="text-[10px] font-bold text-slate-500 bg-slate-100 px-2 py-0.5 rounded-md hidden sm:inline-block">
+                    Page {activeScrolledPage} of {totalPagesInDoc}
+                  </span>
+                  <button
+                    type="button"
+                    disabled={!canScrollLeft}
+                    onClick={() => scrollByDirection("left")}
+                    className="flex size-6 items-center justify-center rounded-lg border border-slate-200 bg-white text-slate-600 hover:bg-slate-50 disabled:opacity-30 disabled:pointer-events-none transition shadow-2xs cursor-pointer"
+                    title="Scroll left"
+                    aria-label="Scroll left"
+                  >
+                    <ChevronLeft className="size-3.5" />
+                  </button>
+                  <button
+                    type="button"
+                    disabled={!canScrollRight}
+                    onClick={() => scrollByDirection("right")}
+                    className="flex size-6 items-center justify-center rounded-lg border border-slate-200 bg-white text-slate-600 hover:bg-slate-50 disabled:opacity-30 disabled:pointer-events-none transition shadow-2xs cursor-pointer"
+                    title="Scroll right"
+                    aria-label="Scroll right"
+                  >
+                    <ChevronRight className="size-3.5" />
+                  </button>
+                </div>
+              )}
+              <span className="text-[10px] sm:text-[11px] text-slate-400 font-semibold flex items-center gap-0.5">
+                <ZoomIn className="size-3 text-emerald-600" /> Tap to zoom
+              </span>
+            </div>
           </div>
 
-          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3">
-            {pagesList.map((pageNum) => {
-              const config = includedPagesMap.get(pageNum);
-              const isIncluded = Boolean(config);
-              const isDuplex = config?.sideMode === "double_sided";
-              const isColor = config?.colorMode === "color";
+          {/* Horizontal Scrollable Strip: Exactly 2 pages visible at a time on mobile */}
+          <div className="relative group/carousel">
+            {canScrollLeft && (
+              <div className="pointer-events-none absolute left-0 top-0 bottom-3 z-10 w-8 bg-gradient-to-r from-white via-white/80 to-transparent rounded-l-2xl" />
+            )}
 
-              return (
-                <div
-                  key={`page-preview-${pageNum}`}
-                  onClick={() => openFullscreenPreview(pageNum)}
-                  className={cn(
-                    "group relative flex flex-col justify-between rounded-2xl border-2 p-3 transition-all duration-150 cursor-pointer active:scale-97 hover:shadow-lg hover:-translate-y-0.5",
-                    isIncluded
-                      ? "border-emerald-500 bg-white shadow-md shadow-emerald-950/5 ring-1 ring-emerald-500/20"
-                      : "border-slate-200 bg-slate-50/80 opacity-60"
-                  )}
-                >
-                  {/* Sheet Header Badge */}
-                  <div className="flex items-center justify-between">
-                    <span
-                      className={cn(
-                        "rounded-md px-1.5 py-0.5 text-[10px] font-black",
-                        isIncluded
-                          ? "bg-emerald-100 text-emerald-900 border border-emerald-200"
-                          : "bg-slate-200 text-slate-600"
-                      )}
-                    >
-                      P. {pageNum}
-                    </span>
+            <div
+              ref={scrollContainerRef}
+              className="flex gap-2.5 sm:gap-3 overflow-x-auto pb-3 pt-1 px-1 snap-x snap-mandatory scroll-smooth no-scrollbar touch-pan-x"
+            >
+              {pagesList.map((pageNum) => {
+                const config = includedPagesMap.get(pageNum);
+                const isIncluded = Boolean(config);
+                const isDuplex = config?.sideMode === "double_sided";
+                const isColor = config?.colorMode === "color";
 
-                    {isIncluded ? (
-                      <span
-                        className={cn(
-                          "rounded-md px-1.5 py-0.5 text-[9px] font-bold",
-                          isColor
-                            ? "bg-emerald-50 text-emerald-800 border border-emerald-200/80"
-                            : "bg-slate-100 text-slate-700 border border-slate-200/60"
-                        )}
-                      >
-                        {isColor ? "🎨 Color" : "📄 B&W"}
-                      </span>
-                    ) : (
-                      <span className="text-[9px] font-bold text-slate-400">
-                        Skipped
-                      </span>
-                    )}
-                  </div>
-
-                  {/* Simulated Paper Graphic / Image Preview */}
+                return (
                   <div
+                    key={`page-preview-${pageNum}`}
+                    onClick={() => openFullscreenPreview(pageNum)}
                     className={cn(
-                      "my-2.5 flex aspect-[1/1.3] w-full items-center justify-center rounded-xl bg-gradient-to-b from-white to-slate-50 border shadow-inner p-2 text-center overflow-hidden transition-all group-hover:border-emerald-400",
-                      isIncluded && !isColor ? "border-slate-300 bg-slate-100/50" : "border-slate-200/90"
+                      "group relative flex flex-col justify-between rounded-2xl border-2 p-2.5 sm:p-3 transition-all duration-150 cursor-pointer active:scale-97 hover:shadow-lg hover:-translate-y-0.5 shrink-0 snap-start",
+                      totalPagesInDoc === 1
+                        ? "w-full max-w-[200px]"
+                        : "w-[calc(50%-5px)] min-w-[135px] max-w-[165px] sm:w-[155px] md:w-[170px]",
+                      isIncluded
+                        ? "border-emerald-500 bg-white shadow-sm shadow-emerald-950/5 ring-1 ring-emerald-500/20"
+                        : "border-slate-200 bg-slate-50/80 opacity-60"
                     )}
                   >
-                    {current?.previewUrl && totalPagesInDoc === 1 ? (
-                      // eslint-disable-next-line @next/next/no-img-element
-                      <img
-                        src={current.previewUrl}
-                        alt="Document preview"
+                    {/* Sheet Header Badge */}
+                    <div className="flex items-center justify-between gap-1">
+                      <span
                         className={cn(
-                          "max-h-full max-w-full object-contain rounded-sm transition-all",
-                          isIncluded && !isColor && "grayscale contrast-105 brightness-95"
+                          "rounded-md px-1.5 py-0.5 text-[10px] font-black shrink-0",
+                          isIncluded
+                            ? "bg-emerald-100 text-emerald-900 border border-emerald-200"
+                            : "bg-slate-200 text-slate-600"
                         )}
-                        style={isIncluded && !isColor ? { filter: "grayscale(100%) contrast(1.1) brightness(0.96)" } : undefined}
-                      />
-                    ) : (
-                      <div className="space-y-1 text-slate-400">
-                        <FileText
-                          className={cn(
-                            "size-8 mx-auto transition-colors",
-                            isIncluded ? (isColor ? "text-emerald-600" : "text-slate-600") : "text-slate-300"
-                          )}
-                        />
-                        <span className={cn("block text-[10px] font-bold", isIncluded ? (isColor ? "text-emerald-900" : "text-slate-700") : "text-slate-600")}>
-                          Sheet #{pageNum}
-                        </span>
-                        {isIncluded && (
-                          <span className="block text-[9px] font-semibold text-emerald-700">
-                            {config?.copies && config.copies > 1 ? `× ${config.copies} Copies` : "1 Copy"}
-                          </span>
-                        )}
-                      </div>
-                    )}
-                  </div>
-
-                  {/* Sheet Footer Details */}
-                  <div className="flex items-center justify-between border-t border-slate-100 pt-1.5 text-[10px]">
-                    <span className="font-semibold text-slate-500">
-                      {isDuplex ? "📑 Both Sides" : "📄 1 Side"}
-                    </span>
-                    {isIncluded ? (
-                      <span className="font-extrabold text-emerald-700 flex items-center gap-0.5">
-                        <CheckCircle2 className="size-3" /> Ready
+                      >
+                        P. {pageNum}
                       </span>
-                    ) : (
-                      <span className="text-slate-400 font-medium">Excluded</span>
-                    )}
+
+                      {isIncluded ? (
+                        <span
+                          className={cn(
+                            "rounded-md px-1.5 py-0.5 text-[9px] font-bold truncate",
+                            isColor
+                              ? "bg-emerald-50 text-emerald-800 border border-emerald-200/80"
+                              : "bg-slate-100 text-slate-700 border border-slate-200/60"
+                          )}
+                        >
+                          {isColor ? "🎨 Color" : "📄 B&W"}
+                        </span>
+                      ) : (
+                        <span className="text-[9px] font-bold text-slate-400">
+                          Skipped
+                        </span>
+                      )}
+                    </div>
+
+                    {/* Simulated Paper Graphic / Image Preview */}
+                    <div
+                      className={cn(
+                        "my-2 flex aspect-[1/1.25] w-full items-center justify-center rounded-xl bg-gradient-to-b from-white to-slate-50 border shadow-inner p-1.5 sm:p-2 text-center overflow-hidden transition-all group-hover:border-emerald-400",
+                        isIncluded && !isColor ? "border-slate-300 bg-slate-100/50" : "border-slate-200/90"
+                      )}
+                    >
+                      {current?.previewUrl && totalPagesInDoc === 1 ? (
+                        // eslint-disable-next-line @next/next/no-img-element
+                        <img
+                          src={current.previewUrl}
+                          alt="Document preview"
+                          className={cn(
+                            "max-h-full max-w-full object-contain rounded-sm transition-all",
+                            isIncluded && !isColor && "grayscale contrast-105 brightness-95"
+                          )}
+                          style={isIncluded && !isColor ? { filter: "grayscale(100%) contrast(1.1) brightness(0.96)" } : undefined}
+                        />
+                      ) : (
+                        <div className="space-y-0.5 sm:space-y-1 text-slate-400">
+                          <FileText
+                            className={cn(
+                              "size-6 sm:size-7 mx-auto transition-colors",
+                              isIncluded ? (isColor ? "text-emerald-600" : "text-slate-600") : "text-slate-300"
+                            )}
+                          />
+                          <span className={cn("block text-[10px] font-bold", isIncluded ? (isColor ? "text-emerald-900" : "text-slate-700") : "text-slate-600")}>
+                            Sheet #{pageNum}
+                          </span>
+                          {isIncluded && (
+                            <span className="block text-[8.5px] sm:text-[9px] font-semibold text-emerald-700">
+                              {config?.copies && config.copies > 1 ? `× ${config.copies} Copies` : "1 Copy"}
+                            </span>
+                          )}
+                        </div>
+                      )}
+                    </div>
+
+                    {/* Sheet Footer Details */}
+                    <div className="flex items-center justify-between border-t border-slate-100 pt-1.5 text-[9.5px] sm:text-[10px]">
+                      <span className="font-semibold text-slate-500 truncate">
+                        {isDuplex ? "📑 Both" : "📄 1-Side"}
+                      </span>
+                      {isIncluded ? (
+                        <span className="font-extrabold text-emerald-700 flex items-center gap-0.5 shrink-0">
+                          <CheckCircle2 className="size-2.5 sm:size-3" /> Ready
+                        </span>
+                      ) : (
+                        <span className="text-slate-400 font-medium">Excluded</span>
+                      )}
+                    </div>
                   </div>
-                </div>
-              );
-            })}
+                );
+              })}
+            </div>
+
+            {canScrollRight && (
+              <div className="pointer-events-none absolute right-0 top-0 bottom-3 z-10 w-8 bg-gradient-to-l from-white via-white/80 to-transparent rounded-r-2xl" />
+            )}
           </div>
+
+          {/* Swipe indicator helper for multi-page documents */}
+          {totalPagesInDoc > 2 && (
+            <div className="flex items-center justify-between text-[11px] text-slate-500 font-medium pt-0.5 px-0.5">
+              <span className="sm:hidden text-slate-500 flex items-center gap-1 font-semibold text-[10.5px]">
+                👉 Swipe left/right to view all {totalPagesInDoc} pages
+              </span>
+              <span className="hidden sm:inline-block text-slate-400 text-[10px]">
+                Horizontal carousel preview
+              </span>
+              <span className="text-[10.5px] text-emerald-700 font-bold">
+                {includedPagesMap.size} selected of {totalPagesInDoc}
+              </span>
+            </div>
+          )}
         </div>
       </Card>
 
@@ -716,6 +819,64 @@ export function PrintPreviewStep({
           </div>
         </div>
       )}
+
+      {/* 6. MOBILE STICKY BOTTOM ACTION / CONTINUE BAR */}
+      <div className="sm:hidden fixed bottom-0 left-0 right-0 z-40 bg-white/95 backdrop-blur-md border-t border-slate-200/90 px-3.5 py-2.5 shadow-[0_-4px_24px_rgba(0,0,0,0.12)] animate-in slide-in-from-bottom duration-200">
+        <div className="flex items-center justify-between gap-2.5 max-w-lg mx-auto">
+          <div className="min-w-0">
+            <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wider block leading-none">
+              Total ({estimate ? estimate.totalPages : fallbackTotalPages} {(estimate ? estimate.totalPages : fallbackTotalPages) === 1 ? "pg" : "pgs"})
+            </span>
+            <span className="text-lg font-black text-emerald-800 font-mono leading-tight">
+              ₹{estimate ? estimate.total.toFixed(2) : fallbackPrice.toFixed(2)}
+            </span>
+          </div>
+
+          {selectedMode === "counter" ? (
+            <button
+              type="button"
+              disabled={busy}
+              onClick={onProceedToCounterToken}
+              className="flex-1 max-w-[210px] flex items-center justify-center gap-1.5 rounded-xl bg-gradient-to-r from-emerald-600 via-emerald-700 to-teal-800 py-2.5 px-3 text-xs font-bold text-white shadow-md active:scale-95 disabled:opacity-50 cursor-pointer"
+            >
+              {busy ? (
+                <>
+                  <LoaderCircle className="size-3.5 animate-spin" />
+                  <span>Generating...</span>
+                </>
+              ) : (
+                <>
+                  <Ticket className="size-3.5 shrink-0" />
+                  <span className="truncate">Generate Token</span>
+                  <ArrowRight className="size-3.5 shrink-0" />
+                </>
+              )}
+            </button>
+          ) : (
+            <button
+              type="button"
+              disabled={busy}
+              onClick={onProceedToPay}
+              className="flex-1 max-w-[210px] flex items-center justify-center gap-1.5 rounded-xl bg-gradient-to-r from-emerald-600 via-emerald-700 to-teal-800 py-2.5 px-3 text-xs font-bold text-white shadow-md active:scale-95 disabled:opacity-50 cursor-pointer"
+            >
+              {busy ? (
+                <>
+                  <LoaderCircle className="size-3.5 animate-spin" />
+                  <span>Processing...</span>
+                </>
+              ) : (
+                <>
+                  <CreditCard className="size-3.5 shrink-0" />
+                  <span className="truncate">
+                    Pay ₹{estimate ? estimate.total.toFixed(2) : fallbackPrice.toFixed(2)}
+                  </span>
+                  <ArrowRight className="size-3.5 shrink-0" />
+                </>
+              )}
+            </button>
+          )}
+        </div>
+      </div>
     </div>
   );
 }

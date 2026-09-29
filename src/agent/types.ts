@@ -55,6 +55,9 @@ export interface ClaimedJob {
     copies?: number;
   }>;
   duplexStep?: "none" | "odd" | "even" | "all";
+  /** For even-step duplex jobs: the Windows printer name that printed the front (odd) side.
+   *  The daemon must route the back side to this exact printer. Null for non-duplex or odd-step jobs. */
+  requiredPrinterName?: string | null;
 }
 
 export interface LogEntry {

@@ -30,7 +30,7 @@ type QueueItem = {
   colorPages: number;
   blackAndWhitePages: number;
   sideMode?: "single_sided" | "double_sided";
-  duplexStep?: "none" | "odd_pending" | "odd_printed" | "even_pending" | "completed";
+  duplexStep?: "none" | "odd" | "odd_printed" | "even" | "completed";
   oddPagesCount?: number;
   evenPagesCount?: number;
   copiesSummary?: string;
@@ -238,6 +238,7 @@ export function CounterQueueCenter({ shopName }: { shopName: string }) {
           {popupOrders.slice(0, 2).map((item) => {
             const minutesLeft = Math.floor(item.remainingSeconds / 60);
             const isDouble = item.sideMode === "double_sided";
+            // isOddDone: front side has been physically printed and job is awaiting back-side print
             const isOddDone = item.duplexStep === "odd_printed" || item.status === "partially_printed";
             const totalSheets = isDouble ? Math.ceil(item.totalPages / 2) : item.totalPages;
 
@@ -470,6 +471,7 @@ export function CounterQueueCenter({ shopName }: { shopName: string }) {
                 const isPaid = item.status === "paid" || item.status === "completed";
                 const isCancelled = item.status === "cancelled";
                 const isDouble = item.sideMode === "double_sided";
+                // isOddDone: front side has been physically printed and job is awaiting back-side print
                 const isOddDone = item.duplexStep === "odd_printed" || item.status === "partially_printed";
                 const totalSheets = isDouble ? Math.ceil(item.totalPages / 2) : item.totalPages;
                 const oddPages = item.oddPagesCount ?? Math.ceil(item.totalPages / 2);
