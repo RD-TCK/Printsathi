@@ -256,7 +256,19 @@ export class AgentDaemon {
     this.isProcessingJob = true;
     try {
       await this.refreshPrinters();
-      if (!findDefaultPrinter(this.discoveredPrinters, this.config.selectedPrinter)) return;
+      const defaultPrinter = findDefaultPrinter(this.discoveredPrinters, this.config.selectedPrinter);
+      if (!defaultPrinter) {
+        const physicalCount = this.discoveredPrinters.filter(p =>
+          !/onenote|print to pdf|xps|fax|pdfcreator|cutepdf|bullzip|dopdf/i.test(`${p.name} ${p.driverName || ""}`) &&
+          !/^(nul:|portprompt:|file:)$/i.test(p.portName || "")
+        ).length;
+        logger.warn(
+          physicalCount > 0
+            ? `No ONLINE physical printer available (${physicalCount} detected but all offline/error). Waiting for printer to come online.`
+            : "No physical printer detected by Windows Spooler. Please ensure a printer is connected, powered on, and its driver is installed.",
+        );
+        return;
+      }
       const job = await this.client.claimNextJob(300); // 5 minute lease
       if (!job) {
         return;
