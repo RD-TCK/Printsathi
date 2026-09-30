@@ -137,11 +137,12 @@ if ($configs) {
             fullDesc.includes("laserjet p") ||
             fullDesc.includes("thermal") ||
             fullDesc.includes("pos-");
+          // ECOSYS C-series (e.g. M6630CIDN) and all Kyocera/Taskalfa colour MFPs default to color
           colorSupport = !isKnownMono;
         }
 
         // Determine duplex capability:
-        // 1. Check Win32_PrinterConfiguration Duplex property
+        // 1. Check Win32_PrinterConfiguration Duplex property (authoritative — set by driver)
         // 2. Fall back to known enterprise copiers and auto-duplex printer heuristics
         let duplexSupport = duplexMap.get(nameLower);
         if (duplexSupport === undefined || duplexSupport === false) {
@@ -160,6 +161,7 @@ if ($configs) {
             fullDesc.includes("pos-");
 
           const isKnownDuplex =
+            // Canon imageRUNNER / imageRUNNER ADVANCE
             fullDesc.includes("ir-adv") ||
             fullDesc.includes("ir adv") ||
             fullDesc.includes("imagerunner") ||
@@ -174,9 +176,19 @@ if ($configs) {
             fullDesc.includes("4545") ||
             fullDesc.includes("4245") ||
             fullDesc.includes("4045") ||
+            // Konica Minolta bizhub
             fullDesc.includes("bizhub") ||
+            // Kyocera ECOSYS / TASKalfa — all M-series MFPs (M2135, M2635, M3145, M6230, M6630, etc.) have duplex
+            // CIDN/CDN/CIWH suffix means Color + Duplex + Network
+            fullDesc.includes("ecosys") ||
+            fullDesc.includes("taskalfa") ||
+            fullDesc.includes("kyocera") ||
+            // Generic "duplex" keyword in name or driver
             fullDesc.includes("duplex") ||
-            /\b(dn|dw|cdw|fdw|dne|dtn)\b/.test(fullDesc);
+            // Standard model suffix codes: DN = Duplex+Network, DW = Duplex+WiFi, etc.
+            // Use both word-boundary check AND end-of-token check to catch embedded suffixes like "CIDN", "CDN"
+            /\b(dn|dw|cdw|fdw|dne|dtn)\b/.test(fullDesc) ||
+            /(cidn|cdn|ciwh|ciph)$/.test(nameLower);
 
           if (isKnownDuplex && !isKnownSimplex) {
             duplexSupport = true;
