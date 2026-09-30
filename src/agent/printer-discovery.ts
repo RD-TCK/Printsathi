@@ -1,19 +1,27 @@
-import { exec } from "node:child_process";
+import { execFile } from "node:child_process";
 import os from "node:os";
 import type { DiscoveredPrinter } from "./types";
 import { logger } from "./logger";
 
-const execAsync = (cmd: string, options?: { timeout?: number }): Promise<{ stdout: string; stderr: string }> => {
-  return new Promise((resolve, reject) => {
-    exec(cmd, { ...options, windowsHide: true }, (error, stdout, stderr) => {
-      if (error) {
-        reject(error);
-      } else {
-        resolve({ stdout: stdout.toString(), stderr: stderr.toString() });
-      }
-    });
+function runPowerShellScript(script: string, timeoutMs: number = 8000): Promise<string> {
+  return new Promise((resolve) => {
+    // UTF-16LE base64 encoding avoids all shell escaping, quoting, and locale parsing pitfalls
+    const encodedCommand = Buffer.from(script, "utf16le").toString("base64");
+    execFile(
+      "powershell.exe",
+      ["-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-EncodedCommand", encodedCommand],
+      { timeout: timeoutMs, windowsHide: true },
+      (error, stdout) => {
+        if (error) {
+          logger.debug("PowerShell printer query warning:", { error: error.message });
+          resolve("");
+        } else {
+          resolve(stdout ? stdout.toString() : "");
+        }
+      },
+    );
   });
-};
+}
 
 export async function discoverWindowsPrinters(): Promise<DiscoveredPrinter[]> {
   const isWindows = process.platform === "win32" || os.platform() === "win32";
@@ -24,17 +32,39 @@ export async function discoverWindowsPrinters(): Promise<DiscoveredPrinter[]> {
   }
 
   try {
-    // An installed queue is not evidence that USB hardware is still attached.
-    const psPrintersCmd = `powershell.exe -NoProfile -NonInteractive -Command "$ErrorActionPreference='Stop'; [Console]::OutputEncoding=[System.Text.UTF8Encoding]::new(); $devices=@(Get-PnpDevice -PresentOnly -ErrorAction Stop | Where-Object { $_.InstanceId -like 'USBPRINT*' -and $_.Status -eq 'OK' } | Select-Object -ExpandProperty InstanceId); Get-CimInstance Win32_Printer | Select-Object Name,Default,PrinterStatus,DriverName,PortName,WorkOffline,DetectedErrorState,PNPDeviceID,PrinterPaperNames,@{Name='UsbPresent';Expression={ $port=$_.PortName; $device=$_.PNPDeviceID; if ($port -match '^USB\\d+') { @($devices | Where-Object { ($device -and $_ -eq $device) -or $_ -like ('*&'+$port) -or $_ -like ('*'+$port) }).Count -gt 0 } else { $true } }} | ConvertTo-Json -Compress"`;
-    const psConfigCmd = `powershell.exe -NoProfile -NonInteractive -Command "Get-CimInstance Win32_PrinterConfiguration | Select-Object Name,Color,Duplex | ConvertTo-Json -Compress"`;
-    const [{ stdout: printerOut }, { stdout: configOut }] = await Promise.all([
-      execAsync(psPrintersCmd, { timeout: 8000 }),
-      execAsync(psConfigCmd, { timeout: 8000 }).catch(() => ({ stdout: "", stderr: "" })),
+    const printerScript = `
+[Console]::OutputEncoding = [System.Text.UTF8Encoding]::new()
+$printers = Get-CimInstance Win32_Printer -ErrorAction SilentlyContinue
+if (-not $printers) {
+  $printers = Get-WmiObject Win32_Printer -ErrorAction SilentlyContinue
+}
+if (-not $printers) {
+  $printers = Get-Printer -ErrorAction SilentlyContinue
+}
+if ($printers) {
+  $printers | Select-Object Name, Default, PrinterStatus, DriverName, PortName, WorkOffline, DetectedErrorState, PrinterPaperNames | ConvertTo-Json -Compress
+}
+`;
+
+    const configScript = `
+[Console]::OutputEncoding = [System.Text.UTF8Encoding]::new()
+$configs = Get-CimInstance Win32_PrinterConfiguration -ErrorAction SilentlyContinue
+if (-not $configs) {
+  $configs = Get-WmiObject Win32_PrinterConfiguration -ErrorAction SilentlyContinue
+}
+if ($configs) {
+  $configs | Select-Object Name, Color, Duplex | ConvertTo-Json -Compress
+}
+`;
+
+    const [printerOut, configOut] = await Promise.all([
+      runPowerShellScript(printerScript, 8000),
+      runPowerShellScript(configScript, 8000),
     ]);
 
     const trimmed = printerOut.trim();
     if (!trimmed) {
-      logger.warn("PowerShell Win32_Printer query returned empty output.");
+      logger.warn("PowerShell printer discovery returned empty output.");
       return getFallbackPrinters();
     }
 
@@ -77,7 +107,7 @@ export async function discoverWindowsPrinters(): Promise<DiscoveredPrinter[]> {
       .map((item) => {
         const name = String(item.Name).trim();
         const isDefault = Boolean(item.Default);
-        const isOffline = Boolean(item.WorkOffline) || Number(item.PrinterStatus) === 7 || item.UsbPresent === false;
+        const isOffline = Boolean(item.WorkOffline) || Number(item.PrinterStatus) === 7;
         const driverName = item.DriverName ? String(item.DriverName) : undefined;
         const systemId = name.toLowerCase().replace(/[^a-z0-9]/g, "_");
 
