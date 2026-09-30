@@ -129,10 +129,28 @@ export default async function ShopAnalyticsPage() {
     last7Days.push({ dateStr, dayLabel, shortDay, isToday });
   }
 
+  const ordersMap = new Map<string, OrderItem>();
+  for (const order of rawOrders) {
+    ordersMap.set(order.id, order);
+  }
+
   // Filter and process jobs
-  // A job is EARNED only when completed
+  // A job is EARNED when it is completed, submitted to spooler, printing, or part of a confirmed paid order (and not failed/cancelled)
   // A job is DISCARDED / MISPRINT when failed/cancelled with reject/discard/misprint or explicitly failed
-  const completedJobs = rawJobs.filter((j) => j.status === "completed");
+  const completedJobs = rawJobs.filter((j) => {
+    if (["completed", "print_submitted", "printing"].includes(j.status)) return true;
+    if (j.order_id && ordersMap.has(j.order_id)) {
+      const parentOrder = ordersMap.get(j.order_id)!;
+      if (
+        ["paid", "completed", "partially_printed"].includes(parentOrder.status) &&
+        !["failed", "cancelled"].includes(j.status)
+      ) {
+        return true;
+      }
+    }
+    return false;
+  });
+
   const discardedJobs = rawJobs.filter(
     (j) =>
       j.status === "failed" ||
@@ -190,6 +208,13 @@ export default async function ShopAnalyticsPage() {
         jobBw += count;
       }
     }
+
+    if (jobColor === 0 && jobBw === 0 && job.order_id && ordersMap.has(job.order_id)) {
+      const ord = ordersMap.get(job.order_id)!;
+      jobColor = ord.color_pages || 0;
+      jobBw = ord.black_and_white_pages || 0;
+    }
+
     const totalJobPages = jobColor + jobBw || Number(job.total_pages || 0);
     bucket.totalPages += totalJobPages;
     bucket.colorPages += jobColor;
@@ -282,6 +307,11 @@ export default async function ShopAnalyticsPage() {
       const count = (p.end_page - p.start_page + 1) * (p.copies ?? 1);
       if (p.color_mode === "color") jobColor += count;
       else jobBw += count;
+    }
+    if (jobColor === 0 && jobBw === 0 && job.order_id && ordersMap.has(job.order_id)) {
+      const ord = ordersMap.get(job.order_id)!;
+      jobColor = ord.color_pages || 0;
+      jobBw = ord.black_and_white_pages || 0;
     }
     allTimePages += jobColor + jobBw || Number(job.total_pages || 0);
     allTimeColor += jobColor;

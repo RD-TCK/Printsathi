@@ -6,10 +6,13 @@ import { logger } from "./logger";
 // Prevent Windows Chromium GPU shader disk cache errors and access-denied locks
 app.commandLine.appendSwitch("disable-gpu-shader-disk-cache");
 
-const gotTheLock = app.requestSingleInstanceLock();
-if (!gotTheLock) {
-  app.quit();
-  process.exit(0);
+const isDev = !app.isPackaged || Boolean(process.env.npm_lifecycle_event?.includes("dev"));
+if (!isDev) {
+  const gotTheLock = app.requestSingleInstanceLock();
+  if (!gotTheLock) {
+    app.quit();
+    process.exit(0);
+  }
 }
 
 let mainWindow: BrowserWindow | null = null;
@@ -36,7 +39,9 @@ async function startDesktopAgent() {
     const port = await webServer.start();
     dashboardUrl = `http://127.0.0.1:${port}`;
   } catch (error) {
-    if (!(error instanceof Error) || !error.message.includes("already running")) throw error;
+    logger.warn("Primary port 4321 busy or daemon already started, searching available dashboard port:", {
+      error: error instanceof Error ? error.message : String(error),
+    });
     for (let port = 4321; port <= 4330; port += 1) {
       try {
         const url = `http://127.0.0.1:${port}`;
@@ -50,7 +55,15 @@ async function startDesktopAgent() {
         /* Try the next dashboard port. */
       }
     }
-    if (!dashboardUrl) throw error;
+    if (!dashboardUrl) {
+      try {
+        webServer = new AgentWebServer(0);
+        const port = await webServer.start();
+        dashboardUrl = `http://127.0.0.1:${port}`;
+      } catch {
+        dashboardUrl = "http://127.0.0.1:4321";
+      }
+    }
   }
 
   createTray();
@@ -58,7 +71,10 @@ async function startDesktopAgent() {
 
   app.on("activate", () => {
     if (!mainWindow) createWindow();
-    else mainWindow.show();
+    else {
+      mainWindow.show();
+      mainWindow.focus();
+    }
   });
 }
 
@@ -107,8 +123,22 @@ function createWindow() {
     return { action: "allow" };
   });
 
-  void mainWindow.loadURL(dashboardUrl);
-  mainWindow.once("ready-to-show", () => mainWindow?.show());
+  void mainWindow.loadURL(dashboardUrl).catch((err) => {
+    logger.warn("Initial agent loadURL failed, retrying:", { error: String(err) });
+    setTimeout(() => {
+      mainWindow?.loadURL(dashboardUrl).catch(() => {});
+    }, 1000);
+  });
+  mainWindow.once("ready-to-show", () => {
+    mainWindow?.show();
+    mainWindow?.focus();
+  });
+  setTimeout(() => {
+    if (mainWindow && !mainWindow.isVisible()) {
+      mainWindow.show();
+      mainWindow.focus();
+    }
+  }, 1200);
   mainWindow.on("close", (event) => {
     if (!isQuitting) {
       event.preventDefault();

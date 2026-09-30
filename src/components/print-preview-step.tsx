@@ -405,7 +405,7 @@ export function PrintPreviewStep({
                     {/* Sheet Footer Details */}
                     <div className="flex items-center justify-between border-t border-slate-100 pt-1.5 text-[9.5px] sm:text-[10px]">
                       <span className="font-semibold text-slate-500 truncate">
-                        {isDuplex ? "📑 Both" : "📄 1-Side"}
+                        📄 1-Side
                       </span>
                       {isIncluded ? (
                         <span className="font-extrabold text-emerald-700 flex items-center gap-0.5 shrink-0">
@@ -699,7 +699,7 @@ export function PrintPreviewStep({
                     )}
                     {isIncluded && (
                       <span className="rounded-full bg-white text-slate-700 border border-slate-200 px-3 py-1 font-semibold shadow-2xs">
-                        {isDuplex ? "📑 Both Sides" : "📄 Single Sided"}
+                        📄 Single Sided
                       </span>
                     )}
                   </div>

@@ -533,19 +533,7 @@ export function ImageCropperModal({
             <span>✂️ Select Portion / Snippet</span>
           </button>
 
-          {onSwitchToMultiImage && (
-            <button
-              type="button"
-              onClick={() => {
-                onClose();
-                onSwitchToMultiImage();
-              }}
-              className="flex items-center justify-center gap-1.5 rounded-xl py-2 px-3 text-xs font-bold text-emerald-800 bg-emerald-50/80 hover:bg-emerald-100/90 border border-emerald-200/90 transition-all cursor-pointer whitespace-nowrap shadow-2xs"
-            >
-              <LayoutGrid className="size-4 text-emerald-600" />
-              <span>Multiple Photos on 1 Page</span>
-            </button>
-          )}
+          {/* Multiple Photos on 1 Page button hidden from frontend */}
         </div>
 
         {/* Page Preset Options (Only in page_preset mode) */}

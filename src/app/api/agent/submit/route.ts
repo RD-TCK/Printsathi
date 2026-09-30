@@ -8,6 +8,7 @@ const submitSchema = z.object({
   // Optional: the Windows printer name used to print this pass.
   // Required for duplex odd-step jobs so the even step can be routed to the same printer.
   printerName: z.string().max(256).optional(),
+  duplexStep: z.enum(["none", "odd", "even", "all", "completed"]).optional(),
 });
 
 export async function POST(request: Request) {
@@ -40,15 +41,17 @@ export async function POST(request: Request) {
     .eq("id", parsed.data.jobId)
     .maybeSingle();
 
-  const isOddStep = existingJob?.duplex_step === "odd";
-  const isEvenStep = existingJob?.duplex_step === "even";
+  const stepReported = parsed.data.duplexStep;
+  const isHardwareAll = stepReported === "all";
+  const isOddStep = stepReported ? stepReported === "odd" : existingJob?.duplex_step === "odd";
+  const isEvenStep = stepReported ? (stepReported === "even" || stepReported === "completed") : existingJob?.duplex_step === "even";
 
   // "print_submitted" is the only valid print_job_status for a job that has been
   // sent to the Windows spooler. "partially_printed" is an ORDER status only —
   // setting it on a print_job would violate the DB enum and cause a 400 error.
   const targetJobStatus = "print_submitted";
-  const targetDuplexStep = isOddStep ? "odd_printed" : isEvenStep ? "completed" : "none";
-  // Order stays "partially_printed" after odd step; moves to "paid" after even step or single-sided
+  const targetDuplexStep = isHardwareAll ? "completed" : isOddStep ? "odd_printed" : isEvenStep ? "completed" : "none";
+  // Order stays "partially_printed" after odd step; moves to "paid" after even step, hardware duplex, or single-sided
   const targetOrderStatus = isOddStep ? "partially_printed" : "paid";
 
   // For the odd step, persist the printer name so the even step routes to the same printer,

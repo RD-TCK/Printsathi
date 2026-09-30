@@ -28,7 +28,13 @@ type TrackResult = {
   createdAt: string;
   paymentStatus: string;
   paymentTxnId?: string | null;
-  jobs: Array<{ id: string; status: string; pages: number; filename?: string | null }>;
+  jobs: Array<{
+    id: string;
+    status: string;
+    failureReason?: string | null;
+    pages: number;
+    filename?: string | null;
+  }>;
 };
 
 export default function PublicTrackPage() {
@@ -278,32 +284,47 @@ function TrackResultCard({ data }: { data: TrackResult }) {
               {data.jobs.map((job) => (
                 <div
                   key={job.id}
-                  className="flex items-center gap-3 rounded-lg border border-slate-100 bg-slate-50 px-3 py-2.5 text-sm"
+                  className={`rounded-lg border p-3 text-sm ${
+                    job.status === "failed" || job.failureReason
+                      ? "border-red-200 bg-red-50/50"
+                      : "border-slate-100 bg-slate-50"
+                  }`}
                 >
-                  <FileText className="size-4 shrink-0 text-slate-400" />
-                  <span className="flex-1 truncate text-slate-700">
-                    {job.filename || `Job #${job.id.slice(0, 8).toUpperCase()}`}
-                  </span>
-                  <span className="text-xs text-slate-400 shrink-0">{job.pages}p</span>
-                  <span
-                    className={`rounded-full px-2 py-0.5 text-xs font-semibold shrink-0 ${
-                      job.status === "completed"
-                        ? "bg-emerald-100 text-emerald-700"
+                  <div className="flex items-center gap-3">
+                    <FileText
+                      className={`size-4 shrink-0 ${
+                        job.status === "failed" ? "text-red-500" : "text-slate-400"
+                      }`}
+                    />
+                    <span className="flex-1 truncate text-slate-700 font-medium">
+                      {job.filename || `Job #${job.id.slice(0, 8).toUpperCase()}`}
+                    </span>
+                    <span className="text-xs text-slate-400 shrink-0">{job.pages}p</span>
+                    <span
+                      className={`rounded-full px-2 py-0.5 text-xs font-semibold shrink-0 ${
+                        job.status === "completed"
+                          ? "bg-emerald-100 text-emerald-700"
+                          : job.status === "failed"
+                            ? "bg-red-100 text-red-700"
+                            : isVerified
+                              ? "bg-blue-100 text-blue-700"
+                              : "bg-slate-100 text-slate-600"
+                      }`}
+                    >
+                      {job.status === "completed"
+                        ? "✓ Printed"
                         : job.status === "failed"
-                          ? "bg-red-100 text-red-700"
+                          ? "Failed"
                           : isVerified
-                            ? "bg-blue-100 text-blue-700"
-                            : "bg-slate-100 text-slate-600"
-                    }`}
-                  >
-                    {job.status === "completed"
-                      ? "✓ Printed"
-                      : job.status === "failed"
-                        ? "Failed"
-                        : isVerified
-                          ? "Printing…"
-                          : "Queued"}
-                  </span>
+                            ? "Printing…"
+                            : "Queued"}
+                    </span>
+                  </div>
+                  {job.failureReason && (
+                    <div className="mt-2 rounded-md border border-red-200 bg-red-50 px-2.5 py-1.5 text-xs font-medium text-red-800">
+                      <span className="font-bold">Reason:</span> {job.failureReason}
+                    </div>
+                  )}
                 </div>
               ))}
             </div>

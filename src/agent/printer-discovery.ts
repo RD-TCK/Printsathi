@@ -26,7 +26,7 @@ export async function discoverWindowsPrinters(): Promise<DiscoveredPrinter[]> {
   try {
     // An installed queue is not evidence that USB hardware is still attached.
     const psPrintersCmd = `powershell.exe -NoProfile -NonInteractive -Command "$ErrorActionPreference='Stop'; [Console]::OutputEncoding=[System.Text.UTF8Encoding]::new(); $devices=@(Get-PnpDevice -PresentOnly -ErrorAction Stop | Where-Object { $_.InstanceId -like 'USBPRINT*' -and $_.Status -eq 'OK' } | Select-Object -ExpandProperty InstanceId); Get-CimInstance Win32_Printer | Select-Object Name,Default,PrinterStatus,DriverName,PortName,WorkOffline,DetectedErrorState,PNPDeviceID,PrinterPaperNames,@{Name='UsbPresent';Expression={ $port=$_.PortName; $device=$_.PNPDeviceID; if ($port -match '^USB\\d+') { @($devices | Where-Object { ($device -and $_ -eq $device) -or $_ -like ('*&'+$port) -or $_ -like ('*'+$port) }).Count -gt 0 } else { $true } }} | ConvertTo-Json -Compress"`;
-    const psConfigCmd = `powershell.exe -NoProfile -NonInteractive -Command "Get-CimInstance Win32_PrinterConfiguration | Select-Object Name,Color | ConvertTo-Json -Compress"`;
+    const psConfigCmd = `powershell.exe -NoProfile -NonInteractive -Command "Get-CimInstance Win32_PrinterConfiguration | Select-Object Name,Color,Duplex | ConvertTo-Json -Compress"`;
     const [{ stdout: printerOut }, { stdout: configOut }] = await Promise.all([
       execAsync(psPrintersCmd, { timeout: 8000 }),
       execAsync(psConfigCmd, { timeout: 8000 }).catch(() => ({ stdout: "", stderr: "" })),
@@ -38,8 +38,9 @@ export async function discoverWindowsPrinters(): Promise<DiscoveredPrinter[]> {
       return getFallbackPrinters();
     }
 
-    // Build map of printerName -> isColor
+    // Build map of printerName -> isColor and isDuplex
     const colorMap = new Map<string, boolean>();
+    const duplexMap = new Map<string, boolean>();
     try {
       const configTrimmed = configOut.trim();
       if (configTrimmed) {
@@ -47,8 +48,14 @@ export async function discoverWindowsPrinters(): Promise<DiscoveredPrinter[]> {
         const configItems = Array.isArray(configParsed) ? configParsed : [configParsed];
         for (const item of configItems) {
           if (item && item.Name) {
+            const key = String(item.Name).trim().toLowerCase();
             // In Win32_PrinterConfiguration, Color == 2 means Color, 1 means Monochrome
-            colorMap.set(String(item.Name).trim().toLowerCase(), Number(item.Color) === 2);
+            if (item.Color !== undefined && item.Color !== null) {
+              colorMap.set(key, Number(item.Color) === 2);
+            }
+            if (item.Duplex !== undefined && item.Duplex !== null) {
+              duplexMap.set(key, Boolean(item.Duplex));
+            }
           }
         }
       }
@@ -87,17 +94,65 @@ export async function discoverWindowsPrinters(): Promise<DiscoveredPrinter[]> {
         // 1. First check Win32_PrinterConfiguration Color property
         // 2. Fall back to name/driver heuristics (e.g. LaserJet M1005 is mono)
         const nameLower = name.toLowerCase();
+        const driverLower = (driverName || "").toLowerCase();
+        const fullDesc = `${nameLower} ${driverLower}`;
+
         let colorSupport = colorMap.get(nameLower);
         if (colorSupport === undefined) {
           const isKnownMono =
-            nameLower.includes("mono") ||
-            nameLower.includes("m1005") ||
-            nameLower.includes("black") ||
-            nameLower.includes("laserjet 1") ||
-            nameLower.includes("laserjet p") ||
-            nameLower.includes("thermal") ||
-            nameLower.includes("pos-");
+            fullDesc.includes("mono") ||
+            fullDesc.includes("m1005") ||
+            fullDesc.includes("black") ||
+            fullDesc.includes("laserjet 1") ||
+            fullDesc.includes("laserjet p") ||
+            fullDesc.includes("thermal") ||
+            fullDesc.includes("pos-");
           colorSupport = !isKnownMono;
+        }
+
+        // Determine duplex capability:
+        // 1. Check Win32_PrinterConfiguration Duplex property
+        // 2. Fall back to known enterprise copiers and auto-duplex printer heuristics
+        let duplexSupport = duplexMap.get(nameLower);
+        if (duplexSupport === undefined || duplexSupport === false) {
+          const isKnownSimplex =
+            fullDesc.includes("m1005") ||
+            fullDesc.includes("1020") ||
+            fullDesc.includes("1007") ||
+            fullDesc.includes("1008") ||
+            fullDesc.includes("g2010") ||
+            fullDesc.includes("g3010") ||
+            fullDesc.includes("l130") ||
+            fullDesc.includes("l3110") ||
+            fullDesc.includes("l3210") ||
+            fullDesc.includes("l3150") ||
+            fullDesc.includes("thermal") ||
+            fullDesc.includes("pos-");
+
+          const isKnownDuplex =
+            fullDesc.includes("ir-adv") ||
+            fullDesc.includes("ir adv") ||
+            fullDesc.includes("imagerunner") ||
+            fullDesc.includes("c3326") ||
+            fullDesc.includes("c3330") ||
+            fullDesc.includes("c3520") ||
+            fullDesc.includes("c5535") ||
+            fullDesc.includes("c5540") ||
+            fullDesc.includes("c5550") ||
+            fullDesc.includes("c5560") ||
+            fullDesc.includes("6075") ||
+            fullDesc.includes("4545") ||
+            fullDesc.includes("4245") ||
+            fullDesc.includes("4045") ||
+            fullDesc.includes("bizhub") ||
+            fullDesc.includes("duplex") ||
+            /\b(dn|dw|cdw|fdw|dne|dtn)\b/.test(fullDesc);
+
+          if (isKnownDuplex && !isKnownSimplex) {
+            duplexSupport = true;
+          } else if (duplexSupport === undefined) {
+            duplexSupport = false;
+          }
         }
 
         return {
@@ -109,7 +164,7 @@ export async function discoverWindowsPrinters(): Promise<DiscoveredPrinter[]> {
           portName: item.PortName ? String(item.PortName) : undefined,
           capabilities: {
             colorSupport,
-            duplexSupport: false,
+            duplexSupport: Boolean(duplexSupport),
             paperSizes: Array.isArray(item.PrinterPaperNames) && item.PrinterPaperNames.length ? item.PrinterPaperNames : ["A4", "Letter"],
           },
         };
@@ -165,6 +220,7 @@ export function findBestPrinterForJob(
     paperSize?: string;
     preferredName?: string | null;
     requiredPrinterName?: string | null;
+    requiresDuplex?: boolean;
     busyPrinters?: Set<string> | string[];
   },
 ): DiscoveredPrinter | null {
@@ -226,21 +282,35 @@ export function findBestPrinterForJob(
   if (options.colorMode === "color") {
     // STRICT: Must find an online printer that explicitly supports color.
     // NEVER fall back to monochrome/B&W printers for color jobs.
-    const colorPrinter =
-      compatiblePrinters.find((p) => p.capabilities?.colorSupport === true && p.isDefault) ||
-      compatiblePrinters.find((p) => p.capabilities?.colorSupport === true);
+    const colorPrinters = compatiblePrinters.filter((p) => p.capabilities?.colorSupport === true);
+    if (colorPrinters.length === 0) return null;
 
-    return colorPrinter || null;
+    if (options.requiresDuplex) {
+      const duplexColor =
+        colorPrinters.find((p) => p.capabilities?.duplexSupport === true && p.isDefault) ||
+        colorPrinters.find((p) => p.capabilities?.duplexSupport === true);
+      if (duplexColor) return duplexColor;
+    }
+
+    const defaultColor = colorPrinters.find((p) => p.isDefault);
+    return defaultColor || colorPrinters[0] || null;
   }
 
   // STRICT B&W ROUTING:
   // Must find a dedicated monochrome/B&W printer (!colorSupport).
   // NEVER divert or fall back Black & White jobs to a Color printer.
-  const monoPrinter =
-    compatiblePrinters.find((p) => !p.capabilities?.colorSupport && p.isDefault) ||
-    compatiblePrinters.find((p) => !p.capabilities?.colorSupport);
+  const monoPrinters = compatiblePrinters.filter((p) => !p.capabilities?.colorSupport);
+  if (monoPrinters.length === 0) return null;
 
-  return monoPrinter || null;
+  if (options.requiresDuplex) {
+    const duplexMono =
+      monoPrinters.find((p) => p.capabilities?.duplexSupport === true && p.isDefault) ||
+      monoPrinters.find((p) => p.capabilities?.duplexSupport === true);
+    if (duplexMono) return duplexMono;
+  }
+
+  const defaultMono = monoPrinters.find((p) => p.isDefault);
+  return defaultMono || monoPrinters[0] || null;
 }
 
 export function findDefaultPrinter(

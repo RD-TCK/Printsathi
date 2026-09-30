@@ -96,10 +96,9 @@ export async function POST(request: Request) {
   // to route the back-side to the same physical printer, even after an agent restart.
   const requiredPrinterName = effectiveDuplexStep === "even" ? (jobDetails?.duplex_printer_name ?? null) : null;
 
-  // Resolve pagesConfig dynamically on the server:
-  // For double-sided steps (odd or even), break the ranges down into exact individual odd or even pages.
-  // This allows ALL existing desktop agents in the field to slice and print odd/even passes perfectly
-  // without needing any agent updates or re-downloads.
+  // Resolve pagesConfig dynamically:
+  // Preserve intact ranges so the desktop agent can perform proper multi-copy collation
+  // and blank-page sheet alignment for both hardware and manual duplex.
   const resolvedPagesConfig: Array<{
     startPage: number;
     endPage: number;
@@ -117,38 +116,14 @@ export async function POST(request: Request) {
     const paperSize = (p.paper_size || "a4") as "a4" | "a3";
     const isDouble = p.side_mode === "double_sided" || isDoubleSided;
 
-    if (isDouble && (effectiveDuplexStep === "odd" || effectiveDuplexStep === "even")) {
-      for (let i = start; i <= end; i++) {
-        if (effectiveDuplexStep === "odd" && i % 2 === 1) {
-          resolvedPagesConfig.push({
-            startPage: i,
-            endPage: i,
-            colorMode,
-            paperSize,
-            sideMode: "single_sided",
-            copies,
-          });
-        } else if (effectiveDuplexStep === "even" && i % 2 === 0) {
-          resolvedPagesConfig.push({
-            startPage: i,
-            endPage: i,
-            colorMode,
-            paperSize,
-            sideMode: "single_sided",
-            copies,
-          });
-        }
-      }
-    } else {
-      resolvedPagesConfig.push({
-        startPage: start,
-        endPage: end,
-        colorMode,
-        paperSize,
-        sideMode: (p.side_mode as "single_sided" | "double_sided") || "single_sided",
-        copies,
-      });
-    }
+    resolvedPagesConfig.push({
+      startPage: start,
+      endPage: end,
+      colorMode,
+      paperSize,
+      sideMode: isDouble ? "double_sided" : "single_sided",
+      copies,
+    });
   }
 
   return NextResponse.json({

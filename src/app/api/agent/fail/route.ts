@@ -44,13 +44,25 @@ export async function POST(request: Request) {
       claim_expires_at: null, claimed_by_agent_id: retryable ? null : auth.agent.id })
     .eq("id", parsed.data.jobId).eq("shop_id", auth.shop.id)
     .eq("claimed_by_agent_id", auth.agent.id).eq("status", job.status)
-    .select("id").maybeSingle();
+    .select("id, order_id").maybeSingle();
 
   if (error || !success) {
     return NextResponse.json(
       { error: error?.message || "Failed to report job failure or job is not claimed by this agent." },
       { status: 400 },
     );
+  }
+
+  // If permanent failure and job has an associated order, mark the order as failed
+  if (!retryable && success.order_id) {
+    await adminClient
+      .from("orders")
+      .update({
+        status: "failed",
+        updated_at: new Date().toISOString(),
+      })
+      .eq("id", success.order_id)
+      .eq("shop_id", auth.shop.id);
   }
 
   // Audit log
@@ -63,6 +75,7 @@ export async function POST(request: Request) {
       agent_id: auth.agent.id,
       reason: parsed.data.reason,
       retryable,
+      order_id: success.order_id || null,
       failed_at: new Date().toISOString(),
     },
   });

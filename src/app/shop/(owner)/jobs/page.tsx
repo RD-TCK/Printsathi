@@ -147,28 +147,37 @@ export default async function ShopJobsPage() {
                 <Badge key="payment" tone={paymentBadgeTone}>
                   {paymentLabel}
                 </Badge>,
-                <Badge
-                  key="status"
-                  tone={
-                    isDiscarded
-                      ? "danger"
+                <div key="status" className="flex flex-col items-start gap-1 max-w-[200px]">
+                  <Badge
+                    tone={
+                      isDiscarded
+                        ? "danger"
+                        : job.status === "completed"
+                          ? "success"
+                          : job.status === "failed"
+                            ? "danger"
+                            : isVerified
+                              ? "success"
+                              : "warning"
+                    }
+                  >
+                    {isDiscarded
+                      ? "DISCARDED (MISPRINT)"
                       : job.status === "completed"
-                        ? "success"
+                        ? "PRINTED"
                         : job.status === "failed"
-                          ? "danger"
-                          : isVerified
-                            ? "success"
-                            : "warning"
-                  }
-                >
-                  {isDiscarded
-                    ? "DISCARDED (MISPRINT)"
-                    : job.status === "completed"
-                      ? "PRINTED"
-                      : job.status === "failed"
-                        ? "Failed (Retryable)"
-                        : formatStatus(job.status)}
-                </Badge>,
+                          ? "FAILED"
+                          : formatStatus(job.status)}
+                  </Badge>
+                  {job.failure_reason && !isDiscarded ? (
+                    <div
+                      className="text-[11px] text-rose-800 font-semibold leading-tight break-words bg-rose-50 border border-rose-200 rounded p-1.5 w-full shadow-2xs"
+                      title={job.failure_reason}
+                    >
+                      ⚠️ <span className="font-bold">Error:</span> {job.failure_reason}
+                    </div>
+                  ) : null}
+                </div>,
                 <div key="actions" className="flex flex-wrap items-center gap-1.5">
                   <WebPrintButton
                     jobId={job.id}

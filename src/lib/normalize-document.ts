@@ -56,14 +56,26 @@ export async function normalizeDocument(file: File): Promise<{ bytes: Buffer; pa
     const height = embeddedImage.height * scale;
     page.drawImage(embeddedImage, { x: (595.28 - width) / 2, y: (841.89 - height) / 2, width, height });
     bytes = Buffer.from(await pdf.save());
-  } else if (extension === ".docx" || extension === ".doc") {
-    // 1. High-fidelity conversion via LibreOffice (preserves exact layout, fonts, margins, tables, pagination)
+  } else if (extension === ".docx" || extension === ".doc" || extension === ".rtf") {
+    // 1. High-fidelity conversion via Microsoft Word COM (preserves exact layout, fonts, margins, tables, pagination)
     let converted = false;
-    try {
-      bytes = Buffer.from(await convertWithLibreOffice(file, extension, bytes));
-      converted = true;
-    } catch {
-      // 2. LibreOffice not available or failed — fall back to pure JS mammoth pipeline
+    if (process.platform === "win32") {
+      try {
+        bytes = Buffer.from(await convertWithWord(extension, bytes));
+        converted = true;
+      } catch {
+        // Fall back to LibreOffice or pure JS Mammoth pipeline
+      }
+    }
+
+    // 2. High-fidelity conversion via LibreOffice
+    if (!converted) {
+      try {
+        bytes = Buffer.from(await convertWithLibreOffice(file, extension, bytes));
+        converted = true;
+      } catch {
+        // 3. LibreOffice not available or failed — fall back to pure JS mammoth pipeline
+      }
     }
 
     if (!converted) {
@@ -203,7 +215,60 @@ async function convertWithLibreOffice(file: File, extension: string, bytes: Buff
       );
     }
   } finally {
-    await fs.rm(directory, { recursive: true, force: true });
+    await fs.rm(directory, { recursive: true, force: true }).catch(() => {});
+  }
+}
+
+/**
+ * Converts a Word/Office document (.docx, .doc, .rtf) directly to PDF using
+ * native Microsoft Word COM automation when running on Windows.
+ * This guarantees 100% identical layout, full pages, images, and fonts without
+ * dropping code blocks or tables.
+ */
+async function convertWithWord(extension: string, bytes: Buffer): Promise<Buffer> {
+  if (process.platform !== "win32") {
+    throw new Error("Word COM conversion is only available on Windows.");
+  }
+  const directory = await fs.mkdtemp(path.join(os.tmpdir(), "printiva-word-"));
+  try {
+    const input = path.join(directory, `source${extension}`);
+    const output = path.join(directory, "source.pdf");
+    await fs.writeFile(input, bytes);
+
+    const script = `
+$word = $null
+$doc = $null
+try {
+  $word = New-Object -ComObject Word.Application
+  $word.Visible = $false
+  $word.DisplayAlerts = 0
+  $doc = $word.Documents.Open('${input.replace(/'/g, "''")}', $false, $true)
+  $doc.SaveAs2([ref]'${output.replace(/'/g, "''")}', [ref]17)
+  $doc.Close([ref]$false)
+  $word.Quit([ref]$false)
+} catch {
+  if ($doc) { $doc.Close([ref]$false) }
+  if ($word) { $word.Quit([ref]$false) }
+  throw $_.Exception.Message
+} finally {
+  if ($doc) { [System.Runtime.InteropServices.Marshal]::ReleaseComObject($doc) | Out-Null }
+  if ($word) { [System.Runtime.InteropServices.Marshal]::ReleaseComObject($word) | Out-Null }
+  [System.GC]::Collect()
+  [System.GC]::WaitForPendingFinalizers()
+}
+`;
+    await execute(
+      "powershell",
+      ["-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-Command", script],
+      { timeout: 60000, windowsHide: true }
+    );
+
+    if (!existsSync(output)) {
+      throw new Error("Word conversion did not produce output PDF.");
+    }
+    return await fs.readFile(output);
+  } finally {
+    await fs.rm(directory, { recursive: true, force: true }).catch(() => {});
   }
 }
 
@@ -376,7 +441,7 @@ function sanitizeForPdf(text: string): string {
 }
 
 interface DocxBlock {
-  type: "heading" | "paragraph" | "list_item" | "table_row" | "image" | "divider";
+  type: "heading" | "paragraph" | "list_item" | "table_row" | "image" | "divider" | "code_block";
   level?: number;
   text?: string;
   imageBase64?: string;
@@ -385,12 +450,14 @@ interface DocxBlock {
 
 /**
  * Parses Mammoth HTML output into an ordered array of renderable document blocks.
+ * Catches headings, paragraphs, lists, tables, images, dividers, code blocks, and blockquotes
+ * so that no content or code snippets are dropped.
  */
 function parseMammothHtml(html: string): DocxBlock[] {
   const blocks: DocxBlock[] = [];
 
-  // Match tags of interest: headings, paragraphs, lists, table rows, images, hr
-  const tagRegex = /<(h[1-6]|p|li|tr|hr)([^>]*)>([\s\S]*?)<\/\1>|<img\s+([^>]*)\/?>|<hr\s*\/?>/gi;
+  // Match tags of interest: headings, paragraphs, lists, table rows, images, hr, pre, code, blockquote, div
+  const tagRegex = /<(h[1-6]|p|li|tr|hr|pre|code|blockquote|div)([^>]*)>([\s\S]*?)<\/\1>|<img\s+([^>]*)\/?>|<hr\s*\/?>/gi;
   let match: RegExpExecArray | null;
 
   while ((match = tagRegex.exec(html)) !== null) {
@@ -439,6 +506,10 @@ function parseMammothHtml(html: string): DocxBlock[] {
       blocks.push({ type: "heading", level, text });
     } else if (tagName === "li") {
       blocks.push({ type: "list_item", text });
+    } else if (tagName === "pre" || tagName === "code") {
+      if (text) {
+        blocks.push({ type: "code_block", text });
+      }
     } else if (tagName === "tr") {
       // For table rows, separate cells by tab
       const cellText = innerHtml
@@ -539,6 +610,7 @@ async function renderDocxHtmlToPdf(html: string, filename: string): Promise<Buff
   const pdfDoc = await PDFDocument.create();
   const font = await pdfDoc.embedFont(StandardFonts.Helvetica);
   const boldFont = await pdfDoc.embedFont(StandardFonts.HelveticaBold);
+  const monoFont = await pdfDoc.embedFont(StandardFonts.Courier);
 
   const a4Width = 595.28;
   const a4Height = 841.89;
@@ -665,6 +737,25 @@ async function renderDocxHtmlToPdf(html: string, filename: string): Promise<Buff
         });
         currentY -= lineHeight;
       }
+    } else if (block.type === "code_block") {
+      const fontSize = 9;
+      const lineHeight = 13;
+      const codeText = sanitizeForPdf(block.text || "");
+      const wrapped = wrapText(codeText, monoFont, fontSize, contentWidth - 12);
+
+      currentY -= 4;
+      for (const line of wrapped) {
+        ensureSpace(lineHeight);
+        currentPage.drawText(line, {
+          x: margin + 6,
+          y: currentY - fontSize,
+          size: fontSize,
+          font: monoFont,
+          color: rgb(0.12, 0.18, 0.28),
+        });
+        currentY -= lineHeight;
+      }
+      currentY -= 4;
     } else if (block.type === "divider") {
       ensureSpace(12);
       currentPage.drawLine({

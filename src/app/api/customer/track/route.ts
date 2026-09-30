@@ -39,6 +39,7 @@ export async function GET(request: Request) {
       print_jobs (
         id,
         status,
+        failure_reason,
         total_pages,
         documents ( original_filename )
       )
@@ -72,6 +73,7 @@ export async function GET(request: Request) {
       return {
         id: job.id,
         status: job.status,
+        failureReason: job.failure_reason || null,
         pages: job.total_pages,
         filename: (docs[0] as { original_filename?: string } | null)?.original_filename || null,
       };

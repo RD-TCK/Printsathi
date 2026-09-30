@@ -312,9 +312,16 @@ export default async function OrderDetailPage({ params }: Props) {
                   )}
 
                   {job.failure_reason && (
-                    <p className="mt-2 text-xs text-red-600">
-                      Issue: {job.failure_reason}
-                    </p>
+                    <div className="mt-3 rounded-lg border border-red-200 bg-red-50 p-2.5 text-xs text-red-800">
+                      <p className="font-bold flex items-center gap-1">
+                        <XCircle className="size-3.5 text-red-600" />
+                        Print Issue:
+                      </p>
+                      <p className="mt-0.5">{job.failure_reason}</p>
+                      <p className="mt-1 text-[11px] text-red-600">
+                        Please notify the shopkeeper at the counter for assistance.
+                      </p>
+                    </div>
                   )}
                 </div>
               );

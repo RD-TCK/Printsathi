@@ -64,12 +64,35 @@ describe("PDF print submission", () => {
     });
     const pending = prepareAndPrintDocument(source, job, printerName);
     await vi.waitFor(() => expect(finish).toBeTypeOf("function"));
-    // 1 customer page + 1 blank separator page = 2 pages in spooled output
+    // 1 customer page + 1 blank separator sheet = 2 pages in spooled output
     expect((await PDFDocument.load(fs.readFileSync(sliced))).getPageCount()).toBe(2);
     finish();
     expect(await pending).toMatchObject({ success: true, status: "PRINT_SUBMITTED", pagesSubmitted: 1 });
     expect(fs.existsSync(sliced)).toBe(false);
     expect(fs.existsSync(source)).toBe(true);
+  });
+
+  it("prints exact number of copies requested by customer with 1 separator sheet at the end of single-sided jobs", async () => {
+    let spooledCount = 0;
+    mocks.execute.mockImplementation(async (_file, args, _options, callback) => {
+      const p = args.at(-1);
+      const loaded = await PDFDocument.load(fs.readFileSync(p));
+      spooledCount = loaded.getPageCount();
+      callback(null, "", "");
+    });
+
+    // 2 copies of page 1-2 = 4 pages + 1 blank separator page = 5 pages spooled
+    const multiCopyJob = {
+      id: "job-multi-copy",
+      totalPages: 4,
+      pagesConfig: [{ startPage: 1, endPage: 2, colorMode: "black_and_white", paperSize: "a4", sideMode: "single_sided", copies: 2 }],
+    } as ClaimedJob;
+
+    const result = await prepareAndPrintDocument(source, multiCopyJob, printerName);
+    expect(result.success).toBe(true);
+    expect(result.pagesSubmitted).toBe(4);
+    expect(spooledCount).toBe(5);
+    expect(mocks.execute).toHaveBeenCalled();
   });
 
   it.each(["offline", "error"])("rejects %s printers without launching a renderer", async (status) => {
@@ -135,8 +158,8 @@ describe("PDF print submission", () => {
 
     const evenResult = await prepareAndPrintDocument(multiPageSource, duplexJobEven, printerName);
     expect(evenResult.success).toBe(true);
-    // 2 even pages (2, 4) - no separator blank page in manual duplex
-    expect(evenPagesCount).toBe(2);
+    // 2 even pages (2, 4) + 1 blank separator page at end of completed job = 3 pages
+    expect(evenPagesCount).toBe(3);
     expect(evenResult.pagesSubmitted).toBe(2);
 
     // Single page document in even step should complete with 0 pages submitted and not invoke renderer
@@ -157,5 +180,103 @@ describe("PDF print submission", () => {
     expect(singlePageResult.success).toBe(true);
     expect(singlePageResult.pagesSubmitted).toBe(0);
     expect(mocks.execute).not.toHaveBeenCalled();
+  });
+
+  it("collates multiple copies per copy for manual duplex passes", async () => {
+    // 4-page source PDF
+    const fourPageSource = path.join(directory, "multi_copy_4p.pdf");
+    const doc = await PDFDocument.create();
+    for (let i = 0; i < 4; i++) doc.addPage();
+    fs.writeFileSync(fourPageSource, await doc.save());
+
+    // 2 copies of 4-page document in odd step
+    const jobOddCopies = {
+      id: "job-odd-copies",
+      totalPages: 4,
+      duplexStep: "odd",
+      pagesConfig: [{ startPage: 1, endPage: 4, colorMode: "black_and_white", paperSize: "a4", sideMode: "double_sided", copies: 2 }],
+    } as ClaimedJob;
+
+    let oddPdfPages = 0;
+    mocks.execute.mockImplementation(async (_file, args, _options, callback) => {
+      const p = args.at(-1);
+      const loaded = await PDFDocument.load(fs.readFileSync(p));
+      oddPdfPages = loaded.getPageCount();
+      callback(null, "", "");
+    });
+
+    const oddRes = await prepareAndPrintDocument(fourPageSource, jobOddCopies, printerName);
+    expect(oddRes.success).toBe(true);
+    // 2 odd pages * 2 copies = 4 pages (collated Copy 1: [1, 3], Copy 2: [1, 3])
+    expect(oddPdfPages).toBe(4);
+    expect(oddRes.pagesSubmitted).toBe(4);
+
+    // 2 copies of 4-page document in even step
+    const jobEvenCopies = {
+      id: "job-even-copies",
+      totalPages: 4,
+      duplexStep: "even",
+      pagesConfig: [{ startPage: 1, endPage: 4, colorMode: "black_and_white", paperSize: "a4", sideMode: "double_sided", copies: 2 }],
+    } as ClaimedJob;
+
+    let evenPdfPages = 0;
+    mocks.execute.mockImplementation(async (_file, args, _options, callback) => {
+      const p = args.at(-1);
+      const loaded = await PDFDocument.load(fs.readFileSync(p));
+      evenPdfPages = loaded.getPageCount();
+      callback(null, "", "");
+    });
+
+    const evenRes = await prepareAndPrintDocument(fourPageSource, jobEvenCopies, printerName);
+    expect(evenRes.success).toBe(true);
+    // 2 even pages * 2 copies = 4 pages + 1 blank separator page = 5 pages
+    expect(evenPdfPages).toBe(5);
+    expect(evenRes.pagesSubmitted).toBe(4);
+  });
+
+  it("uses hardware duplex with duplex setting and pads odd-length copies when printer supports duplex", async () => {
+    // Hardware duplex printer
+    const duplexPrinterName = "Canon iR-ADV 6075";
+    mocks.discover.mockResolvedValue([
+      {
+        name: duplexPrinterName,
+        status: "online",
+        capabilities: { duplexSupport: true, colorSupport: false, paperSizes: ["A4"] },
+      },
+    ]);
+
+    // 3-page document with 2 copies
+    const threePageSource = path.join(directory, "three_pages.pdf");
+    const doc = await PDFDocument.create();
+    for (let i = 0; i < 3; i++) doc.addPage();
+    fs.writeFileSync(threePageSource, await doc.save());
+
+    const hardwareDuplexJob = {
+      id: "job-hw-duplex",
+      totalPages: 3,
+      pagesConfig: [{ startPage: 1, endPage: 3, colorMode: "black_and_white", paperSize: "a4", sideMode: "double_sided", copies: 2 }],
+    } as ClaimedJob;
+
+    let submittedSettings = "";
+    let spooledPageCount = 0;
+    mocks.execute.mockImplementation(async (_file, args, _options, callback) => {
+      const settingsIndex = args.indexOf("-print-settings");
+      if (settingsIndex !== -1) {
+        submittedSettings = args[settingsIndex + 1];
+      }
+      const p = args.at(-1);
+      const loaded = await PDFDocument.load(fs.readFileSync(p));
+      spooledPageCount = loaded.getPageCount();
+      callback(null, "", "");
+    });
+
+    const result = await prepareAndPrintDocument(threePageSource, hardwareDuplexJob, duplexPrinterName);
+    expect(result.success).toBe(true);
+    expect(result.duplexModeUsed).toBe("hardware");
+    // SumatraPDF setting must include "duplex"
+    expect(submittedSettings).toContain("duplex");
+    // 3 pages + 1 blank padding per copy * 2 copies = 8 spooled pages + 2 blank separator pages (1 physical double-sided sheet) = 10
+    expect(spooledPageCount).toBe(10);
+    expect(result.pagesSubmitted).toBe(6);
   });
 });

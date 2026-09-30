@@ -769,8 +769,26 @@ export class AgentWebServer {
       }
     }
 
-    async function unpairAgent() {
-      if (!confirm('Are you sure you want to disconnect this agent from the shop?')) return;
+    async function unpairAgent(btnEl) {
+      if (btnEl) {
+        if (btnEl.dataset.confirming !== 'true') {
+          btnEl.dataset.confirming = 'true';
+          const originalText = btnEl.innerText;
+          btnEl.innerText = '⚠️ Really Disconnect? Click again';
+          btnEl.style.background = '#991b1b';
+          setTimeout(() => {
+            if (btnEl && btnEl.dataset.confirming === 'true') {
+              delete btnEl.dataset.confirming;
+              btnEl.innerText = originalText;
+              btnEl.style.background = '';
+            }
+          }, 4000);
+          return;
+        }
+        delete btnEl.dataset.confirming;
+        btnEl.disabled = true;
+        btnEl.innerText = 'Disconnecting...';
+      }
       await fetch('/api/unpair', { method: 'POST' });
       lastRenderedPairedState = null;
       await refreshStatus(true);
@@ -788,7 +806,9 @@ export class AgentWebServer {
       const portalLink = document.getElementById('headerPortalLink');
       if (portalLink) portalLink.href = \`\${activeServerUrl}/shop/dashboard\`;
 
-      status.printers = status.printers.filter(p => !/onenote|print to pdf|xps|fax|pdfcreator|cutepdf/i.test(p.name + ' ' + (p.driverName || '')) && !/^(nul:|portprompt:|file:)$/i.test(p.portName || ''));
+      status.printers = Array.isArray(status.printers)
+        ? status.printers.filter(p => !/onenote|print to pdf|xps|fax|pdfcreator|cutepdf/i.test(p.name + ' ' + (p.driverName || '')) && !/^(nul:|portprompt:|file:)$/i.test(p.portName || ''))
+        : [];
       const printerReady = status.printers.some(p => ['online', 'printing'].includes(p.status));
 
       // Status Badge
@@ -867,7 +887,7 @@ export class AgentWebServer {
               </span>
             </div>
             <div class="info-row"><span class="info-label">Last Heartbeat</span><span class="info-val" style="font-size:12px;">\${status.lastHeartbeat ? new Date(status.lastHeartbeat).toLocaleTimeString('en-IN', { timeZone: 'Asia/Kolkata', hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: true }) + ' IST' : 'Active'}</span></div>
-            <button class="btn-danger" onclick="unpairAgent()">Disconnect Agent</button>
+            <button class="btn-danger" onclick="unpairAgent(this)">Disconnect Agent</button>
           \`;
         }
       }
@@ -970,7 +990,25 @@ export class AgentWebServer {
       }
     }
 
+    let cachedCounterQueue = [];
+    let confirmingCancelOrderId = null;
+    let cancellingOrderIds = new Set();
+    let queueErrorNotice = null;
+
+    function updateQueueBadge() {
+      const active = cachedCounterQueue.filter(i => i.status === 'awaiting_payment' && !i.isExpired);
+      const badge = document.getElementById('counterQueueBadge');
+      if (badge) {
+        badge.innerText = active.length + ' waiting';
+        if (badge.style) {
+          badge.style.background = active.length > 0 ? '#fef3c7' : '#f1f5f9';
+          badge.style.color = active.length > 0 ? '#92400e' : '#475569';
+        }
+      }
+    }
+
     async function approveCounterOrder(orderId, btnEl) {
+      queueErrorNotice = null;
       if (btnEl) {
         btnEl.disabled = true;
         btnEl.innerHTML = '🔄 Printing...';
@@ -981,22 +1019,29 @@ export class AgentWebServer {
           headers: {'Content-Type': 'application/json'},
           body: JSON.stringify({ orderId })
         });
-        const data = await res.json();
-        if (res.ok) {
+        const data = await res.json().catch(() => ({}));
+        if (res.ok && (data.success || !data.error)) {
           if (btnEl) {
             btnEl.innerHTML = '✅ Sent to Printer!';
           }
+          const item = cachedCounterQueue.find(i => i.id === orderId);
+          if (item) {
+            item.status = 'paid';
+          }
+          updateQueueBadge();
           await refreshCounterQueue();
           await refreshStatus(false);
         } else {
-          alert('Approval failed: ' + (data.error || 'Server error'));
+          queueErrorNotice = 'Approval failed: ' + (data.error || 'Server error');
+          renderAgentQueueWithFilter();
           if (btnEl) {
             btnEl.disabled = false;
             btnEl.innerHTML = '🖨️ Print &amp; Approve';
           }
         }
       } catch (e) {
-        alert('Failed to approve order');
+        queueErrorNotice = 'Failed to approve order: Network error';
+        renderAgentQueueWithFilter();
         if (btnEl) {
           btnEl.disabled = false;
           btnEl.innerHTML = '🖨️ Print &amp; Approve';
@@ -1004,35 +1049,68 @@ export class AgentWebServer {
       }
     }
 
-    async function cancelCounterOrder(orderId, btnEl) {
-      if (!confirm('Cancel this counter print request?')) return;
-      if (btnEl) btnEl.disabled = true;
+    function promptCancelCounterOrder(orderId) {
+      queueErrorNotice = null;
+      confirmingCancelOrderId = orderId;
+      renderAgentQueueWithFilter();
+    }
+
+    function abortCancelCounterOrder() {
+      confirmingCancelOrderId = null;
+      renderAgentQueueWithFilter();
+    }
+
+    async function executeCancelOrder(orderId) {
+      confirmingCancelOrderId = null;
+      cancellingOrderIds.add(orderId);
+      queueErrorNotice = null;
+      renderAgentQueueWithFilter();
+
       try {
         const res = await fetch('/api/cancel-counter-order', {
           method: 'POST',
           headers: {'Content-Type': 'application/json'},
           body: JSON.stringify({ orderId })
         });
-        const data = await res.json();
-        if (res.ok) {
+        const data = await res.json().catch(() => ({}));
+        if (res.ok && (data.success || !data.error)) {
+          // Optimistically update cached queue
+          const item = cachedCounterQueue.find(i => i.id === orderId);
+          if (item) {
+            item.status = 'cancelled';
+          }
+          cancellingOrderIds.delete(orderId);
+          renderAgentQueueWithFilter();
+          updateQueueBadge();
           await refreshCounterQueue();
         } else {
-          alert('Cancel failed: ' + (data.error || 'Server error'));
-          if (btnEl) btnEl.disabled = false;
+          cancellingOrderIds.delete(orderId);
+          queueErrorNotice = 'Failed to cancel order: ' + (data.error || 'Server error');
+          renderAgentQueueWithFilter();
         }
       } catch (e) {
-        alert('Failed to cancel order');
-        if (btnEl) btnEl.disabled = false;
+        cancellingOrderIds.delete(orderId);
+        queueErrorNotice = 'Network error cancelling order';
+        renderAgentQueueWithFilter();
       }
     }
 
-    let cachedCounterQueue = [];
+    function cancelCounterOrder(orderId, btnEl) {
+      promptCancelCounterOrder(orderId);
+    }
 
     function renderAgentQueueWithFilter() {
       const list = document.getElementById('counterQueueList');
       if (!list) return;
       const searchInput = document.getElementById('agentTokenSearchInput');
-      const query = (searchInput ? searchInput.value : '').trim().replace(/^#+/, '').toLowerCase();
+      const query = (searchInput && typeof searchInput.value === 'string' ? searchInput.value : '').trim().replace(/^#+/, '').toLowerCase();
+
+      var errorNoticeHtml = queueErrorNotice ? [
+        '<div style="background:#fef2f2; border:1px solid #fca5a5; color:#991b1b; padding:8px 12px; border-radius:8px; font-size:12px; font-weight:600; margin-bottom:10px; display:flex; justify-content:space-between; align-items:center;">',
+          '<span>⚠️ ' + escapeHtml(queueErrorNotice) + '</span>',
+          '<button type="button" class="btn-secondary" style="font-size:11px; padding:2px 8px; border-color:#f87171; color:#991b1b; cursor:pointer;" onclick="queueErrorNotice=null;renderAgentQueueWithFilter();">Dismiss</button>',
+        '</div>'
+      ].join('') : '';
 
       let items = cachedCounterQueue;
       if (query) {
@@ -1045,19 +1123,19 @@ export class AgentWebServer {
 
       if (items.length === 0) {
         if (query) {
-          list.innerHTML = '<p style="font-size:13px; color:var(--text-muted); padding:10px 0;">No counter orders found matching Token #' + escapeHtml(query) + '.</p>';
+          list.innerHTML = errorNoticeHtml + '<p style="font-size:13px; color:var(--text-muted); padding:10px 0;">No counter orders found matching Token #' + escapeHtml(query) + '.</p>';
         } else {
-          list.innerHTML = '<p style="font-size:13px; color:var(--text-muted); padding:10px 0;">No active counter requests right now.</p>';
+          list.innerHTML = errorNoticeHtml + '<p style="font-size:13px; color:var(--text-muted); padding:10px 0;">No active counter requests right now.</p>';
         }
         return;
       }
 
-      list.innerHTML = items.map(function(item) {
+      list.innerHTML = errorNoticeHtml + items.map(function(item) {
         var minutesLeft = Math.floor(item.remainingSeconds / 60);
         var isPaid = item.status === "paid" || item.status === "completed" || item.status === "printing";
         var isCancelled = item.status === "cancelled";
-        var docNames = item.documents.map(function(d) { return escapeHtml(d.filename); }).join(", ");
-        var tokenLabel = item.tokenNumber ? ("#" + item.tokenNumber) : ("#" + item.publicId.slice(0, 4));
+        var docNames = (item.documents || []).map(function(d) { return escapeHtml(d.filename); }).join(", ");
+        var tokenLabel = item.tokenNumber ? ("#" + item.tokenNumber) : ("#" + (item.publicId || '').slice(0, 4));
         var statusText = isPaid
           ? "Approved / Printed"
           : isCancelled
@@ -1094,14 +1172,27 @@ export class AgentWebServer {
           ? "#64748b"
           : "#b45309";
 
+        var isConfirmingCancel = confirmingCancelOrderId === item.id;
+        var isCancelling = cancellingOrderIds.has(item.id);
+
         var actionHtml = "";
-        if (!isPaid && !isCancelled && !item.isExpired) {
+        if (isCancelling) {
+          actionHtml = '<span style="font-size:12px; font-weight:700; color:#dc2626; padding:6px 10px;">⏳ Cancelling...</span>';
+        } else if (isConfirmingCancel) {
+          actionHtml = [
+            '<span style="font-size:12px; font-weight:700; color:#dc2626; display:flex; align-items:center; margin-right:4px;">Cancel order?</span>',
+            '<button type="button" class="btn-secondary" style="background:#dc2626; color:#ffffff; border-color:#dc2626; font-size:12px; font-weight:700; padding:6px 12px; cursor:pointer;" onclick="executeCancelOrder(',
+            "'", item.id, "'",
+            ')">Yes, Cancel</button>',
+            '<button type="button" class="btn-secondary" style="font-size:12px; padding:6px 10px; cursor:pointer;" onclick="abortCancelCounterOrder()">Keep</button>'
+          ].join("");
+        } else if (!isPaid && !isCancelled && !item.isExpired) {
           actionHtml = [
             '<button type="button" class="btn-primary" style="width:auto; padding:7px 14px; font-size:12px;" onclick="approveCounterOrder(',
             "'", item.id, "', this",
             ')">🖨️ Print &amp; Approve</button>',
-            '<button type="button" class="btn-secondary" style="color:#dc2626; border-color:#fca5a5;" onclick="cancelCounterOrder(',
-            "'", item.id, "', this",
+            '<button type="button" class="btn-secondary" style="color:#dc2626; border-color:#fca5a5; cursor:pointer;" onclick="promptCancelCounterOrder(',
+            "'", item.id, "'",
             ')">Cancel</button>'
           ].join("");
         } else if (isPaid) {
@@ -1126,7 +1217,7 @@ export class AgentWebServer {
                 '</div>',
               '</div>',
             '</div>',
-            '<div style="display:flex; gap:8px;">' + actionHtml + '</div>',
+            '<div style="display:flex; gap:8px; align-items:center;">' + actionHtml + '</div>',
           '</div>'
         ].join("");
       }).join("");
@@ -1153,17 +1244,7 @@ export class AgentWebServer {
       if (!data || !Array.isArray(data.queue)) return;
 
       cachedCounterQueue = data.queue;
-
-      const active = data.queue.filter(i => i.status === 'awaiting_payment' && !i.isExpired);
-      const badge = document.getElementById('counterQueueBadge');
-      if (badge) {
-        badge.innerText = active.length + ' waiting';
-        if (badge.style) {
-          badge.style.background = active.length > 0 ? '#fef3c7' : '#f1f5f9';
-          badge.style.color = active.length > 0 ? '#92400e' : '#475569';
-        }
-      }
-
+      updateQueueBadge();
       renderAgentQueueWithFilter();
     }
 

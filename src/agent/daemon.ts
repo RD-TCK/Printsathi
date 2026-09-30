@@ -281,12 +281,9 @@ export class AgentDaemon {
 
       // Ensure double-sided jobs are handled with duplex state tracking
       const isDoubleSided = configs.some((c) => c.sideMode === "double_sided");
-      if (isDoubleSided && (!job.duplexStep || job.duplexStep === "none")) {
-        job.duplexStep = "odd";
-      }
-
-      // Check if this is Step 2 of a duplex job (Print Next Side)
+      // Check if this is Step 2 of a manual duplex job (Print Next Side)
       const isDuplexEvenStep = job.duplexStep === "even";
+
       // Server-persisted printer name takes precedence over the in-memory map.
       // This ensures the even side goes to the same printer even after an agent restart.
       const reservedPrinterForJob =
@@ -314,6 +311,7 @@ export class AgentDaemon {
           paperSize: ranges[0].paperSize,
           preferredName: this.config.selectedPrinter || job.defaultPrinter,
           requiredPrinterName: isDuplexEvenStep ? reservedPrinterForJob : null,
+          requiresDuplex: isDoubleSided && !isDuplexEvenStep,
           busyPrinters,
         });
         return { ranges, printer };
@@ -329,6 +327,21 @@ export class AgentDaemon {
         this.stats.jobsFailed += 1;
         this.currentJob = null;
         return;
+      }
+
+      // Resolve final duplex execution step based on selected printer hardware capability
+      const firstPrinter = plan[0]?.printer;
+      const printerSupportsHardwareDuplex = Boolean(firstPrinter?.capabilities?.duplexSupport);
+      if (isDoubleSided) {
+        if (isDuplexEvenStep) {
+          job.duplexStep = "even";
+        } else if (printerSupportsHardwareDuplex) {
+          // Printer has hardware duplex unit: print both sides in a single pass
+          job.duplexStep = "all";
+        } else {
+          // Printer is simplex: perform step 1 (odd) of manual duplex
+          job.duplexStep = "odd";
+        }
       }
 
       // Mark the selected printer(s) as actively printing
@@ -352,12 +365,10 @@ export class AgentDaemon {
         await this.client.downloadDocument(job.document.id, job.id, tempFilePath);
 
         // Persist the no-retry boundary BEFORE invoking the renderer.
-        // Also tells the server which printer is handling this job (for duplex same-printer guarantee).
+        // Also tells the server which printer and duplex step is handling this job.
         submissionStarted = true;
-        // We know the printer from the plan; send it along so the server can store it for the even step.
-        // plan[0].printer is available at this point because we validated plan above.
         const firstPrinterName = plan[0]?.printer?.name;
-        await this.client.reportSubmit(job.id, firstPrinterName);
+        await this.client.reportSubmit(job.id, firstPrinterName, job.duplexStep);
 
         let pagesSubmitted = 0;
         for (const part of plan) {
@@ -387,6 +398,8 @@ export class AgentDaemon {
             this.orderToReservedPrinter.delete(job.orderId);
             this.orderToReservedPrinter.delete(job.id);
             logger.info(`✅ Order #${job.orderId.slice(0, 8)} duplex printing completed. Printer "${printerName}" is now RELEASED for other jobs.`);
+          } else if (job.duplexStep === "all") {
+            logger.info(`✅ Order #${job.orderId.slice(0, 8)} hardware duplex printing completed in a single pass on "${printerName}".`);
           }
         }
 

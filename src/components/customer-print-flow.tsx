@@ -1384,16 +1384,7 @@ function UploadStep({
               <Camera className="size-3.5 text-emerald-600" />
               Take Photo / Scan
             </button>
-            {onOpenMultiImage && (
-              <button
-                type="button"
-                onClick={onOpenMultiImage}
-                className="inline-flex items-center gap-2 rounded-xl border border-emerald-300 bg-emerald-50/90 px-3.5 py-2 text-xs font-bold text-emerald-900 shadow-xs transition hover:bg-emerald-100 hover:border-emerald-400 active:scale-95 cursor-pointer"
-              >
-                <LayoutGrid className="size-3.5 text-emerald-600" />
-                Multiple Photos on 1 Page
-              </button>
-            )}
+            {/* Multi-image button hidden from frontend */}
           </div>
         </div>
 
@@ -1665,14 +1656,7 @@ function ConfigureAndCropStep({
                 e.currentTarget.value = "";
               }}
             />
-            <button
-              type="button"
-              disabled={busy || documents.length >= 10}
-              onClick={() => onOpenMultiImage()}
-              className="inline-flex items-center gap-1.5 rounded-xl border border-emerald-300 bg-emerald-50/80 px-2.5 sm:px-3 py-1.5 text-xs font-bold text-emerald-800 shadow-2xs hover:bg-emerald-100 transition active:scale-95 cursor-pointer"
-            >
-              <LayoutGrid className="size-3.5 text-emerald-600" /> Multiple Photos on 1 Page
-            </button>
+            {/* Multi-image button hidden from frontend */}
             <button
               type="button"
               disabled={busy || documents.length >= 10}
@@ -1727,14 +1711,7 @@ function ConfigureAndCropStep({
                     <Crop className="size-3.5 text-emerald-700" />
                     <span>Crop Image</span>
                   </button>
-                  <button
-                    type="button"
-                    onClick={() => onOpenMultiImage(activeDocument)}
-                    className="inline-flex items-center gap-1.5 rounded-xl border border-emerald-300 bg-emerald-50/80 px-2.5 sm:px-3 py-1.5 text-xs font-bold text-emerald-800 shadow-2xs hover:bg-emerald-100 transition active:scale-95 cursor-pointer"
-                  >
-                    <LayoutGrid className="size-3.5 text-emerald-600" />
-                    <span>Multiple Photos on 1 Page</span>
-                  </button>
+                  {/* Multi-image button hidden from frontend */}
                 </>
               )}
 
@@ -1885,8 +1862,8 @@ function ConfigureAndCropStep({
                   </div>
                 </div>
 
-                {/* Mobile Row 2: Mode, Paper Size, Side */}
-                <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
+                {/* Mobile Row 2: Mode, Paper Size (Both Sides removed from frontend) */}
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
                   <Select
                     label="Print Mode"
                     value={range.colorMode}
@@ -1906,17 +1883,6 @@ function ConfigureAndCropStep({
                     <option value="a3">A3 (Large)</option>
                     <option value="letter">Letter</option>
                     <option value="legal">Legal</option>
-                  </Select>
-                  <Select
-                    label="Print Sides"
-                    value={current.pageCount <= 1 ? "single_sided" : (range.sideMode ?? "single_sided")}
-                    onChange={(event) => updateRange(index, "sideMode", event.target.value)}
-                    disabled={current.pageCount <= 1}
-                  >
-                    <option value="single_sided">📄 Single-Sided (1 Side)</option>
-                    <option value="double_sided" disabled={current.pageCount <= 1}>
-                      📑 Double-Sided (Both Sides) {current.pageCount <= 1 ? "(Requires 2+ pages)" : ""}
-                    </option>
                   </Select>
                 </div>
 
