@@ -79,7 +79,7 @@ export async function POST(request: Request) {
       .eq("order_id", orderId)
       .eq("shop_id", shopId);
     const alreadyQueued = existingJobs?.some(
-      (j) => j.duplex_step === "even" && ["queued", "printing", "submitted"].includes(j.status)
+      (j) => j.duplex_step === "even" && ["queued", "printing", "print_submitted"].includes(j.status)
     );
     if (alreadyQueued) {
       return NextResponse.json({
