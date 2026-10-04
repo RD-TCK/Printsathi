@@ -8,7 +8,7 @@ export function PrinterStatusRefresh() {
   useEffect(() => {
     const timer = setInterval(() => {
       if (document.visibilityState === "visible") router.refresh();
-    }, 5000);
+    }, 2000);
     return () => clearInterval(timer);
   }, [router]);
   return null;

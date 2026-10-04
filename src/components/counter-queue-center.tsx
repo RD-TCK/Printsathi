@@ -104,7 +104,7 @@ export function CounterQueueCenter({ shopName }: { shopName: string }) {
       void fetchQueue();
     };
     void fetchQueue();
-    const timer = setInterval(doFetch, 5000);
+    const timer = setInterval(doFetch, 2000);
     const onVisibilityChange = () => {
       if (document.visibilityState === "visible") void fetchQueue();
     };

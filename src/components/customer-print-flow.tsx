@@ -385,7 +385,7 @@ export function CustomerPrintFlow({ shop: initialShop, identifier, initialPricin
       }
     };
     void refresh();
-    const timer = setInterval(() => { void refresh(); }, 5000);
+    const timer = setInterval(() => { void refresh(); }, 2000);
     return () => { controller.abort(); clearInterval(timer); };
   }, [identifier]);
 
@@ -2169,7 +2169,7 @@ function CounterTokenStep({
     void refresh();
     timer = setInterval(() => {
       void refresh();
-    }, 4000);
+    }, 2000);
     const onVisibilityChange = () => {
       if (document.visibilityState === "visible") void refresh();
     };
@@ -2460,7 +2460,7 @@ function PaymentStep({
       } catch { /* Poll again without changing confirmed payment state. */ }
     };
     void refresh();
-    timer = setInterval(() => { void refresh(); }, 5000);
+    timer = setInterval(() => { void refresh(); }, 2000);
     const onVisibilityChange = () => {
       if (document.visibilityState === "visible") void refresh();
     };
