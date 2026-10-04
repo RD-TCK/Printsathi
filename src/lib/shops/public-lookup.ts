@@ -42,12 +42,17 @@ export async function getPublicShop(
 ): Promise<{ shop: PublicShop | null; configured: boolean }> {
   const client = await createSupabaseServerClient();
   if (!client) return { shop: null, configured: false };
+  const inventoryClient = createSupabaseAdminClient() || client;
+
   let data: any = null;
-  const initialQuery = await client
-    .from("public_shop_directory")
-    .select("public_id, name, is_active, accepting_orders, status, payment_mode, allow_double_sided, has_custom_razorpay")
-    .eq("public_id", publicIdentifier)
-    .maybeSingle();
+  const [initialQuery, shopRecordRes] = await Promise.all([
+    client
+      .from("public_shop_directory")
+      .select("public_id, name, is_active, accepting_orders, status, payment_mode, allow_double_sided, has_custom_razorpay")
+      .eq("public_id", publicIdentifier)
+      .maybeSingle(),
+    inventoryClient.from("shops").select("id").eq("public_id", publicIdentifier).maybeSingle(),
+  ]);
 
   if (initialQuery.error) {
     // If allow_double_sided column is not yet present in the remote view, fallback to standard columns
@@ -76,8 +81,7 @@ export async function getPublicShop(
   let overallPrinterStatus: "ready" | "offline" | "not_connected" = "not_connected";
   const onlinePrinters: OnlinePrinterInfo[] = [];
 
-  const inventoryClient = createSupabaseAdminClient() || client;
-  const { data: shopRecord } = await inventoryClient.from("shops").select("id").eq("public_id", publicIdentifier).maybeSingle();
+  const shopRecord = shopRecordRes.data;
 
   if (shopRecord) {
     const [{ data: agents }, { data: printers }, { data: directSettings }] = await Promise.all([

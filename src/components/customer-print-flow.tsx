@@ -31,12 +31,25 @@ import {
   Palette,
   Layers,
 } from "lucide-react";
+import dynamic from "next/dynamic";
 import type { PublicShop, PublicPricingRule } from "@/lib/shops/public-lookup";
 import { type PrintRange, validateRanges } from "@/lib/customer-print";
 import { calculatePricing, type PricingRule } from "@/lib/pricing-engine";
-import { ImageCropperModal } from "@/components/image-cropper-modal";
-import { MultiImagePageModal } from "@/components/multi-image-page-modal";
-import { PrintPreviewStep } from "@/components/print-preview-step";
+
+const ImageCropperModal = dynamic(
+  () => import("@/components/image-cropper-modal").then((m) => m.ImageCropperModal),
+  { ssr: false }
+);
+
+const MultiImagePageModal = dynamic(
+  () => import("@/components/multi-image-page-modal").then((m) => m.MultiImagePageModal),
+  { ssr: false }
+);
+
+const PrintPreviewStep = dynamic(
+  () => import("@/components/print-preview-step").then((m) => m.PrintPreviewStep),
+  { ssr: false }
+);
 
 import { Alert } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
@@ -2129,10 +2142,12 @@ function CounterTokenStep({
     return () => clearInterval(timer);
   }, [tokenDetails.expiresAt]);
 
-  // Real-time status polling
+  // Real-time status polling (pauses when backgrounded)
   useEffect(() => {
+    let timer: NodeJS.Timeout;
     const controller = new AbortController();
     const refresh = async () => {
+      if (typeof document !== "undefined" && document.visibilityState !== "visible") return;
       try {
         const response = await fetch(
           `/api/payment/status?orderId=${encodeURIComponent(orderId)}&accessToken=${encodeURIComponent(accessToken || "")}`,
@@ -2151,12 +2166,18 @@ function CounterTokenStep({
         // Polling retry
       }
     };
-    const timer = setInterval(() => {
+    void refresh();
+    timer = setInterval(() => {
       void refresh();
-    }, 3000);
+    }, 4000);
+    const onVisibilityChange = () => {
+      if (document.visibilityState === "visible") void refresh();
+    };
+    document.addEventListener("visibilitychange", onVisibilityChange);
     return () => {
       controller.abort();
       clearInterval(timer);
+      document.removeEventListener("visibilitychange", onVisibilityChange);
     };
   }, [orderId, accessToken]);
 
@@ -2422,8 +2443,10 @@ function PaymentStep({
 
   const [jobStatuses, setJobStatuses] = useState<Array<{ id: string; status: string; failureReason?: string }>>([]);
   useEffect(() => {
+    let timer: NodeJS.Timeout;
     const controller = new AbortController();
     const refresh = async () => {
+      if (typeof document !== "undefined" && document.visibilityState !== "visible") return;
       try {
         const response = await fetch(`/api/payment/status?orderId=${encodeURIComponent(orderId)}&accessToken=${encodeURIComponent(accessToken || "")}`, { cache: "no-store", signal: controller.signal });
         if (!response.ok) return;
@@ -2436,8 +2459,17 @@ function PaymentStep({
         }
       } catch { /* Poll again without changing confirmed payment state. */ }
     };
-    const timer = setInterval(() => { void refresh(); }, 5000);
-    return () => { controller.abort(); clearInterval(timer); };
+    void refresh();
+    timer = setInterval(() => { void refresh(); }, 5000);
+    const onVisibilityChange = () => {
+      if (document.visibilityState === "visible") void refresh();
+    };
+    document.addEventListener("visibilitychange", onVisibilityChange);
+    return () => {
+      controller.abort();
+      clearInterval(timer);
+      document.removeEventListener("visibilitychange", onVisibilityChange);
+    };
   }, [orderId, accessToken]);
 
   const initiatePayment = useCallback(

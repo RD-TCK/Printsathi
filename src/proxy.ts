@@ -8,7 +8,29 @@ export async function proxy(request: NextRequest) {
     return response;
   }
 
-  // Fast path: if there are no Supabase auth cookies, return immediately (0ms)
+  const pathname = request.nextUrl.pathname;
+
+  // Paths that require authenticated shop keeper / admin sessions
+  const isOwnerPortal =
+    pathname === "/shop" ||
+    pathname.startsWith("/shop/dashboard") ||
+    pathname.startsWith("/shop/settings") ||
+    pathname.startsWith("/shop/pricing") ||
+    pathname.startsWith("/shop/printer") ||
+    pathname.startsWith("/shop/analytics") ||
+    pathname.startsWith("/shop/jobs") ||
+    pathname.startsWith("/shop/subscription") ||
+    pathname.startsWith("/shop/qr");
+
+  const isAdminPortal = pathname.startsWith("/admin") || pathname.startsWith("/api/admin");
+  const isShopApi = pathname.startsWith("/api/shop");
+
+  // Fast path 1: Public routes (marketing, customer upload flow, public APIs) bypass auth check completely (0ms)
+  if (!isOwnerPortal && !isAdminPortal && !isShopApi) {
+    return response;
+  }
+
+  // Fast path 2: if there are no Supabase auth cookies, return immediately (0ms)
   const allCookies = request.cookies.getAll();
   const hasAuthCookie = allCookies.some(
     (c) => c.name.startsWith("sb-") && (c.name.includes("auth-token") || c.name.includes("access-token")),

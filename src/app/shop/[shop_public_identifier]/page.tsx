@@ -21,10 +21,13 @@ export async function generateMetadata({ params }: ShopPageProps): Promise<Metad
 
 export default async function PublicShopPage({ params }: ShopPageProps) {
   const { shop_public_identifier: identifier } = await params;
-  const { shop, configured } = await getPublicShop(identifier);
+  const [shopResult, pricing] = await Promise.all([
+    getPublicShop(identifier),
+    getPublicPricing(identifier),
+  ]);
+  const { shop, configured } = shopResult;
   if (!configured) return <ShopLookupUnavailable />;
   if (!shop) notFound();
-  const pricing = await getPublicPricing(identifier);
 
   const isBwReady = shop.bw_printer_status === "ready";
   const isColorReady = shop.color_printer_status === "ready";
