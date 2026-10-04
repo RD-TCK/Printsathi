@@ -118,7 +118,7 @@ export function MarketingFooter() {
               className="block transition-colors hover:text-white"
               href="/register"
             >
-              Start Free Trial
+              ₹100 for 7 Days Trial
             </Link>
             <Link
               className="block transition-colors hover:text-white"
@@ -280,7 +280,7 @@ export function TrialCallout() {
               </span>
             </h2>
             <p className="mt-4 text-base leading-7 text-white/60 sm:text-lg">
-              Start with a full 7-day free trial. Install the agent, print your
+              Start with our ₹100 for 7 days trial. Install the agent, print your
               QR sticker, and watch customer queues flow hands-free.
             </p>
           </div>
@@ -288,7 +288,7 @@ export function TrialCallout() {
           <div className="flex flex-col sm:flex-row gap-4 shrink-0">
             <Button asChild size="lg" variant="secondary" className="shadow-lg">
               <Link href="/register" className="group">
-                Start free trial
+                ₹100 for 7 Days Trial
                 <ArrowRight className="size-4 transition-transform group-hover:translate-x-1" />
               </Link>
             </Button>
@@ -330,7 +330,7 @@ export function FaqList() {
     ],
     [
       "What does it cost after the trial?",
-      "7 days free. Then ₹699/month or ₹7,499/year with full support, unlimited orders, and automatic agent updates.",
+      "₹100 for 7 days trial. Then ₹699/month or ₹7,499/year with full support, unlimited orders, and automatic agent updates.",
     ],
   ];
 

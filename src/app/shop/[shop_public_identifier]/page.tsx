@@ -66,9 +66,9 @@ export default async function PublicShopPage({ params }: ShopPageProps) {
                     <span className="sm:hidden">Verified</span>
                     <span className="hidden sm:inline">Verified Partner Print Shop</span>
                   </span>
-                  <span className="hidden sm:inline-flex items-center gap-1 rounded-full bg-emerald-900/60 px-2.5 py-0.5 text-[11px] font-medium text-emerald-200 border border-emerald-700/40">
-                    <Sparkles className="size-3 text-emerald-400" />
-                    Zero-Wait Station
+                  <span className="inline-flex items-center gap-1 sm:gap-1.5 rounded-full bg-emerald-900/60 px-2 sm:px-2.5 py-0.5 text-[9.5px] sm:text-[11px] font-medium text-emerald-200 border border-emerald-700/40">
+                    <span className="size-1.5 rounded-full bg-emerald-400 animate-pulse" />
+                    <span>2s Live Sync</span>
                   </span>
                 </div>
                 

@@ -81,7 +81,7 @@ export default async function PrinterPage({ searchParams }: PrinterPageProps) {
       <ShopPageHeader
         eyebrow="Hardware bridge"
         title="Printer connection &amp; Windows Agent"
-        description="The Windows Desktop Agent connects your physical printer subsystem to Printiva. All discoveries, queue status, and heartbeats are verified live."
+        description="The Windows Desktop Agent connects your physical printer subsystem to Printiva. All discoveries, queue status, and heartbeats are verified live with 2-second updates."
         action={
           <div className="flex items-center gap-3">
             <Button asChild variant="secondary">
@@ -249,7 +249,10 @@ export default async function PrinterPage({ searchParams }: PrinterPageProps) {
                   and B&amp;W printers based on customer orders without requiring manual selection.
                 </p>
               </div>
-              <Badge tone="success">Auto-Routing Active</Badge>
+              <div className="flex items-center gap-2">
+                <Badge tone="success" className="flex items-center gap-1.5"><span className="size-1.5 rounded-full bg-emerald-500 animate-pulse" /> 2s Live Refresh</Badge>
+                <Badge tone="neutral">Auto-Routing Active</Badge>
+              </div>
             </div>
 
             {printerList.length === 0 ? (

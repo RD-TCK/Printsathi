@@ -80,7 +80,7 @@ export default function Home() {
                 <div className="reveal reveal-d3 mt-9 flex flex-wrap items-center gap-4">
                   <Button asChild size="lg" variant="primary">
                     <Link href="/register" className="group">
-                      Start free 7-day trial
+                      ₹100 for 7 Days Trial
                       <ArrowRight className="size-4 transition-transform group-hover:translate-x-0.5" />
                     </Link>
                   </Button>
@@ -365,7 +365,7 @@ export default function Home() {
               Everything you need to know.
             </h2>
             <p className="mt-4 text-base leading-7 text-muted sm:text-lg">
-              Shop onboarding, hardware, payments, and our free trial.
+              Shop onboarding, hardware, payments, and our ₹100 for 7 days trial.
             </p>
           </div>
           <div className="mt-14">

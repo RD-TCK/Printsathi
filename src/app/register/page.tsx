@@ -12,7 +12,7 @@ export default async function RegisterPage({ searchParams }: { searchParams: Pro
           <div className="flex items-center justify-between">
             <p className="text-sm font-bold text-brand-600 tracking-wide uppercase">Printiva</p>
             <span className="rounded-full bg-emerald-50 px-2.5 py-0.5 text-xs font-semibold text-emerald-700 border border-emerald-200">
-              7-Day Free Trial
+              ₹100 for 7 Days Trial
             </span>
           </div>
           <h1 className="mt-2 text-2xl font-bold text-brand-950">Create your shop account</h1>

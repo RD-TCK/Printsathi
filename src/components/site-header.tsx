@@ -55,7 +55,7 @@ export function SiteHeader() {
           </Link>
           <Button asChild size="sm" variant="primary">
             <Link href="/register" prefetch={true} className="group">
-              Start free trial
+              ₹100 for 7 Days Trial
               <ArrowRight className="size-3.5 transition-transform group-hover:translate-x-0.5" />
             </Link>
           </Button>
@@ -95,7 +95,7 @@ export function SiteHeader() {
             <div className="pt-3">
               <Button asChild className="w-full">
                 <Link href="/register" prefetch={true} onClick={() => setOpen(false)}>
-                  Start free trial
+                  ₹100 for 7 Days Trial
                 </Link>
               </Button>
             </div>

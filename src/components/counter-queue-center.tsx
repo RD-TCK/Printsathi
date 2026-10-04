@@ -434,6 +434,10 @@ export function CounterQueueCenter({ shopName }: { shopName: string }) {
                   <Badge tone="neutral" className="text-[10px] font-mono uppercase">
                     {shopName}
                   </Badge>
+                  <span className="inline-flex items-center gap-1 rounded-full bg-emerald-100 px-2 py-0.5 text-[10px] font-bold text-emerald-800 border border-emerald-200">
+                    <span className="size-1.5 rounded-full bg-emerald-500 animate-pulse" />
+                    2s Live
+                  </span>
                 </div>
                 <p className="text-xs text-muted">
                   Showing today&apos;s requests (resets daily at midnight IST). 1-hour validity per token.

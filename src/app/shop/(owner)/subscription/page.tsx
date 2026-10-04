@@ -99,7 +99,7 @@ export default async function SubscriptionPage({
                     {subscription.trial_end ? new Date(subscription.trial_end).toLocaleDateString() : "Not recorded"}
                   </p>
                   <p className="mt-1 text-xs font-semibold text-brand-700">
-                    {trialDays === null ? "" : `${trialDays} days remaining`}
+                    {trialDays === null ? "" : `${trialDays} days remaining (₹100 for 7 days trial)`}
                   </p>
                 </div>
               </>
