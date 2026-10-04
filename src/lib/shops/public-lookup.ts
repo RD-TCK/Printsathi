@@ -24,6 +24,7 @@ export type PublicShop = {
   color_printer_status: "ready" | "offline" | "not_connected";
   online_printers: OnlinePrinterInfo[];
   payment_mode: "online" | "counter" | "both";
+  allow_double_sided?: boolean;
   has_custom_razorpay?: boolean;
 };
 
@@ -41,12 +42,30 @@ export async function getPublicShop(
 ): Promise<{ shop: PublicShop | null; configured: boolean }> {
   const client = await createSupabaseServerClient();
   if (!client) return { shop: null, configured: false };
-  const { data, error } = await client
+  let data: any = null;
+  const initialQuery = await client
     .from("public_shop_directory")
-    .select("public_id, name, is_active, accepting_orders, status, payment_mode, has_custom_razorpay")
+    .select("public_id, name, is_active, accepting_orders, status, payment_mode, allow_double_sided, has_custom_razorpay")
     .eq("public_id", publicIdentifier)
     .maybeSingle();
-  if (error) throw new Error("Unable to load shop directory");
+
+  if (initialQuery.error) {
+    // If allow_double_sided column is not yet present in the remote view, fallback to standard columns
+    const fallbackQuery = await client
+      .from("public_shop_directory")
+      .select("public_id, name, is_active, accepting_orders, status, payment_mode, has_custom_razorpay")
+      .eq("public_id", publicIdentifier)
+      .maybeSingle();
+
+    if (fallbackQuery.error) {
+      console.error("Unable to load shop directory:", initialQuery.error, fallbackQuery.error);
+      throw new Error("Unable to load shop directory");
+    }
+    data = fallbackQuery.data;
+  } else {
+    data = initialQuery.data;
+  }
+
   if (!data) return { shop: null, configured: true };
 
   // Fetch shop's internal ID and printers to check real-time color vs B&W connectivity
@@ -61,18 +80,26 @@ export async function getPublicShop(
   const { data: shopRecord } = await inventoryClient.from("shops").select("id").eq("public_id", publicIdentifier).maybeSingle();
 
   if (shopRecord) {
-    const [{ data: agents }, { data: printers }] = await Promise.all([
+    const [{ data: agents }, { data: printers }, { data: directSettings }] = await Promise.all([
       inventoryClient
         .from("desktop_agents")
         .select("id, status, last_heartbeat_at")
         .eq("shop_id", shopRecord.id)
         .eq("is_revoked", false)
-        .order("last_heartbeat_at", { ascending: false })
-        ,
+        .order("last_heartbeat_at", { ascending: false }),
       inventoryClient
         .from("printers")
         .select("id, name, driver_name, desktop_agent_id, status, is_online, is_default, capabilities, last_seen_at")
         .eq("shop_id", shopRecord.id),
+      inventoryClient
+        .from("shop_settings")
+        .select("allow_double_sided")
+        .eq("shop_id", shopRecord.id)
+        .maybeSingle()
+        .then(
+          (res) => res,
+          () => ({ data: null })
+        ),
     ]);
 
     const printerList = (printers ?? []).filter(isPhysical);
@@ -124,6 +151,10 @@ export async function getPublicShop(
         overallPrinterStatus = "offline";
       }
     }
+
+    if (data && data.allow_double_sided === undefined && directSettings && typeof (directSettings as any).allow_double_sided === "boolean") {
+      data.allow_double_sided = (directSettings as any).allow_double_sided;
+    }
   }
 
   const isActive = data.is_active !== false;
@@ -142,6 +173,7 @@ export async function getPublicShop(
     color_printer_status: colorStatus,
     online_printers: onlinePrinters,
     payment_mode: (data.payment_mode as "online" | "counter" | "both") || "both",
+    allow_double_sided: data.allow_double_sided !== false,
     has_custom_razorpay: Boolean(data.has_custom_razorpay),
   };
 

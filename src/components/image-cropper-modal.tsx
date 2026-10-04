@@ -908,7 +908,7 @@ export function ImageCropperModal({
               type="button"
               disabled={isProcessing}
               onClick={handleSaveCrop}
-              className="inline-flex items-center gap-2 rounded-xl bg-gradient-to-r from-emerald-600 to-teal-700 px-5 py-2 text-xs font-bold text-white shadow-md shadow-emerald-900/20 hover:brightness-110 transition active:scale-95 disabled:opacity-50 cursor-pointer"
+              className="inline-flex items-center gap-2 rounded-xl bg-emerald-600 px-5 py-2 text-xs font-bold text-white shadow-md shadow-emerald-900/20 hover:bg-emerald-700 transition active:scale-95 disabled:opacity-50 cursor-pointer"
             >
               {isProcessing ? (
                 <>

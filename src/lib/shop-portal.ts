@@ -1,3 +1,4 @@
+import { cache } from "react";
 import { createSupabaseServerClient, getCurrentProfile, getCurrentUser } from "@/lib/supabase/server";
 import { ensureShopForUser } from "@/lib/ensure-shop";
 
@@ -17,7 +18,7 @@ export type ShopContext = {
   membership: { role: "shop_owner" | "shop_staff" };
 };
 
-export async function getShopContext(): Promise<ShopContext | null> {
+export const getShopContext = cache(async (): Promise<ShopContext | null> => {
   const client = await createSupabaseServerClient();
   const user = await getCurrentUser();
   const profile = await getCurrentProfile();
@@ -55,7 +56,7 @@ export async function getShopContext(): Promise<ShopContext | null> {
 
   if (!shop) return null;
   return { client, userId: user.id, profile, shop, membership: { role: membership.role } };
-}
+});
 
 export function canManageShop(context: ShopContext) {
   return context.membership.role === "shop_owner" || context.profile.role === "admin";

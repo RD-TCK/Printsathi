@@ -171,6 +171,7 @@ export async function updateShopSettings(formData: FormData) {
       isActive: z.enum(["true", "false"]),
       acceptingOrders: z.enum(["true", "false"]),
       paymentMode: z.enum(["online", "counter", "both"]).default("both"),
+      allowDoubleSided: z.enum(["true", "false"]).default("true"),
       razorpayKeyId: z.string().trim().optional(),
       razorpayKeySecret: z.string().trim().optional(),
       razorpayWebhookSecret: z.string().trim().optional(),
@@ -225,6 +226,7 @@ export async function updateShopSettings(formData: FormData) {
   const settingsPayload = {
     accepting_orders: parsed.data.acceptingOrders === "true",
     payment_mode: parsed.data.paymentMode,
+    allow_double_sided: parsed.data.allowDoubleSided === "true",
     razorpay_key_id: rzpKeyId,
     razorpay_key_secret: effectiveKeySecret,
     razorpay_webhook_secret: effectiveWebhookSecret,
@@ -232,16 +234,25 @@ export async function updateShopSettings(formData: FormData) {
 
   let settingsError = null;
   if (existingSettings) {
-    const { error } = await context.client
+    let { error } = await context.client
       .from("shop_settings")
       .update(settingsPayload)
       .eq("shop_id", context.shop.id);
+
+    if (error && (error.message?.includes("allow_double_sided") || error.details?.includes("allow_double_sided"))) {
+      const { allow_double_sided, ...fallbackPayload } = settingsPayload;
+      const res = await context.client
+        .from("shop_settings")
+        .update(fallbackPayload)
+        .eq("shop_id", context.shop.id);
+      error = res.error;
+    }
     settingsError = error;
   } else {
     // Upsert using admin client to ensure missing settings row is created
     const admin = createSupabaseAdminClient();
     if (admin) {
-      const { error } = await admin
+      let { error } = await admin
         .from("shop_settings")
         .upsert(
           {
@@ -250,14 +261,39 @@ export async function updateShopSettings(formData: FormData) {
           },
           { onConflict: "shop_id" }
         );
+
+      if (error && (error.message?.includes("allow_double_sided") || error.details?.includes("allow_double_sided"))) {
+        const { allow_double_sided, ...fallbackPayload } = settingsPayload;
+        const res = await admin
+          .from("shop_settings")
+          .upsert(
+            {
+              shop_id: context.shop.id,
+              ...fallbackPayload,
+            },
+            { onConflict: "shop_id" }
+          );
+        error = res.error;
+      }
       settingsError = error;
     } else {
-      const { error } = await context.client
+      let { error } = await context.client
         .from("shop_settings")
         .insert({
           shop_id: context.shop.id,
           ...settingsPayload,
         });
+
+      if (error && (error.message?.includes("allow_double_sided") || error.details?.includes("allow_double_sided"))) {
+        const { allow_double_sided, ...fallbackPayload } = settingsPayload;
+        const res = await context.client
+          .from("shop_settings")
+          .insert({
+            shop_id: context.shop.id,
+            ...fallbackPayload,
+          });
+        error = res.error;
+      }
       settingsError = error;
     }
   }

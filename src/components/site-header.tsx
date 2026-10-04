@@ -37,6 +37,7 @@ export function SiteHeader() {
               key={item.label}
               className="rounded-lg px-3.5 py-2 text-[13px] font-medium text-muted transition-colors hover:bg-brand-50 hover:text-brand-950"
               href={item.href}
+              prefetch={true}
             >
               {item.label}
             </Link>
@@ -48,11 +49,12 @@ export function SiteHeader() {
           <Link
             className="px-3 py-2 text-[13px] font-medium text-muted transition-colors hover:text-brand-950"
             href="/login"
+            prefetch={true}
           >
             Sign in
           </Link>
           <Button asChild size="sm" variant="primary">
-            <Link href="/register" className="group">
+            <Link href="/register" prefetch={true} className="group">
               Start free trial
               <ArrowRight className="size-3.5 transition-transform group-hover:translate-x-0.5" />
             </Link>
@@ -83,6 +85,7 @@ export function SiteHeader() {
               <Link
                 key={label}
                 href={href}
+                prefetch={true}
                 onClick={() => setOpen(false)}
                 className="rounded-lg p-3 text-sm font-medium text-brand-950 hover:bg-brand-50"
               >
@@ -91,7 +94,7 @@ export function SiteHeader() {
             ))}
             <div className="pt-3">
               <Button asChild className="w-full">
-                <Link href="/register" onClick={() => setOpen(false)}>
+                <Link href="/register" prefetch={true} onClick={() => setOpen(false)}>
                   Start free trial
                 </Link>
               </Button>

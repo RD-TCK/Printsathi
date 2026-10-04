@@ -5,7 +5,7 @@ vi.mock("@/lib/supabase/admin", () => ({ createSupabaseAdminClient: mocks.admin 
 vi.mock("@/lib/agent/auth", () => ({ generatePairingCode: vi.fn() }));
 vi.mock("next/cache", () => ({ revalidatePath: vi.fn() }));
 vi.mock("next/navigation", () => ({ redirect: (url: string) => { throw new Error(url); } }));
-import { setDefaultPrinter } from "./actions";
+import { setDefaultPrinter, updateShopSettings } from "./actions";
 const printerId = "11111111-1111-4111-8111-111111111111";
 describe("owner printer configuration", () => {
   beforeEach(() => {
@@ -35,5 +35,57 @@ describe("owner printer configuration", () => {
     query.maybeSingle.mockResolvedValue({ data: null, error: null }); mocks.from.mockReturnValue(query);
     const form = new FormData(); form.set("printerId", printerId);
     await expect(setDefaultPrinter(form)).rejects.toThrow("error=Could+not+update");
+  });
+});
+
+describe("owner shop settings configuration", () => {
+  beforeEach(() => {
+    vi.resetAllMocks();
+    mocks.manage.mockReturnValue(true);
+  });
+
+  it("updates shop and settings with allow_double_sided option", async () => {
+    const shopUpdate = vi.fn().mockReturnValue({ eq: vi.fn().mockResolvedValue({ error: null }) });
+    const settingsUpdate = vi.fn().mockReturnValue({ eq: vi.fn().mockResolvedValue({ error: null }) });
+    const settingsSelect = {
+      select: vi.fn().mockReturnValue({
+        eq: vi.fn().mockReturnValue({
+          maybeSingle: vi.fn().mockResolvedValue({
+            data: { shop_id: "owner-shop", razorpay_key_secret: null, razorpay_webhook_secret: null },
+            error: null,
+          }),
+        }),
+      }),
+      update: settingsUpdate,
+    };
+
+    const client = {
+      from: vi.fn((table: string) => {
+        if (table === "shops") return { update: shopUpdate };
+        if (table === "shop_settings") return settingsSelect;
+        throw new Error(`Unexpected table ${table}`);
+      }),
+    };
+
+    mocks.context.mockResolvedValue({ shop: { id: "owner-shop", name: "My Shop" }, client });
+
+    const form = new FormData();
+    form.set("name", "Print Fast");
+    form.set("phone", "+919876543210");
+    form.set("email", "owner@print.com");
+    form.set("address", "123 Market St");
+    form.set("isActive", "true");
+    form.set("acceptingOrders", "true");
+    form.set("paymentMode", "both");
+    form.set("allowDoubleSided", "false");
+
+    await expect(updateShopSettings(form)).rejects.toThrow("success=Settings+saved");
+    expect(settingsUpdate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        allow_double_sided: false,
+        accepting_orders: true,
+        payment_mode: "both",
+      })
+    );
   });
 });

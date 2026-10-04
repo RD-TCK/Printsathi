@@ -30,12 +30,12 @@ export default async function PublicShopPage({ params }: ShopPageProps) {
   const isColorReady = shop.color_printer_status === "ready";
 
   return (
-    <main className="min-h-screen bg-gradient-to-b from-slate-50 via-emerald-50/20 to-slate-50 px-2 py-2.5 sm:px-6 sm:py-8">
+    <main className="min-h-screen bg-slate-50 px-2 py-2.5 sm:px-6 sm:py-8">
       <div className="mx-auto max-w-3xl">
         {/* Navigation Bar */}
         <header className="flex items-center justify-between px-1 pb-2 sm:pb-4">
           <Link href="/" className="group flex items-center gap-1.5 sm:gap-2">
-            <span className="flex size-6.5 sm:size-8 items-center justify-center rounded-lg sm:rounded-xl bg-gradient-to-br from-emerald-600 to-teal-700 text-xs sm:text-base font-black text-white shadow-md shadow-emerald-900/20 transition-transform group-hover:scale-105">
+            <span className="flex size-6.5 sm:size-8 items-center justify-center rounded-lg sm:rounded-xl bg-emerald-600 text-xs sm:text-base font-black text-white shadow-md shadow-emerald-900/20 transition-transform group-hover:scale-105">
               P
             </span>
             <span className="text-base sm:text-xl font-black tracking-tight text-slate-900">
@@ -43,7 +43,7 @@ export default async function PublicShopPage({ params }: ShopPageProps) {
             </span>
           </Link>
           <div className="flex items-center gap-2">
-            <span className="inline-flex items-center gap-1 sm:gap-1.5 rounded-full bg-emerald-100/90 px-2 sm:px-3 py-0.5 sm:py-1 text-[10px] sm:text-xs font-bold text-emerald-800 border border-emerald-200/60 shadow-xs">
+            <span className="inline-flex items-center gap-1 sm:gap-1.5 rounded-full bg-emerald-100 px-2.5 sm:px-3 py-0.5 sm:py-1 text-[10px] sm:text-xs font-bold text-emerald-800 border border-emerald-200 shadow-xs">
               <span className="size-1.5 sm:size-2 rounded-full bg-emerald-500 animate-pulse" />
               Instant Print Shop
             </span>
@@ -51,69 +51,99 @@ export default async function PublicShopPage({ params }: ShopPageProps) {
         </header>
 
         {/* Main Content Card */}
-        <Card className="mt-0.5 sm:mt-1 overflow-hidden border-emerald-100/80 bg-white shadow-xl shadow-slate-900/5 rounded-2xl sm:rounded-3xl">
+        <Card className="mt-1 sm:mt-2 overflow-hidden border-emerald-200 bg-white shadow-xl shadow-emerald-950/5 rounded-2xl sm:rounded-3xl">
           {/* Shop Header Banner */}
-          <div className="relative overflow-hidden bg-gradient-to-br from-emerald-900 via-teal-900 to-slate-900 px-3.5 py-3 sm:px-8 sm:py-7 text-white">
-            {/* Ambient background decoration */}
-            <div className="pointer-events-none absolute -right-12 -top-12 size-48 rounded-full bg-emerald-500/10 blur-3xl" />
-            <div className="pointer-events-none absolute -bottom-10 left-1/3 size-36 rounded-full bg-teal-400/10 blur-2xl" />
-
-            <div className="relative z-10">
-              <div className="flex flex-wrap items-center justify-between gap-1">
-                <span className="inline-flex items-center gap-1 sm:gap-1.5 rounded-full bg-white/10 px-2 py-0.5 text-[9px] sm:text-[11px] font-semibold text-emerald-200 backdrop-blur-xs border border-white/10">
-                  <QrCode className="size-2.5 sm:size-3.5 text-emerald-300" /> Verified Partner Shop
-                </span>
-                <span className="text-[9px] sm:text-[11px] font-medium text-emerald-200/80">
-                  Upload · Configure · Pay · Print
-                </span>
-              </div>
-
-              <div className="mt-1.5 sm:mt-3 flex items-center justify-between gap-2 sm:gap-3">
-                <div className="min-w-0 flex-1">
-                  <h1 className="text-base sm:text-3xl font-black tracking-tight text-white truncate">
-                    {shop.name}
-                  </h1>
-                  <p className="mt-0.5 text-[10px] sm:text-sm text-emerald-100/70 truncate">
-                    Print your documents online &amp; collect at the counter.
-                  </p>
+          <div className="relative overflow-hidden bg-emerald-950 px-3.5 py-2.5 sm:px-8 sm:py-8 text-white border-b border-emerald-800">
+            <div className="relative z-10 space-y-2 sm:space-y-4">
+              {/* Top Meta Bar */}
+              <div className="flex flex-wrap items-center justify-between gap-1.5 sm:gap-2">
+                <div className="flex items-center gap-1.5 sm:gap-2">
+                  <span className="inline-flex items-center gap-1 sm:gap-1.5 rounded-full bg-emerald-900/80 px-2 py-0.5 sm:px-2.5 sm:py-1 text-[9.5px] sm:text-xs font-bold text-emerald-300 border border-emerald-700/60 shadow-xs">
+                    <ShieldCheck className="size-2.5 sm:size-3.5 text-emerald-400" />
+                    <span className="sm:hidden">Verified</span>
+                    <span className="hidden sm:inline">Verified Partner Print Shop</span>
+                  </span>
+                  <span className="hidden sm:inline-flex items-center gap-1 rounded-full bg-emerald-900/60 px-2.5 py-0.5 text-[11px] font-medium text-emerald-200 border border-emerald-700/40">
+                    <Sparkles className="size-3 text-emerald-400" />
+                    Zero-Wait Station
+                  </span>
                 </div>
-
-                {/* Status Badges */}
-                <div className="flex shrink-0 gap-1.5 text-xs">
+                
+                {/* Shop Operating Status */}
+                <div className="flex items-center">
                   <span
-                    className={`inline-flex items-center gap-1 sm:gap-1.5 rounded-lg sm:rounded-xl px-2 py-0.5 sm:px-3 sm:py-1.5 text-[10px] sm:text-xs font-bold backdrop-blur-xs border ${
+                    className={`inline-flex items-center gap-1 sm:gap-1.5 rounded-full px-2 py-0.5 sm:px-3 sm:py-1 text-[9.5px] sm:text-xs font-bold border transition-all ${
                       shop.status === "available"
-                        ? "bg-emerald-500/20 text-emerald-200 border-emerald-400/30"
-                        : "bg-amber-500/20 text-amber-200 border-amber-400/30"
+                        ? "bg-emerald-900 text-emerald-300 border-emerald-600 shadow-xs"
+                        : "bg-amber-950 text-amber-300 border-amber-600 shadow-xs"
                     }`}
                   >
                     <span
                       className={`size-1.5 sm:size-2 rounded-full ${
-                        shop.status === "available" ? "bg-emerald-400 animate-pulse" : "bg-amber-400"
+                        shop.status === "available" ? "bg-emerald-400 animate-ping" : "bg-amber-400"
                       }`}
                     />
-                    {shop.status === "available" ? "Accepting Orders" : "Orders Paused"}
+                    <span
+                      className={`size-1.5 -ml-2.5 sm:-ml-3.5 rounded-full ${
+                        shop.status === "available" ? "bg-emerald-400" : "bg-amber-400"
+                      }`}
+                    />
+                    <span className="sm:hidden">{shop.status === "available" ? "Open" : "Paused"}</span>
+                    <span className="hidden sm:inline">{shop.status === "available" ? "Live & Accepting Orders" : "Orders Paused"}</span>
                   </span>
                 </div>
               </div>
 
-              {/* Live Printer Readiness Pill */}
-              <div className="mt-2 sm:mt-4 flex flex-wrap items-center gap-1.5 sm:gap-2 pt-1.5 sm:pt-3 border-t border-white/10 text-xs">
-                <span className="text-[9px] sm:text-[11px] font-medium text-white/60">Printers:</span>
-                <span className="inline-flex items-center gap-1 sm:gap-1.5 rounded-md sm:rounded-lg bg-white/10 px-1.5 py-0.5 sm:px-2.5 sm:py-1 text-[9px] sm:text-[11px] font-medium text-white/90">
-                  <Printer className="size-2.5 sm:size-3 text-emerald-300" />
-                  B&amp;W:{" "}
-                  <b className={isBwReady ? "text-emerald-300 font-bold" : "text-amber-300 font-bold"}>
-                    {isBwReady ? "Ready" : "Offline"}
-                  </b>
-                </span>
-                <span className="inline-flex items-center gap-1 sm:gap-1.5 rounded-md sm:rounded-lg bg-white/10 px-1.5 py-0.5 sm:px-2.5 sm:py-1 text-[9px] sm:text-[11px] font-medium text-white/90">
-                  <Printer className="size-2.5 sm:size-3 text-emerald-300" />
-                  Color:{" "}
-                  <b className={isColorReady ? "text-emerald-300 font-bold" : "text-amber-300 font-bold"}>
-                    {isColorReady ? "Ready" : "Offline"}
-                  </b>
-                </span>
+              {/* Shop Title & Headline */}
+              <div className="pt-0.5 sm:pt-1">
+                <h1 className="text-lg sm:text-3xl lg:text-4xl font-black tracking-tight text-white leading-tight">
+                  {shop.name}
+                </h1>
+                <p className="hidden sm:block mt-1 text-xs sm:text-sm text-emerald-100/90 max-w-xl leading-relaxed">
+                  Upload your documents from mobile or PC, configure page settings &amp; get instant prints without standing in line.
+                </p>
+              </div>
+
+              {/* Real-time Hardware Telemetry Cards: 3 items in a single compact row on mobile */}
+              <div className="grid grid-cols-3 gap-1.5 sm:gap-2 pt-1.5 sm:pt-2 border-t border-emerald-800/80">
+                {/* B&W Station */}
+                <div className="flex items-center gap-1.5 sm:gap-2 rounded-lg sm:rounded-xl bg-emerald-900/50 p-1.5 sm:px-3 sm:py-2 border border-emerald-800 hover:bg-emerald-900/70 transition min-w-0">
+                  <div className="flex size-5 sm:size-8 items-center justify-center rounded-md sm:rounded-lg bg-emerald-600 text-white shrink-0 shadow-xs">
+                    <Printer className="size-3 sm:size-4" />
+                  </div>
+                  <div className="min-w-0 flex-1">
+                    <p className="text-[8.5px] sm:text-[11px] font-medium text-emerald-200 truncate">B&amp;W</p>
+                    <p className={`text-[9.5px] sm:text-xs font-bold truncate ${isBwReady ? "text-emerald-300" : "text-amber-300"}`}>
+                      {isBwReady ? "Online" : "Offline"}
+                    </p>
+                  </div>
+                </div>
+
+                {/* Color Station */}
+                <div className="flex items-center gap-1.5 sm:gap-2 rounded-lg sm:rounded-xl bg-emerald-900/50 p-1.5 sm:px-3 sm:py-2 border border-emerald-800 hover:bg-emerald-900/70 transition min-w-0">
+                  <div className="flex size-5 sm:size-8 items-center justify-center rounded-md sm:rounded-lg bg-emerald-600 text-white shrink-0 shadow-xs">
+                    <Sparkles className="size-3 sm:size-4" />
+                  </div>
+                  <div className="min-w-0 flex-1">
+                    <p className="text-[8.5px] sm:text-[11px] font-medium text-emerald-200 truncate">Color</p>
+                    <p className={`text-[9.5px] sm:text-xs font-bold truncate ${isColorReady ? "text-emerald-300" : "text-amber-300"}`}>
+                      {isColorReady ? "Online" : "Offline"}
+                    </p>
+                  </div>
+                </div>
+
+                {/* Print Dispatch Speed */}
+                <div className="flex items-center gap-1.5 sm:gap-2 rounded-lg sm:rounded-xl bg-emerald-900/50 p-1.5 sm:px-3 sm:py-2 border border-emerald-800 hover:bg-emerald-900/70 transition min-w-0">
+                  <div className="flex size-5 sm:size-8 items-center justify-center rounded-lg bg-emerald-600 text-white shrink-0 shadow-xs">
+                    <QrCode className="size-3 sm:size-4" />
+                  </div>
+                  <div className="min-w-0 flex-1">
+                    <p className="text-[8.5px] sm:text-[11px] font-medium text-emerald-200 truncate">Pickup</p>
+                    <p className="text-[9.5px] sm:text-xs font-bold text-emerald-300 truncate">
+                      Token
+                    </p>
+                  </div>
+                </div>
               </div>
             </div>
           </div>

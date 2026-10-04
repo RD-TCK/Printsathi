@@ -28,6 +28,8 @@ import {
   X,
   ExternalLink,
   LayoutGrid,
+  Palette,
+  Layers,
 } from "lucide-react";
 import type { PublicShop, PublicPricingRule } from "@/lib/shops/public-lookup";
 import { type PrintRange, validateRanges } from "@/lib/customer-print";
@@ -726,7 +728,8 @@ export function CustomerPrintFlow({ shop: initialShop, identifier, initialPricin
       ranges: document.ranges.map((range, rangeIndex) => {
         if (rangeIndex !== index) return range;
         if (field === "sideMode") {
-          const sideValue = document.pageCount <= 1 ? "single_sided" : value;
+          const allowDoubleSided = shop.allow_double_sided !== false;
+          const sideValue = (!allowDoubleSided || document.pageCount <= 1) ? "single_sided" : value;
           return { ...range, sideMode: sideValue as "single_sided" | "double_sided" };
         }
         if (field === "startPage" || field === "endPage" || field === "copies") {
@@ -751,7 +754,8 @@ export function CustomerPrintFlow({ shop: initialShop, identifier, initialPricin
     const lastRange = current.ranges[current.ranges.length - 1];
     const defaultMode = lastRange?.colorMode ?? "black_and_white";
     const defaultSize = lastRange?.paperSize ?? "a4";
-    const defaultSide = current.pageCount <= 1 ? "single_sided" : (lastRange?.sideMode ?? "single_sided");
+    const allowDoubleSided = shop.allow_double_sided !== false;
+    const defaultSide = (!allowDoubleSided || current.pageCount <= 1) ? "single_sided" : (lastRange?.sideMode ?? "single_sided");
     const defaultCopies = lastRange?.copies ?? 1;
     updateDocument((document) => ({
       ...document,
@@ -995,7 +999,7 @@ export function CustomerPrintFlow({ shop: initialShop, identifier, initialPricin
   }
 
   return (
-    <div className="mt-2.5 sm:mt-8 space-y-3.5 sm:space-y-6">
+    <div className="mt-2.5 sm:mt-8 space-y-3.5 sm:space-y-6 pb-20 sm:pb-0">
       {/* Header Bar with Shop Name & Print History / Saved Tokens Button */}
       <div className="flex items-center justify-between gap-2 px-1">
         <div className="flex items-center gap-1.5 text-xs text-slate-500 font-medium">
@@ -1016,7 +1020,7 @@ export function CustomerPrintFlow({ shop: initialShop, identifier, initialPricin
 
       {/* Active Token Recovery Banner on Step 0 */}
       {step === 0 && activeTokenForShop && (
-        <div className="flex items-center justify-between gap-3 rounded-2xl border border-emerald-300 bg-gradient-to-r from-emerald-50 via-teal-50 to-emerald-50 p-3.5 sm:p-4 text-emerald-950 shadow-sm">
+        <div className="flex items-center justify-between gap-3 rounded-2xl border border-emerald-300 bg-emerald-50 p-3.5 sm:p-4 text-emerald-950 shadow-sm">
           <div className="flex items-center gap-2.5 min-w-0">
             <div className="flex size-9 sm:size-10 shrink-0 items-center justify-center rounded-xl bg-emerald-600 text-white font-black font-mono shadow-xs text-sm sm:text-base">
               #{activeTokenForShop.tokenNumber}
@@ -1036,7 +1040,7 @@ export function CustomerPrintFlow({ shop: initialShop, identifier, initialPricin
           <button
             type="button"
             onClick={() => restoreSavedToken(activeTokenForShop)}
-            className="inline-flex items-center gap-1.5 rounded-xl bg-emerald-700 px-3 py-1.5 text-xs font-bold text-white hover:bg-emerald-800 transition active:scale-95 shadow-xs cursor-pointer shrink-0"
+            className="inline-flex items-center gap-1.5 rounded-xl bg-emerald-600 px-3 py-1.5 text-xs font-bold text-white hover:bg-emerald-700 transition active:scale-95 shadow-xs cursor-pointer shrink-0"
           >
             <span>View Token</span>
             <ArrowRight className="size-3.5" />
@@ -1084,7 +1088,7 @@ export function CustomerPrintFlow({ shop: initialShop, identifier, initialPricin
           removeDocument={removeDocument}
           allValid={allValid}
           busy={busy}
-
+          estimate={estimate}
           onContinueToPreview={() => setStep(2)}
           onOpenCropper={(docIndex) => {
             setCropTargetDocIndex(docIndex);
@@ -1200,41 +1204,43 @@ function StepIndicator({ step }: { step: number }) {
   ];
 
   return (
-    <div className="grid grid-cols-4 gap-1 sm:gap-2 rounded-xl sm:rounded-2xl border border-slate-200/80 bg-white p-1 sm:p-1.5 shadow-xs">
-      {stepList.map((item, index) => {
-        const isCurrent = displayStep === index;
-        const isCompleted = displayStep > index;
-        return (
-          <div
-            className={cn(
-              "flex items-center justify-center gap-1 sm:gap-1.5 rounded-lg sm:rounded-xl py-1 px-1 sm:py-2 sm:px-2 text-center text-[10px] sm:text-xs font-bold transition-all select-none min-w-0",
-              isCurrent
-                ? "bg-gradient-to-r from-emerald-700 via-emerald-600 to-teal-700 text-white shadow-md shadow-emerald-900/15"
-                : isCompleted
-                ? "bg-emerald-50 text-emerald-800 border border-emerald-200/70"
-                : "bg-slate-50 text-slate-400 border border-slate-200/60"
-            )}
-            key={item.full}
-          >
-            {isCompleted ? (
-              <CheckCircle2 className="size-3 sm:size-3.5 text-emerald-600 shrink-0" />
-            ) : (
-              <span
-                className={cn(
-                  "flex size-3.5 sm:size-4.5 shrink-0 items-center justify-center rounded-full text-[9px] sm:text-[10px] font-black",
-                  isCurrent ? "bg-white/20 text-white" : "bg-slate-200 text-slate-600"
-                )}
-              >
-                {index + 1}
+    <div className="relative rounded-2xl border border-slate-200/80 bg-white/95 backdrop-blur-sm p-1.5 sm:p-2 shadow-xs">
+      <div className="grid grid-cols-4 gap-1 sm:gap-2">
+        {stepList.map((item, index) => {
+          const isCurrent = displayStep === index;
+          const isCompleted = displayStep > index;
+          return (
+            <div
+              className={cn(
+                "relative flex items-center justify-center gap-1 sm:gap-2 rounded-xl py-1.5 px-1 sm:py-2.5 sm:px-3 text-center text-[10px] sm:text-xs font-bold transition-all select-none min-w-0",
+                isCurrent
+                  ? "bg-emerald-600 text-white shadow-md shadow-emerald-900/20 ring-1 ring-emerald-500"
+                  : isCompleted
+                  ? "bg-emerald-50 text-emerald-800 border border-emerald-200"
+                  : "bg-slate-50 text-slate-400 border border-slate-200/60"
+              )}
+              key={item.full}
+            >
+              {isCompleted ? (
+                <CheckCircle2 className="size-3.5 sm:size-4 text-emerald-600 shrink-0" />
+              ) : (
+                <span
+                  className={cn(
+                    "flex size-4 sm:size-5 shrink-0 items-center justify-center rounded-full text-[9px] sm:text-[11px] font-black transition-colors",
+                    isCurrent ? "bg-white/20 text-white" : "bg-slate-200 text-slate-600"
+                  )}
+                >
+                  {index + 1}
+                </span>
+              )}
+              <span className="truncate">
+                <span className="sm:hidden">{item.short}</span>
+                <span className="hidden sm:inline">{item.full}</span>
               </span>
-            )}
-            <span className="truncate">
-              <span className="sm:hidden">{item.short}</span>
-              <span className="hidden sm:inline">{item.full}</span>
-            </span>
-          </div>
-        );
-      })}
+            </div>
+          );
+        })}
+      </div>
     </div>
   );
 }
@@ -1294,7 +1300,7 @@ function UploadStep({
   };
 
   return (
-    <Card className="overflow-hidden border-slate-200/80 bg-white p-5 sm:p-7 shadow-md rounded-3xl">
+    <Card className="overflow-hidden border-slate-200/80 bg-white p-4 sm:p-7 shadow-lg shadow-slate-900/5 rounded-2xl sm:rounded-3xl">
       <form
         onSubmit={(event) => {
           event.preventDefault();
@@ -1343,27 +1349,28 @@ function UploadStep({
             }
           }}
           className={cn(
-            "group relative flex min-h-44 cursor-pointer flex-col items-center justify-center rounded-2xl border-2 border-dashed p-6 text-center transition-all duration-200",
+            "group relative flex min-h-48 cursor-pointer flex-col items-center justify-center rounded-2xl sm:rounded-3xl border-2 border-dashed p-6 text-center transition-all duration-300",
             isDragging
-              ? "border-emerald-500 bg-emerald-50/80 ring-4 ring-emerald-500/20 scale-[1.01]"
+              ? "border-emerald-600 bg-emerald-50 ring-4 ring-emerald-500/20 scale-[1.01]"
               : selectedFiles.length > 0
-              ? "border-slate-300 bg-slate-50/50 hover:border-emerald-500 hover:bg-emerald-50/30"
-              : "border-emerald-400/80 bg-gradient-to-b from-emerald-50/60 via-teal-50/30 to-white hover:border-emerald-600 hover:bg-emerald-50/80"
+              ? "border-slate-300 bg-slate-50/50 hover:border-emerald-600 hover:bg-emerald-50/30"
+              : "border-emerald-400 bg-emerald-50/40 hover:border-emerald-600 hover:bg-emerald-50/70 shadow-xs"
           )}
         >
-          <div className="flex size-14 items-center justify-center rounded-2xl bg-gradient-to-br from-emerald-600 to-teal-700 text-white shadow-lg shadow-emerald-900/20 transition-transform group-hover:scale-105">
-            <FileUp className="size-7" />
+          {/* Solid Emerald Icon */}
+          <div className="flex size-14 sm:size-16 items-center justify-center rounded-2xl bg-emerald-600 text-white shadow-lg shadow-emerald-900/20 transition-transform group-hover:scale-105">
+            <FileUp className="size-7 sm:size-8" />
           </div>
 
-          <p className="mt-3 text-base font-bold text-slate-900 sm:text-lg">
+          <p className="mt-3.5 text-base sm:text-lg font-black text-slate-900 tracking-tight">
             {isDragging
               ? "Drop documents here to upload!"
               : selectedFiles.length > 0
-              ? "Add more files or proceed below"
-              : "Tap to Choose Document / Photo"}
+              ? "Add more files or configure below"
+              : "Tap to Choose Document or Take Photo"}
           </p>
-          <p className="mt-1 text-xs text-slate-500 max-w-sm">
-            Drag and drop files here, or tap the buttons below. Supports PDF, Photos (JPG/PNG), Word, Docs up to 25MB.
+          <p className="mt-1 text-xs text-slate-500 max-w-md leading-relaxed">
+            Drag &amp; drop files here or use the buttons below. Supports PDF, Photos (JPG/PNG), Word documents up to 25MB.
           </p>
 
           {/* Direct Action Buttons Inside Zone */}
@@ -1371,34 +1378,34 @@ function UploadStep({
             <button
               type="button"
               onClick={() => fileInputRef.current?.click()}
-              className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-3.5 py-2 text-xs font-bold text-slate-800 shadow-xs transition hover:bg-slate-50 hover:border-emerald-500 hover:text-emerald-700 active:scale-95 cursor-pointer"
+              className="inline-flex items-center gap-2 rounded-xl bg-emerald-600 px-4 py-2.5 text-xs font-bold text-white shadow-sm shadow-emerald-900/20 hover:bg-emerald-700 transition active:scale-95 cursor-pointer"
             >
-              <FileUp className="size-3.5 text-emerald-600" />
-              Browse Files
+              <FileUp className="size-4" />
+              <span>Browse Files</span>
             </button>
             <button
               type="button"
               onClick={() => cameraInputRef.current?.click()}
-              className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-3.5 py-2 text-xs font-bold text-slate-800 shadow-xs transition hover:bg-slate-50 hover:border-emerald-500 hover:text-emerald-700 active:scale-95 cursor-pointer"
+              className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-xs font-bold text-slate-800 shadow-xs transition hover:bg-slate-50 hover:border-emerald-600 hover:text-emerald-700 active:scale-95 cursor-pointer"
             >
-              <Camera className="size-3.5 text-emerald-600" />
-              Take Photo / Scan
+              <Camera className="size-4 text-emerald-600" />
+              <span>Scan with Camera</span>
             </button>
-            {/* Multi-image button hidden from frontend */}
           </div>
         </div>
 
         {/* Selected Files List */}
         {selectedFiles.length > 0 ? (
-          <div className="mt-4 space-y-2">
-            <div className="flex items-center justify-between">
-              <span className="text-xs font-bold uppercase tracking-wider text-slate-700">
-                {selectedFiles.length} file{selectedFiles.length === 1 ? "" : "s"} selected
+          <div className="mt-4 space-y-2.5">
+            <div className="flex items-center justify-between px-1">
+              <span className="text-xs font-bold uppercase tracking-wider text-slate-700 flex items-center gap-1.5">
+                <span className="size-2 rounded-full bg-emerald-600" />
+                {selectedFiles.length} file{selectedFiles.length === 1 ? "" : "s"} ready to upload
               </span>
               <button
                 type="button"
                 onClick={() => fileInputRef.current?.click()}
-                className="inline-flex items-center gap-1 text-xs font-bold text-emerald-700 hover:text-emerald-800 cursor-pointer"
+                className="inline-flex items-center gap-1 text-xs font-bold text-emerald-600 hover:text-emerald-700 transition cursor-pointer"
               >
                 <Plus className="size-3.5" /> Add more
               </button>
@@ -1418,14 +1425,14 @@ function UploadStep({
                       "flex flex-col gap-1 rounded-xl border p-3 text-xs transition",
                       fileError
                         ? "border-rose-300 bg-rose-50/80 ring-2 ring-rose-400/20"
-                        : "border-slate-200 bg-slate-50/80 hover:bg-white hover:border-slate-300"
+                        : "border-slate-200 bg-slate-50/70 hover:bg-white hover:border-slate-300 hover:shadow-xs"
                     )}
                   >
                     <div className="flex items-center justify-between">
                       <div className="flex items-center gap-2.5 truncate pr-2">
                         <span
                           className={cn(
-                            "rounded-md px-1.5 py-0.5 text-[10px] font-black uppercase shrink-0",
+                            "rounded-lg px-2 py-1 text-[10px] font-black uppercase shrink-0 tracking-wider",
                             fileError
                               ? "bg-rose-200 text-rose-800"
                               : isPdf
@@ -1471,7 +1478,7 @@ function UploadStep({
             </div>
 
             {selectedFiles.some((f) => /\.(docx?|odt|rtf|pptx?|xlsx?)$/i.test(f.name)) && (
-              <div className="flex items-start gap-2.5 rounded-xl bg-blue-50/80 p-2.5 text-xs text-blue-900 border border-blue-200/70">
+              <div className="flex items-start gap-2.5 rounded-xl bg-blue-50/80 p-3 text-xs text-blue-900 border border-blue-200/70">
                 <Info className="size-4 text-blue-600 shrink-0 mt-0.5" />
                 <span>
                   <strong>Layout tip:</strong> Word documents are automatically prepared for printing. For 100% exact fonts and margins as seen on your screen, uploading as <strong>PDF</strong> is recommended.
@@ -1484,17 +1491,17 @@ function UploadStep({
         {/* PRIMARY CONTINUE BUTTON */}
         <div className="mt-5 space-y-3">
           {busy && (
-            <div className="space-y-1.5 rounded-xl border border-emerald-200 bg-emerald-50/70 p-3">
+            <div className="space-y-1.5 rounded-xl border border-emerald-200 bg-emerald-50/80 p-3.5 shadow-xs">
               <div className="flex items-center justify-between text-xs font-bold text-emerald-900">
-                <span className="flex items-center gap-1.5">
-                  <LoaderCircle className="size-3.5 animate-spin text-emerald-600" />
-                  {uploadStatus || "Uploading documents..."}
+                <span className="flex items-center gap-2">
+                  <LoaderCircle className="size-4 animate-spin text-emerald-600" />
+                  {uploadStatus || "Uploading & preparing documents..."}
                 </span>
                 {uploadProgress !== null && <span>{uploadProgress}%</span>}
               </div>
-              <div className="h-2 w-full overflow-hidden rounded-full bg-emerald-200/60">
+              <div className="h-2.5 w-full overflow-hidden rounded-full bg-emerald-100">
                 <div
-                  className="h-full rounded-full bg-gradient-to-r from-emerald-500 to-teal-600 transition-all duration-150"
+                  className="h-full rounded-full bg-emerald-600 transition-all duration-200"
                   style={{ width: `${uploadProgress ?? 100}%` }}
                 />
               </div>
@@ -1505,7 +1512,7 @@ function UploadStep({
             <button
               type="button"
               onClick={() => fileInputRef.current?.click()}
-              className="flex w-full items-center justify-center gap-2.5 rounded-2xl bg-gradient-to-r from-emerald-600 via-emerald-700 to-teal-800 px-6 py-4 text-base font-bold text-white shadow-[0_4px_0_#065f46,0_10px_20px_-2px_rgba(5,150,105,0.35)] transition-all hover:from-emerald-500 hover:to-emerald-600 hover:shadow-[0_5px_0_#065f46,0_14px_24px_-2px_rgba(5,150,105,0.45)] hover:-translate-y-0.5 active:translate-y-1 active:shadow-[0_1px_0_#065f46] cursor-pointer"
+              className="flex w-full items-center justify-center gap-2.5 rounded-2xl bg-emerald-600 px-6 py-4 text-base font-bold text-white shadow-sm shadow-emerald-900/20 transition-all hover:bg-emerald-700 active:bg-emerald-800 cursor-pointer"
             >
               <FileUp className="size-5" />
               <span>Select Document to Continue</span>
@@ -1515,7 +1522,7 @@ function UploadStep({
             <button
               type="submit"
               disabled={busy}
-              className="flex w-full items-center justify-center gap-2.5 rounded-2xl bg-gradient-to-r from-emerald-600 via-emerald-600 to-teal-700 px-6 py-4 text-base font-bold text-white shadow-[0_4px_0_#065f46,0_12px_24px_-2px_rgba(5,150,105,0.45)] transition-all hover:from-emerald-500 hover:to-emerald-600 hover:shadow-[0_5px_0_#065f46,0_16px_28px_-2px_rgba(5,150,105,0.5)] hover:-translate-y-0.5 active:translate-y-1 active:shadow-[0_1px_0_#065f46] animate-pulse-subtle cursor-pointer disabled:opacity-60 disabled:pointer-events-none"
+              className="flex w-full items-center justify-center gap-2.5 rounded-2xl bg-emerald-600 px-6 py-4 text-base font-bold text-white shadow-sm shadow-emerald-900/20 transition-all hover:bg-emerald-700 active:bg-emerald-800 cursor-pointer disabled:opacity-60 disabled:pointer-events-none"
             >
               {busy ? (
                 <>
@@ -1524,7 +1531,7 @@ function UploadStep({
                 </>
               ) : (
                 <>
-                  <Sparkles className="size-5 text-amber-300" />
+                  <Sparkles className="size-5 text-emerald-200" />
                   <span>
                     Continue with {selectedFiles.length} File{selectedFiles.length === 1 ? "" : "s"} (Configure &amp; Print)
                   </span>
@@ -1580,7 +1587,7 @@ function ConfigureAndCropStep({
   removeDocument,
   allValid,
   busy,
-  // estimate prop intentionally removed — not displayed in configure step
+  estimate,
   onContinueToPreview,
   onOpenCropper,
   onOpenMultiImage,
@@ -1597,12 +1604,12 @@ function ConfigureAndCropStep({
   removeDocument: (index: number) => void;
   allValid: boolean;
   busy: boolean;
+  estimate?: Estimate | null;
   onContinueToPreview: () => void;
   onOpenCropper: (docIndex: number) => void;
   onOpenMultiImage: (initialDocIndex?: number) => void;
   onAddMoreFiles: (files: File[]) => void;
 }) {
-  // countModes removed — color/bw breakdown is handled by the pricing engine directly
   const rangeError = validateRanges(current.ranges, current.pageCount);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -1630,16 +1637,18 @@ function ConfigureAndCropStep({
       ) : null}
 
       {/* 1. Document Configuration Card */}
-      <Card className="p-4 sm:p-7 border-slate-200/80 bg-white shadow-md rounded-3xl">
+      <Card className="p-4 sm:p-7 border-slate-200/80 bg-white shadow-lg shadow-slate-900/5 rounded-2xl sm:rounded-3xl">
         <div className="flex flex-wrap items-center justify-between gap-2.5">
           <div>
-            <h2 className="text-lg sm:text-xl font-bold text-slate-900">Configure Print Options</h2>
+            <h2 className="text-lg sm:text-xl font-black tracking-tight text-slate-900">
+              Configure Print Settings
+            </h2>
             <p className="text-[11px] sm:text-xs text-slate-500">
-              Set page ranges, copies, color mode, and paper size.
+              Set page ranges, copies, color options, and paper format.
             </p>
           </div>
           <div className="flex items-center gap-2">
-            <span className="rounded-full bg-emerald-100 px-2.5 py-0.5 text-[11px] sm:text-xs font-bold text-emerald-800">
+            <span className="rounded-full bg-emerald-100 px-3 py-1 text-[11px] sm:text-xs font-bold text-emerald-800 border border-emerald-200/60">
               {documents.length} File{documents.length === 1 ? "" : "s"}
             </span>
             <input
@@ -1656,12 +1665,11 @@ function ConfigureAndCropStep({
                 e.currentTarget.value = "";
               }}
             />
-            {/* Multi-image button hidden from frontend */}
             <button
               type="button"
               disabled={busy || documents.length >= 10}
               onClick={() => fileInputRef.current?.click()}
-              className="inline-flex items-center gap-1.5 rounded-xl border border-slate-200 bg-white px-2.5 sm:px-3 py-1.5 text-xs font-bold text-slate-700 shadow-2xs hover:bg-slate-50 hover:border-emerald-500 transition active:scale-95 cursor-pointer"
+              className="inline-flex items-center gap-1.5 rounded-xl border border-slate-200 bg-white px-3 py-1.5 text-xs font-bold text-slate-700 shadow-2xs hover:bg-slate-50 hover:border-emerald-500 transition active:scale-95 cursor-pointer"
             >
               <Plus className="size-3.5 text-emerald-600" /> Add File
             </button>
@@ -1669,21 +1677,21 @@ function ConfigureAndCropStep({
         </div>
 
         {/* Tab switcher for multiple documents */}
-        <div className="mt-3 flex gap-2 overflow-x-auto pb-1.5 no-scrollbar">
+        <div className="mt-4 flex gap-2 overflow-x-auto pb-1.5 no-scrollbar">
           {documents.map((document, index) => (
             <button
               key={document.id}
               onClick={() => setActiveDocument(index)}
               className={cn(
-                "flex items-center gap-1.5 shrink-0 rounded-xl border px-3 py-2 text-left text-xs transition-all cursor-pointer",
+                "flex items-center gap-2 shrink-0 rounded-xl border px-3.5 py-2 text-left text-xs transition-all cursor-pointer select-none",
                 index === activeDocument
-                  ? "border-emerald-600 bg-emerald-50/90 font-bold text-emerald-950 shadow-xs ring-1 ring-emerald-500/20"
+                  ? "border-emerald-600 bg-emerald-50 font-bold text-emerald-950 shadow-xs ring-1 ring-emerald-500/30"
                   : "border-slate-200 bg-white text-slate-600 hover:bg-slate-50"
               )}
             >
-              <FileText className="size-3.5 text-emerald-600 shrink-0" />
+              <FileText className={cn("size-3.5 shrink-0", index === activeDocument ? "text-emerald-600" : "text-slate-400")} />
               <span className="max-w-28 sm:max-w-36 truncate">{document.filename}</span>
-              <span className="rounded-md bg-white/90 px-1.5 py-0.5 text-[10px] font-semibold text-slate-500">
+              <span className="rounded-md bg-white/90 px-1.5 py-0.5 text-[10px] font-bold text-slate-600 border border-slate-200/60">
                 {document.pageCount}p
               </span>
             </button>
@@ -1691,53 +1699,53 @@ function ConfigureAndCropStep({
         </div>
 
         {/* Active Document Details Box */}
-        <div className="mt-3 rounded-2xl bg-slate-50/80 border border-slate-200/80 p-3.5 sm:p-5">
-          <div className="flex flex-wrap items-center justify-between gap-2 pb-3 border-b border-slate-200/60">
+        <div className="mt-4 rounded-2xl bg-slate-50/80 border border-slate-200/80 p-4 sm:p-6 space-y-4">
+          <div className="flex flex-wrap items-center justify-between gap-2 pb-3.5 border-b border-slate-200/70">
             <div className="min-w-0 max-w-[65%]">
               <p className="font-bold text-slate-900 text-xs sm:text-base truncate">{current.filename}</p>
-              <p className="text-[11px] text-slate-500">
-                {(current.sizeBytes / 1024 / 1024).toFixed(2)} MB · {current.pageCount} pages in PDF
+              <p className="text-[11px] text-slate-500 flex items-center gap-1.5 mt-0.5">
+                <span>{(current.sizeBytes / 1024 / 1024).toFixed(2)} MB</span>
+                <span>•</span>
+                <span>{current.pageCount} {current.pageCount === 1 ? "page" : "pages"} in original document</span>
               </p>
             </div>
             <div className="flex items-center gap-2">
               {/* Crop Image Button for Image uploads */}
               {isImageDoc && (
-                <>
-                  <button
-                    type="button"
-                    onClick={() => onOpenCropper(activeDocument)}
-                    className="inline-flex items-center gap-1.5 rounded-xl border border-emerald-300 bg-emerald-50 px-2.5 sm:px-3 py-1.5 text-xs font-bold text-emerald-800 shadow-2xs hover:bg-emerald-100 transition active:scale-95 cursor-pointer"
-                  >
-                    <Crop className="size-3.5 text-emerald-700" />
-                    <span>Crop Image</span>
-                  </button>
-                  {/* Multi-image button hidden from frontend */}
-                </>
+                <button
+                  type="button"
+                  onClick={() => onOpenCropper(activeDocument)}
+                  className="inline-flex items-center gap-1.5 rounded-xl border border-emerald-300 bg-emerald-50 px-3 py-1.5 text-xs font-bold text-emerald-800 shadow-2xs hover:bg-emerald-100 transition active:scale-95 cursor-pointer"
+                >
+                  <Crop className="size-3.5 text-emerald-700" />
+                  <span>Crop Image</span>
+                </button>
               )}
 
               <button
                 type="button"
                 disabled={documents.length <= 1}
                 onClick={() => removeDocument(activeDocument)}
-                className="rounded-lg border border-slate-200 bg-white px-2 py-1 text-xs font-semibold text-rose-600 hover:bg-rose-50 disabled:opacity-40 transition cursor-pointer"
+                className="rounded-xl border border-slate-200 bg-white p-2 text-xs font-semibold text-rose-600 hover:bg-rose-50 disabled:opacity-40 transition cursor-pointer"
+                title="Remove this document"
               >
                 <Trash2 className="size-3.5" />
               </button>
             </div>
           </div>
 
-          {/* Quick Page Presets */}
-          <div className="mt-3 flex flex-wrap items-center gap-1.5">
-            <span className="text-[11px] font-bold text-slate-500">Presets:</span>
+          {/* Quick Page Presets Bar */}
+          <div className="flex flex-wrap items-center gap-1.5">
+            <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">Quick Presets:</span>
             <button
               type="button"
               onClick={() => {
                 updateRange(0, "startPage", 1);
                 updateRange(0, "endPage", current.pageCount);
               }}
-              className="rounded-lg border border-slate-200 bg-white px-2.5 py-1 text-xs font-semibold text-slate-700 hover:border-emerald-500 hover:bg-emerald-50/50 transition active:scale-95 cursor-pointer"
+              className="rounded-lg border border-slate-200 bg-white px-2.5 py-1 text-xs font-semibold text-slate-700 hover:border-slate-300 hover:bg-slate-50 transition active:scale-95 cursor-pointer"
             >
-              All Pages (1 - {current.pageCount})
+              All Pages (1–{current.pageCount})
             </button>
             <button
               type="button"
@@ -1745,33 +1753,21 @@ function ConfigureAndCropStep({
                 updateRange(0, "startPage", 1);
                 updateRange(0, "endPage", 1);
               }}
-              className="rounded-lg border border-slate-200 bg-white px-2.5 py-1 text-xs font-semibold text-slate-700 hover:border-emerald-500 hover:bg-emerald-50/50 transition active:scale-95 cursor-pointer"
+              className="rounded-lg border border-slate-200 bg-white px-2.5 py-1 text-xs font-semibold text-slate-700 hover:border-slate-300 hover:bg-slate-50 transition active:scale-95 cursor-pointer"
             >
               Page 1 Only
             </button>
             {current.pageCount >= 2 && (
-              <>
-                <button
-                  type="button"
-                  onClick={() => {
-                    updateRange(0, "startPage", 2);
-                    updateRange(0, "endPage", current.pageCount);
-                  }}
-                  className="rounded-lg border border-emerald-300 bg-emerald-50/60 px-2.5 py-1 text-xs font-bold text-emerald-800 hover:bg-emerald-100 transition active:scale-95 cursor-pointer"
-                >
-                  Start from Page 2 (2 - {current.pageCount})
-                </button>
-                <button
-                  type="button"
-                  onClick={() => {
-                    updateRange(0, "startPage", 2);
-                    updateRange(0, "endPage", 2);
-                  }}
-                  className="rounded-lg border border-slate-200 bg-white px-2.5 py-1 text-xs font-semibold text-slate-700 hover:border-emerald-500 hover:bg-emerald-50/50 transition active:scale-95 cursor-pointer"
-                >
-                  Page 2 Only
-                </button>
-              </>
+              <button
+                type="button"
+                onClick={() => {
+                  updateRange(0, "startPage", 2);
+                  updateRange(0, "endPage", current.pageCount);
+                }}
+                className="rounded-lg border border-slate-200 bg-white px-2.5 py-1 text-xs font-semibold text-slate-700 hover:border-slate-300 hover:bg-slate-50 transition active:scale-95 cursor-pointer"
+              >
+                Pages 2–{current.pageCount}
+              </button>
             )}
           </div>
 
@@ -1782,18 +1778,20 @@ function ConfigureAndCropStep({
             const copiesNum = Number(range.copies) || 1;
             const pageSpan = Math.max(0, endNum - startNum + 1);
             const rangePrintedPages = pageSpan * copiesNum;
+            const isColor = range.colorMode === "color";
+            const isDoubleSided = range.sideMode === "double_sided";
 
             return (
               <div
                 key={`${current.id}-${index}`}
-                className="mt-3 rounded-2xl border border-slate-200 bg-white p-3 sm:p-4 shadow-2xs space-y-3"
+                className="rounded-2xl border border-slate-200 bg-white p-3.5 sm:p-5 shadow-2xs space-y-4"
               >
-                {/* Mobile Row 1: From, To, Copies */}
-                <div className="grid grid-cols-3 gap-2">
-                  <label className="text-xs font-semibold text-slate-600">
-                    From
+                {/* 1. From, To, Copies Stepper */}
+                <div className="grid grid-cols-3 gap-2 sm:gap-3">
+                  <label className="text-xs font-bold text-slate-700">
+                    From Page
                     <input
-                      className="mt-1 h-10 w-full rounded-xl border border-slate-200 px-2 sm:px-3 text-center sm:text-left text-sm font-bold text-slate-900 focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500"
+                      className="mt-1 h-11 w-full rounded-xl border border-slate-200 px-2 sm:px-3 text-center sm:text-left text-sm font-bold text-slate-900 focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 transition"
                       min="1"
                       max={current.pageCount}
                       type="number"
@@ -1807,10 +1805,11 @@ function ConfigureAndCropStep({
                       }}
                     />
                   </label>
-                  <label className="text-xs font-semibold text-slate-600">
-                    To
+
+                  <label className="text-xs font-bold text-slate-700">
+                    To Page
                     <input
-                      className="mt-1 h-10 w-full rounded-xl border border-slate-200 px-2 sm:px-3 text-center sm:text-left text-sm font-bold text-slate-900 focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500"
+                      className="mt-1 h-11 w-full rounded-xl border border-slate-200 px-2 sm:px-3 text-center sm:text-left text-sm font-bold text-slate-900 focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 transition"
                       min="1"
                       max={current.pageCount}
                       type="number"
@@ -1826,14 +1825,14 @@ function ConfigureAndCropStep({
                   </label>
 
                   {/* Copies Stepper */}
-                  <div className="text-xs font-semibold text-slate-600">
+                  <div className="text-xs font-bold text-slate-700">
                     <span>Copies</span>
-                    <div className="mt-1 flex h-10 items-center rounded-xl border border-slate-200 bg-white overflow-hidden shadow-2xs">
+                    <div className="mt-1 flex h-11 items-center rounded-xl border border-slate-200 bg-white overflow-hidden shadow-2xs">
                       <button
                         type="button"
                         onClick={() => updateRange(index, "copies", Math.max(1, copiesNum - 1))}
                         disabled={copiesNum <= 1}
-                        className="flex h-full w-8 sm:w-9 items-center justify-center bg-slate-50 text-slate-700 hover:bg-slate-100 disabled:opacity-30 transition font-bold text-base select-none cursor-pointer"
+                        className="flex h-full w-9 sm:w-10 items-center justify-center bg-slate-50 text-slate-700 hover:bg-slate-100 disabled:opacity-30 transition font-bold text-lg select-none cursor-pointer"
                       >
                         -
                       </button>
@@ -1854,7 +1853,7 @@ function ConfigureAndCropStep({
                       <button
                         type="button"
                         onClick={() => updateRange(index, "copies", copiesNum + 1)}
-                        className="flex h-full w-8 sm:w-9 items-center justify-center bg-slate-50 text-slate-700 hover:bg-slate-100 transition font-bold text-base select-none cursor-pointer"
+                        className="flex h-full w-9 sm:w-10 items-center justify-center bg-slate-50 text-slate-700 hover:bg-slate-100 transition font-bold text-lg select-none cursor-pointer"
                       >
                         +
                       </button>
@@ -1862,40 +1861,162 @@ function ConfigureAndCropStep({
                   </div>
                 </div>
 
-                {/* Mobile Row 2: Mode, Paper Size (Both Sides removed from frontend) */}
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
-                  <Select
-                    label="Print Mode"
-                    value={range.colorMode}
-                    onChange={(event) => updateRange(index, "colorMode", event.target.value)}
-                  >
-                    <option value="black_and_white">📄 Black &amp; White</option>
-                    <option value="color" disabled={shop.color_printer_status !== "ready"}>
-                      🎨 Full Color {shop.color_printer_status !== "ready" ? "(Offline)" : ""}
-                    </option>
-                  </Select>
-                  <Select
-                    label="Paper Size"
-                    value={range.paperSize}
-                    onChange={(event) => updateRange(index, "paperSize", event.target.value)}
-                  >
-                    <option value="a4">A4 (Standard)</option>
-                    <option value="a3">A3 (Large)</option>
-                    <option value="letter">Letter</option>
-                    <option value="legal">Legal</option>
-                  </Select>
+                {/* 2. Tactile Color Mode Selector Cards */}
+                <div>
+                  <label className="text-xs font-bold text-slate-700 block mb-1.5">
+                    Print Color Mode
+                  </label>
+                  <div className="grid grid-cols-2 gap-2.5">
+                    {/* B&W Card */}
+                    <button
+                      type="button"
+                      onClick={() => updateRange(index, "colorMode", "black_and_white")}
+                      className={cn(
+                        "flex items-center gap-2.5 rounded-xl border p-3 text-left transition-all cursor-pointer select-none",
+                        !isColor
+                          ? "border-slate-800 bg-slate-900 text-white shadow-md shadow-slate-900/15 ring-2 ring-slate-800/20"
+                          : "border-slate-200 bg-white text-slate-700 hover:bg-slate-50"
+                      )}
+                    >
+                      <div className={cn(
+                        "flex size-8 items-center justify-center rounded-lg shrink-0",
+                        !isColor ? "bg-white/20 text-white" : "bg-slate-100 text-slate-700"
+                      )}>
+                        <FileText className="size-4" />
+                      </div>
+                      <div className="min-w-0 flex-1">
+                        <p className="text-xs font-bold truncate">Black &amp; White</p>
+                        <p className={cn("text-[10px] truncate", !isColor ? "text-slate-300" : "text-slate-400")}>
+                          Standard text &amp; docs
+                        </p>
+                      </div>
+                      {!isColor && <CheckCircle2 className="size-4 text-emerald-400 shrink-0" />}
+                    </button>
+
+                    {/* Color Card */}
+                    <button
+                      type="button"
+                      disabled={shop.color_printer_status !== "ready"}
+                      onClick={() => updateRange(index, "colorMode", "color")}
+                      className={cn(
+                        "flex items-center gap-2.5 rounded-xl border p-3 text-left transition-all cursor-pointer select-none",
+                        shop.color_printer_status !== "ready"
+                          ? "opacity-50 border-slate-200 bg-slate-50 cursor-not-allowed"
+                          : isColor
+                          ? "border-emerald-600 bg-emerald-600 text-white shadow-md shadow-emerald-900/20 ring-2 ring-emerald-500/30"
+                          : "border-slate-200 bg-white text-slate-700 hover:bg-slate-50"
+                      )}
+                    >
+                      <div className={cn(
+                        "flex size-8 items-center justify-center rounded-lg shrink-0",
+                        isColor ? "bg-white/20 text-white" : "bg-emerald-50 text-emerald-600"
+                      )}>
+                        <Palette className="size-4" />
+                      </div>
+                      <div className="min-w-0 flex-1">
+                        <p className="text-xs font-bold truncate">Full Color</p>
+                        <p className={cn("text-[10px] truncate", isColor ? "text-emerald-100" : "text-slate-400")}>
+                          {shop.color_printer_status !== "ready" ? "Printer Offline" : "Vibrant photos & charts"}
+                        </p>
+                      </div>
+                      {isColor && <CheckCircle2 className="size-4 text-amber-300 shrink-0" />}
+                    </button>
+                  </div>
+                </div>
+
+                {/* 3. Tactile Side / Duplex Mode Selector Cards (Only shown if shop allows double-sided printing) */}
+                {shop.allow_double_sided !== false && (
+                  <div>
+                    <label className="text-xs font-bold text-slate-700 block mb-1.5">
+                      Paper Sides (Duplex)
+                    </label>
+                    <div className="grid grid-cols-2 gap-2.5">
+                      {/* Single Sided */}
+                      <button
+                        type="button"
+                        onClick={() => updateRange(index, "sideMode", "single_sided")}
+                        className={cn(
+                          "flex items-center gap-2.5 rounded-xl border p-3 text-left transition-all cursor-pointer select-none",
+                          !isDoubleSided
+                            ? "border-emerald-600 bg-emerald-50/90 text-emerald-950 font-bold shadow-2xs ring-1 ring-emerald-500/30"
+                            : "border-slate-200 bg-white text-slate-600 hover:bg-slate-50"
+                        )}
+                      >
+                        <div className="flex size-7 items-center justify-center rounded-lg bg-white text-slate-700 shadow-2xs shrink-0">
+                          <FileText className="size-3.5 text-emerald-600" />
+                        </div>
+                        <div className="min-w-0 flex-1">
+                          <p className="text-xs font-bold truncate">1-Sided (Single)</p>
+                          <p className="text-[10px] text-slate-500 truncate">Front only</p>
+                        </div>
+                      </button>
+
+                      {/* Double Sided */}
+                      <button
+                        type="button"
+                        onClick={() => updateRange(index, "sideMode", "double_sided")}
+                        className={cn(
+                          "flex items-center gap-2.5 rounded-xl border p-3 text-left transition-all cursor-pointer select-none",
+                          isDoubleSided
+                            ? "border-emerald-600 bg-emerald-50/90 text-emerald-950 font-bold shadow-2xs ring-1 ring-emerald-500/30"
+                            : "border-slate-200 bg-white text-slate-600 hover:bg-slate-50"
+                        )}
+                      >
+                        <div className="flex size-7 items-center justify-center rounded-lg bg-white text-slate-700 shadow-2xs shrink-0">
+                          <Layers className="size-3.5 text-emerald-600" />
+                        </div>
+                        <div className="min-w-0 flex-1">
+                          <p className="text-xs font-bold truncate">2-Sided (Duplex)</p>
+                          <p className="text-[10px] text-slate-500 truncate">Both sides (Save paper)</p>
+                        </div>
+                      </button>
+                    </div>
+                  </div>
+                )}
+
+                {/* 4. Tactile Paper Size Chips */}
+                <div>
+                  <label className="text-xs font-bold text-slate-700 block mb-1.5">
+                    Paper Size
+                  </label>
+                  <div className="grid grid-cols-4 gap-2">
+                    {[
+                      { id: "a4", label: "A4", sub: "Standard" },
+                      { id: "a3", label: "A3", sub: "Large" },
+                      { id: "letter", label: "Letter", sub: "8.5x11" },
+                      { id: "legal", label: "Legal", sub: "8.5x14" },
+                    ].map((ps) => {
+                      const active = range.paperSize === ps.id;
+                      return (
+                        <button
+                          key={ps.id}
+                          type="button"
+                          onClick={() => updateRange(index, "paperSize", ps.id)}
+                          className={cn(
+                            "rounded-xl border py-2 px-1 text-center transition-all cursor-pointer select-none",
+                            active
+                              ? "border-slate-800 bg-slate-900 text-white font-bold shadow-xs"
+                              : "border-slate-200 bg-white text-slate-700 hover:bg-slate-50"
+                          )}
+                        >
+                          <p className="text-xs font-bold">{ps.label}</p>
+                          <p className={cn("text-[9px]", active ? "text-slate-300" : "text-slate-400")}>{ps.sub}</p>
+                        </button>
+                      );
+                    })}
+                  </div>
                 </div>
 
                 {/* Range Calculation Breakdown Footer */}
-                <div className="flex flex-wrap items-center justify-between gap-2 border-t border-slate-100 pt-2 text-xs">
-                  <div className="flex flex-wrap items-center gap-1 font-medium text-slate-600">
-                    <span className="rounded-md bg-slate-100 px-1.5 py-0.5 font-bold text-slate-700">
-                      {range.startPage === range.endPage ? `P.${range.startPage}` : `P.${range.startPage}–${range.endPage}`}
+                <div className="flex flex-wrap items-center justify-between gap-2 border-t border-slate-100 pt-3 text-xs">
+                  <div className="flex flex-wrap items-center gap-1.5 font-medium text-slate-600">
+                    <span className="rounded-md bg-slate-100 px-2 py-0.5 font-bold text-slate-800">
+                      {range.startPage === range.endPage ? `Page ${range.startPage}` : `Pages ${range.startPage}–${range.endPage}`}
                     </span>
                     <span>({pageSpan}p)</span>
                     <span className="font-bold text-emerald-700">× {copiesNum} {copiesNum === 1 ? "copy" : "copies"}</span>
                     <span>=</span>
-                    <span className="rounded-md bg-emerald-50 px-2 py-0.5 font-black text-emerald-800 border border-emerald-200">
+                    <span className="rounded-lg bg-emerald-50 px-2.5 py-0.5 font-black text-emerald-800 border border-emerald-200 shadow-2xs">
                       {rangePrintedPages} Printed {rangePrintedPages === 1 ? "Page" : "Pages"}
                     </span>
                   </div>
@@ -1916,17 +2037,17 @@ function ConfigureAndCropStep({
           })}
 
           {rangeError ? (
-            <p className="mt-2.5 text-xs font-bold text-rose-600">{rangeError}</p>
+            <p className="text-xs font-bold text-rose-600">{rangeError}</p>
           ) : (
-            <p className="mt-2.5 text-xs text-emerald-700 font-semibold flex items-center gap-1.5">
-              <CheckCircle2 className="size-3.5" /> Ready to print selected pages and copies.
+            <p className="text-xs text-emerald-700 font-semibold flex items-center gap-1.5">
+              <CheckCircle2 className="size-3.5 text-emerald-600" /> Ready to print selected pages and copies.
             </p>
           )}
 
           <button
             type="button"
             onClick={addRange}
-            className="mt-3 inline-flex items-center gap-1.5 rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-bold text-slate-700 shadow-2xs hover:bg-slate-50 hover:border-emerald-500 transition active:scale-95 cursor-pointer"
+            className="inline-flex items-center gap-1.5 rounded-xl border border-slate-200 bg-white px-3.5 py-2 text-xs font-bold text-slate-700 shadow-2xs hover:bg-slate-50 hover:border-emerald-500 transition active:scale-95 cursor-pointer"
           >
             <Plus className="size-3.5 text-emerald-600" /> Add Another Page Range
           </button>
@@ -1939,12 +2060,34 @@ function ConfigureAndCropStep({
           type="button"
           disabled={!allValid || busy}
           onClick={onContinueToPreview}
-          className="flex w-full items-center justify-center gap-2.5 rounded-2xl bg-gradient-to-r from-emerald-600 via-emerald-700 to-teal-800 px-6 py-4 text-base font-bold text-white shadow-[0_4px_0_#065f46,0_12px_24px_-2px_rgba(5,150,105,0.4)] transition-all hover:from-emerald-500 hover:to-emerald-600 hover:-translate-y-0.5 active:translate-y-1 active:shadow-[0_1px_0_#065f46] cursor-pointer disabled:opacity-50 disabled:pointer-events-none"
+          className="flex w-full items-center justify-center gap-2.5 rounded-2xl bg-emerald-600 px-6 py-4 text-base font-bold text-white shadow-[0_4px_0_#047857,0_12px_24px_-2px_rgba(5,150,105,0.4)] transition-all hover:bg-emerald-700 active:bg-emerald-800 active:translate-y-1 active:shadow-[0_1px_0_#047857] cursor-pointer disabled:opacity-50 disabled:pointer-events-none"
         >
           <Eye className="size-5" />
           <span>Continue to Print Preview ({fallbackTotalPages} Pages)</span>
           <ArrowRight className="size-4" />
         </button>
+      </div>
+
+      {/* Mobile Floating Sticky Bottom Bar for Step 1 */}
+      <div className="fixed bottom-0 inset-x-0 z-30 sm:hidden border-t border-slate-200/90 bg-white/95 backdrop-blur-md p-3 pb-safe shadow-[0_-8px_24px_rgba(0,0,0,0.08)]">
+        <div className="flex items-center gap-3">
+          <div className="min-w-0 flex-1">
+            <p className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">Step 2: Configure</p>
+            <p className="text-xs font-black text-slate-900 truncate">
+              {fallbackTotalPages} {fallbackTotalPages === 1 ? "Page" : "Pages"}
+              {estimate && estimate.total > 0 ? ` · Est. ₹${estimate.total.toFixed(2)}` : ""}
+            </p>
+          </div>
+          <button
+            type="button"
+            disabled={!allValid || busy}
+            onClick={onContinueToPreview}
+            className="inline-flex items-center justify-center gap-1.5 rounded-xl bg-emerald-600 px-4 py-2.5 text-xs font-bold text-white shadow-md shadow-emerald-900/20 active:scale-95 transition disabled:opacity-50 hover:bg-emerald-700"
+          >
+            <span>Preview</span>
+            <ArrowRight className="size-3.5" />
+          </button>
+        </div>
       </div>
     </div>
   );
@@ -2035,9 +2178,9 @@ function CounterTokenStep({
   };
 
   return (
-    <Card className="overflow-hidden border-emerald-200 bg-gradient-to-br from-white via-emerald-50/20 to-slate-50 p-4 sm:p-8 shadow-xl rounded-3xl">
+    <Card className="overflow-hidden border-emerald-200 bg-white p-4 sm:p-8 shadow-xl rounded-3xl">
       {/* 1. SCREENSHOT PROMPT BANNER */}
-      <div className="rounded-2xl border-2 border-dashed border-amber-400 bg-gradient-to-r from-amber-50 to-orange-50/70 p-3.5 sm:p-5 text-amber-950 shadow-xs">
+      <div className="rounded-2xl border-2 border-dashed border-amber-400 bg-amber-50 p-3.5 sm:p-5 text-amber-950 shadow-xs">
         <div className="flex items-center gap-3">
           <div className="flex size-10 sm:size-11 shrink-0 items-center justify-center rounded-2xl bg-amber-200/80 text-amber-900 shadow-inner">
             <Camera className="size-5 sm:size-6" />
@@ -2710,11 +2853,11 @@ function RecentTokensModal({
                     return (
                       <div
                         key={token.publicOrderId}
-                        className="group relative rounded-2xl border-2 border-emerald-300 bg-gradient-to-br from-emerald-50/60 via-white to-teal-50/40 p-4 transition shadow-xs hover:shadow-md"
+                        className="group relative rounded-2xl border-2 border-emerald-300 bg-emerald-50/40 p-4 transition shadow-xs hover:shadow-md"
                       >
                         <div className="flex items-start justify-between gap-3">
                           <div className="flex items-center gap-3">
-                            <div className="flex size-14 items-center justify-center rounded-2xl bg-gradient-to-br from-emerald-600 to-teal-700 text-white font-mono font-black text-2xl shadow-md shadow-emerald-900/15">
+                            <div className="flex size-14 items-center justify-center rounded-2xl bg-emerald-600 text-white font-mono font-black text-2xl shadow-md shadow-emerald-900/15">
                               #{token.tokenNumber}
                             </div>
                             <div>
@@ -2765,7 +2908,7 @@ function RecentTokensModal({
                           <button
                             type="button"
                             onClick={() => onSelectToken(token)}
-                            className="w-full inline-flex items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-emerald-600 to-teal-700 px-4 py-2.5 text-xs font-bold text-white shadow-xs hover:from-emerald-500 hover:to-teal-600 transition active:scale-98 cursor-pointer"
+                            className="w-full inline-flex items-center justify-center gap-2 rounded-xl bg-emerald-600 px-4 py-2.5 text-xs font-bold text-white shadow-xs hover:bg-emerald-700 transition active:scale-98 cursor-pointer"
                           >
                             <span>Open Token Screen</span>
                             <ArrowRight className="size-3.5" />

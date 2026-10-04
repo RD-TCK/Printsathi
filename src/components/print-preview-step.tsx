@@ -229,7 +229,7 @@ export function PrintPreviewStep({
 
         {/* Active Document Overview Card */}
         {current && (
-          <div className="rounded-2xl bg-gradient-to-r from-slate-50 via-emerald-50/20 to-teal-50/20 border border-slate-200/80 p-3.5 sm:p-4 mb-4">
+          <div className="rounded-2xl bg-slate-50 border border-slate-200/80 p-3.5 sm:p-4 mb-4">
             <div className="flex flex-wrap items-center justify-between gap-2">
               <div className="flex items-center gap-2.5 min-w-0">
                 <div className="flex size-10 shrink-0 items-center justify-center rounded-xl bg-white border border-slate-200 shadow-2xs text-emerald-600">
@@ -367,8 +367,8 @@ export function PrintPreviewStep({
                     {/* Simulated Paper Graphic / Image Preview */}
                     <div
                       className={cn(
-                        "my-2 flex aspect-[1/1.25] w-full items-center justify-center rounded-xl bg-gradient-to-b from-white to-slate-50 border shadow-inner p-1.5 sm:p-2 text-center overflow-hidden transition-all group-hover:border-emerald-400",
-                        isIncluded && !isColor ? "border-slate-300 bg-slate-100/50" : "border-slate-200/90"
+                        "my-2 flex aspect-[1/1.25] w-full items-center justify-center rounded-xl bg-white border shadow-inner p-1.5 sm:p-2 text-center overflow-hidden transition-all group-hover:border-emerald-500",
+                        isIncluded && !isColor ? "border-slate-300 bg-slate-50" : "border-slate-200/90"
                       )}
                     >
                       {current?.previewUrl && totalPagesInDoc === 1 ? (
@@ -443,10 +443,10 @@ export function PrintPreviewStep({
       </Card>
 
       {/* 3. Order Summary & Payment Method Selection */}
-      <Card className="overflow-hidden border-emerald-200/80 bg-gradient-to-br from-white via-emerald-50/20 to-slate-50 p-4 sm:p-7 shadow-lg rounded-3xl">
+      <Card className="overflow-hidden border-emerald-200/80 bg-white p-4 sm:p-7 shadow-lg rounded-3xl">
         <div className="flex items-center justify-between border-b border-slate-200/60 pb-3">
           <div className="flex items-center gap-2 sm:gap-2.5">
-            <div className="flex size-8 sm:size-9 items-center justify-center rounded-xl bg-gradient-to-br from-emerald-600 to-teal-700 text-white shadow-xs">
+            <div className="flex size-8 sm:size-9 items-center justify-center rounded-xl bg-emerald-600 text-white shadow-xs">
               <Sparkles className="size-4 sm:size-5" />
             </div>
             <div>
@@ -579,7 +579,7 @@ export function PrintPreviewStep({
               type="button"
               disabled={busy}
               onClick={onProceedToCounterToken}
-              className="flex w-full items-center justify-center gap-2 rounded-2xl bg-gradient-to-r from-emerald-600 via-emerald-700 to-teal-800 px-4 sm:px-6 py-3.5 sm:py-4 text-sm sm:text-base font-bold text-white shadow-[0_4px_0_#065f46,0_12px_24px_-2px_rgba(5,150,105,0.4)] transition-all hover:from-emerald-500 hover:to-emerald-600 hover:-translate-y-0.5 active:translate-y-1 active:shadow-[0_1px_0_#065f46] cursor-pointer disabled:opacity-50 disabled:pointer-events-none"
+              className="flex w-full items-center justify-center gap-2 rounded-2xl bg-emerald-600 px-4 sm:px-6 py-3.5 sm:py-4 text-sm sm:text-base font-bold text-white shadow-[0_4px_0_#047857,0_12px_24px_-2px_rgba(5,150,105,0.4)] transition-all hover:bg-emerald-700 active:bg-emerald-800 active:translate-y-1 active:shadow-[0_1px_0_#047857] cursor-pointer disabled:opacity-50 disabled:pointer-events-none"
             >
               {busy ? (
                 <>
@@ -602,7 +602,7 @@ export function PrintPreviewStep({
               type="button"
               disabled={busy}
               onClick={onProceedToPay}
-              className="flex w-full items-center justify-center gap-2 rounded-2xl bg-gradient-to-r from-emerald-600 via-emerald-700 to-teal-800 px-4 sm:px-6 py-3.5 sm:py-4 text-sm sm:text-base font-bold text-white shadow-[0_4px_0_#065f46,0_12px_24px_-2px_rgba(5,150,105,0.4)] transition-all hover:from-emerald-500 hover:to-emerald-600 hover:-translate-y-0.5 active:translate-y-1 active:shadow-[0_1px_0_#065f46] cursor-pointer disabled:opacity-50 disabled:pointer-events-none"
+              className="flex w-full items-center justify-center gap-2 rounded-2xl bg-emerald-600 px-4 sm:px-6 py-3.5 sm:py-4 text-sm sm:text-base font-bold text-white shadow-[0_4px_0_#047857,0_12px_24px_-2px_rgba(5,150,105,0.4)] transition-all hover:bg-emerald-700 active:bg-emerald-800 active:translate-y-1 active:shadow-[0_1px_0_#047857] cursor-pointer disabled:opacity-50 disabled:pointer-events-none"
             >
               {busy ? (
                 <>
@@ -837,7 +837,7 @@ export function PrintPreviewStep({
               type="button"
               disabled={busy}
               onClick={onProceedToCounterToken}
-              className="flex-1 max-w-[210px] flex items-center justify-center gap-1.5 rounded-xl bg-gradient-to-r from-emerald-600 via-emerald-700 to-teal-800 py-2.5 px-3 text-xs font-bold text-white shadow-md active:scale-95 disabled:opacity-50 cursor-pointer"
+              className="flex-1 max-w-[210px] flex items-center justify-center gap-1.5 rounded-xl bg-emerald-600 py-2.5 px-3 text-xs font-bold text-white shadow-md active:scale-95 disabled:opacity-50 cursor-pointer hover:bg-emerald-700"
             >
               {busy ? (
                 <>
@@ -857,7 +857,7 @@ export function PrintPreviewStep({
               type="button"
               disabled={busy}
               onClick={onProceedToPay}
-              className="flex-1 max-w-[210px] flex items-center justify-center gap-1.5 rounded-xl bg-gradient-to-r from-emerald-600 via-emerald-700 to-teal-800 py-2.5 px-3 text-xs font-bold text-white shadow-md active:scale-95 disabled:opacity-50 cursor-pointer"
+              className="flex-1 max-w-[210px] flex items-center justify-center gap-1.5 rounded-xl bg-emerald-600 py-2.5 px-3 text-xs font-bold text-white shadow-md active:scale-95 disabled:opacity-50 cursor-pointer hover:bg-emerald-700"
             >
               {busy ? (
                 <>

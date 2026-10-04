@@ -644,7 +644,7 @@ export function MultiImagePageModal({
         {/* Header Bar */}
         <div className="flex items-center justify-between px-5 py-3.5 border-b border-slate-200/90 bg-slate-50/90">
           <div className="flex items-center gap-2.5">
-            <div className="flex size-9 items-center justify-center rounded-xl bg-gradient-to-br from-emerald-600 to-teal-700 text-white shadow-xs">
+            <div className="flex size-9 items-center justify-center rounded-xl bg-emerald-600 text-white shadow-xs">
               <LayoutGrid className="size-5" />
             </div>
             <div>
@@ -992,7 +992,7 @@ export function MultiImagePageModal({
               <button
                 type="button"
                 onClick={() => setMobileTab("settings")}
-                className="flex-1 flex items-center justify-center gap-1 rounded-xl bg-gradient-to-r from-emerald-600 to-teal-700 py-2.5 px-3 text-xs font-bold text-white shadow-xs active:scale-95 cursor-pointer"
+                className="flex-1 flex items-center justify-center gap-1 rounded-xl bg-emerald-600 hover:bg-emerald-700 py-2.5 px-3 text-xs font-bold text-white shadow-xs active:scale-95 cursor-pointer"
               >
                 <Check className="size-3.5" />
                 <span>Margins &amp; Apply</span>
@@ -1170,7 +1170,7 @@ export function MultiImagePageModal({
                 type="button"
                 disabled={isRendering || images.length === 0}
                 onClick={handleGenerateAndApply}
-                className="w-full flex items-center justify-center gap-2 rounded-2xl bg-gradient-to-r from-emerald-600 via-emerald-700 to-teal-800 px-5 py-3.5 text-sm font-bold text-white shadow-[0_4px_0_#065f46,0_10px_20px_-2px_rgba(5,150,105,0.3)] transition hover:from-emerald-500 hover:to-emerald-600 hover:-translate-y-0.5 active:translate-y-0.5 active:shadow-none disabled:opacity-50 cursor-pointer"
+                className="w-full flex items-center justify-center gap-2 rounded-2xl bg-emerald-600 px-5 py-3.5 text-sm font-bold text-white shadow-[0_4px_0_#047857,0_10px_20px_-2px_rgba(5,150,105,0.3)] transition hover:bg-emerald-700 hover:-translate-y-0.5 active:translate-y-0.5 active:shadow-none disabled:opacity-50 cursor-pointer"
               >
                 {isRendering ? (
                   <>

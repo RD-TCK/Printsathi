@@ -81,6 +81,7 @@ export function ShopPortalShell({
             <Link
               key={href}
               href={href}
+              prefetch={true}
               onClick={() => setOpen(false)}
               aria-current={pathname === href ? "page" : undefined}
               className={cn("flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium hover:bg-brand-50", pathname === href ? "bg-brand-50 text-brand-800" : "text-muted")}

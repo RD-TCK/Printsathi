@@ -18,11 +18,23 @@ export default async function ShopSettingsPage({
   const context = await getShopContext();
   if (!context) return <Alert tone="error">Shop workspace unavailable.</Alert>;
   const params = await searchParams;
-  const { data: settings } = await context.client
+  let settings: any = null;
+  const initialSettings = await context.client
     .from("shop_settings")
-    .select("accepting_orders, payment_mode, razorpay_key_id, razorpay_key_secret, razorpay_webhook_secret")
+    .select("accepting_orders, payment_mode, allow_double_sided, razorpay_key_id, razorpay_key_secret, razorpay_webhook_secret")
     .eq("shop_id", context.shop.id)
     .maybeSingle();
+
+  if (initialSettings.error) {
+    const fallbackSettings = await context.client
+      .from("shop_settings")
+      .select("accepting_orders, payment_mode, razorpay_key_id, razorpay_key_secret, razorpay_webhook_secret")
+      .eq("shop_id", context.shop.id)
+      .maybeSingle();
+    settings = fallbackSettings.data;
+  } else {
+    settings = initialSettings.data;
+  }
 
   const isRazorpayConfigured = Boolean(settings?.razorpay_key_id && settings?.razorpay_key_secret);
 
@@ -93,6 +105,24 @@ export default async function ShopSettingsPage({
                 <option value="both">Both (Customer Choice: Online or Pay at Counter)</option>
                 <option value="counter">Pay at Counter Only (Generate Token; cash/UPI at counter)</option>
                 <option value="online">Accept Payment Online Only (Razorpay)</option>
+              </Select>
+            </div>
+
+            <div className="pt-3 border-t border-line">
+              <label className="text-sm font-semibold text-brand-950 block mb-1">
+                Both Sides (Double-Sided) Printing Option
+              </label>
+              <p className="text-xs text-muted mb-3">
+                Choose whether to offer the 2-sided (duplex) printing option to customers on the upload page. If disabled, all orders are single-sided.
+              </p>
+              <Select
+                id="allowDoubleSided"
+                name="allowDoubleSided"
+                label="Double-Sided Printing"
+                defaultValue={settings?.allow_double_sided ?? true ? "true" : "false"}
+              >
+                <option value="true">Enabled (Show 1-Sided &amp; 2-Sided options to customer)</option>
+                <option value="false">Disabled (Single-Sided only, hide 2-Sided option)</option>
               </Select>
             </div>
           </CardContent>

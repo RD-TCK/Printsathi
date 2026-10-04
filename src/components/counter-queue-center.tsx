@@ -99,12 +99,20 @@ export function CounterQueueCenter({ shopName }: { shopName: string }) {
   }, []);
 
   useEffect(() => {
-    // eslint-disable-next-line react-hooks/set-state-in-effect
-    void fetchQueue();
-    const timer = setInterval(() => {
+    const doFetch = () => {
+      if (typeof document !== "undefined" && document.visibilityState !== "visible") return;
       void fetchQueue();
-    }, 4000);
-    return () => clearInterval(timer);
+    };
+    void fetchQueue();
+    const timer = setInterval(doFetch, 5000);
+    const onVisibilityChange = () => {
+      if (document.visibilityState === "visible") void fetchQueue();
+    };
+    document.addEventListener("visibilitychange", onVisibilityChange);
+    return () => {
+      clearInterval(timer);
+      document.removeEventListener("visibilitychange", onVisibilityChange);
+    };
   }, [fetchQueue]);
 
   // Handle Approve & Print (Single-sided or Duplex Step)

@@ -5,6 +5,7 @@ const nextConfig: NextConfig = {
   reactStrictMode: true,
   turbopack: { root: process.cwd() },
   experimental: {
+    optimizePackageImports: ["lucide-react", "clsx", "tailwind-merge"],
     serverActions: {
       bodySizeLimit: "50mb",
     },

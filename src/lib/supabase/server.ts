@@ -1,8 +1,9 @@
+import { cache } from "react";
 import { createServerClient } from "@supabase/ssr";
 import { cookies } from "next/headers";
 import { publicEnv } from "@/lib/env";
 
-export async function createSupabaseServerClient() {
+export const createSupabaseServerClient = cache(async () => {
   if (!publicEnv.NEXT_PUBLIC_SUPABASE_URL || !publicEnv.NEXT_PUBLIC_SUPABASE_ANON_KEY) return null;
   const cookieStore = await cookies();
   return createServerClient(publicEnv.NEXT_PUBLIC_SUPABASE_URL, publicEnv.NEXT_PUBLIC_SUPABASE_ANON_KEY, {
@@ -33,18 +34,18 @@ export async function createSupabaseServerClient() {
       },
     },
   });
-}
+});
 
-export async function getCurrentUser() {
+export const getCurrentUser = cache(async () => {
   const client = await createSupabaseServerClient();
   if (!client) return null;
   const {
     data: { user },
   } = await client.auth.getUser();
   return user;
-}
+});
 
-export async function getCurrentProfile() {
+export const getCurrentProfile = cache(async () => {
   const client = await createSupabaseServerClient();
   if (!client) return null;
   const user = await getCurrentUser();
@@ -79,4 +80,4 @@ export async function getCurrentProfile() {
     role: inferredRole,
     full_name: inferredName,
   };
-}
+});
