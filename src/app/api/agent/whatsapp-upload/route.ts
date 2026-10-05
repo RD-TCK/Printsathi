@@ -137,7 +137,10 @@ export async function POST(request: Request) {
     );
   }
 
-  const baseUrl = getAppUrl();
+  const host = request.headers.get("x-forwarded-host") || request.headers.get("host");
+  const proto = request.headers.get("x-forwarded-proto") || (host?.includes("localhost") ? "http" : "https");
+  const requestOrigin = host && !host.includes("0.0.0.0") ? `${proto}://${host}` : "";
+  const baseUrl = requestOrigin || getAppUrl();
   const configUrl = `${baseUrl}/shop/${shop.public_id}?orderId=${encodeURIComponent(orderId)}&token=${encodeURIComponent(guestToken.token)}`;
 
   const returnDocuments = preparedDocs.map(({ id, doc }) => ({
