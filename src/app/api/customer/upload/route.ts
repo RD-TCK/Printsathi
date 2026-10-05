@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { normalizeDocument } from "@/lib/normalize-document";
+import { normalizeDocument, type NormalizedDocumentResult } from "@/lib/normalize-document";
 import { z } from "zod";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
@@ -58,7 +58,7 @@ export async function POST(request: Request) {
   if (files.reduce((sum, file) => sum + file.size, 0) > 100 * 1024 * 1024)
     return NextResponse.json({ error: "Combined upload size must be under 100 MB." }, { status: 400 });
   
-  const normalized: Array<{ bytes: Buffer; pageCount: number; filename: string }> = [];
+  const normalized: NormalizedDocumentResult[] = [];
   for (const file of files) {
     try {
       const norm = await normalizeDocument(file);
@@ -165,12 +165,25 @@ export async function POST(request: Request) {
 
     // 1. Upload files to storage in parallel
     await Promise.all(
-      preparedDocs.map(async ({ storagePath, doc }) => {
+      preparedDocs.map(async ({ storagePath, doc, id }) => {
         const { error: uploadError } = await client.storage
           .from("print-documents")
           .upload(storagePath, doc.bytes, { contentType: "application/pdf", upsert: false });
         if (uploadError) throw new Error("Could not securely store the document.");
         storedPaths.push(storagePath);
+
+        if (doc.previewImage) {
+          const previewStoragePath = `shops/${shop.id}/orders/${orderId}/documents/${id}/preview.jpg`;
+          const { error: previewUploadError } = await client.storage
+            .from("print-documents")
+            .upload(previewStoragePath, doc.previewImage, {
+              contentType: doc.previewMime || "image/jpeg",
+              upsert: true,
+            });
+          if (!previewUploadError) {
+            storedPaths.push(previewStoragePath);
+          }
+        }
       }),
     );
 

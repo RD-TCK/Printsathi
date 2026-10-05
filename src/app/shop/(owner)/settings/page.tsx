@@ -18,7 +18,15 @@ export default async function ShopSettingsPage({
   const context = await getShopContext();
   if (!context) return <Alert tone="error">Shop workspace unavailable.</Alert>;
   const params = await searchParams;
-  let settings: any = null;
+  type ShopSettingsRow = {
+    accepting_orders?: boolean | null;
+    payment_mode?: string | null;
+    allow_double_sided?: boolean | null;
+    razorpay_key_id?: string | null;
+    razorpay_key_secret?: string | null;
+    razorpay_webhook_secret?: string | null;
+  };
+  let settings: ShopSettingsRow | null = null;
   const initialSettings = await context.client
     .from("shop_settings")
     .select("accepting_orders, payment_mode, allow_double_sided, razorpay_key_id, razorpay_key_secret, razorpay_webhook_secret")

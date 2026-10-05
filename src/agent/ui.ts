@@ -1,6 +1,7 @@
 import http from "node:http";
 import { agentDaemon } from "./daemon";
 import { logger } from "./logger";
+import { whatsAppAgent } from "./whatsapp";
 
 export class AgentWebServer {
   private server: http.Server | null = null;
@@ -221,6 +222,26 @@ export class AgentWebServer {
         res.writeHead(500, { "Content-Type": "application/json" });
         res.end(JSON.stringify({ error: err instanceof Error ? err.message : "Failed to cancel order" }));
       }
+      return;
+    }
+
+    if (url.pathname === "/api/whatsapp/status" && req.method === "GET") {
+      res.writeHead(200, { "Content-Type": "application/json" });
+      res.end(JSON.stringify(whatsAppAgent.getStatus()));
+      return;
+    }
+
+    if (url.pathname === "/api/whatsapp/connect" && req.method === "POST") {
+      void whatsAppAgent.start(false);
+      res.writeHead(200, { "Content-Type": "application/json" });
+      res.end(JSON.stringify(whatsAppAgent.getStatus()));
+      return;
+    }
+
+    if (url.pathname === "/api/whatsapp/disconnect" && req.method === "POST") {
+      await whatsAppAgent.disconnect();
+      res.writeHead(200, { "Content-Type": "application/json" });
+      res.end(JSON.stringify(whatsAppAgent.getStatus()));
       return;
     }
 
@@ -611,6 +632,20 @@ export class AgentWebServer {
         </div>
         <div id="connectionDetails">
           <p style="font-size:13px; color:var(--text-muted);">Checking local pairing credentials...</p>
+        </div>
+      </div>
+
+      <!-- WhatsApp Print Agent Card -->
+      <div class="card" id="whatsappCard" style="border: 2px solid #6ee7b7; background: #ffffff;">
+        <div class="card-header" style="display:flex; justify-content:space-between; align-items:center;">
+          <span class="card-title"><span>💬</span> WhatsApp Direct Print Agent</span>
+          <span id="whatsappStatusBadge" class="badge" style="background:#f1f5f9; color:#475569;">Checking...</span>
+        </div>
+        <p style="font-size:12px; color:var(--text-muted); margin-bottom:12px;">
+          Customers directly send documents to your shop WhatsApp. The agent automatically receives the file, creates a draft order, and replies with the page configuration &amp; print link!
+        </p>
+        <div id="whatsappBody">
+          <p style="font-size:13px; color:var(--text-muted);">Loading WhatsApp status...</p>
         </div>
       </div>
 
@@ -1248,9 +1283,128 @@ export class AgentWebServer {
       renderAgentQueueWithFilter();
     }
 
+    async function refreshWhatsApp() {
+      try {
+        const res = await fetch('/api/whatsapp/status');
+        if (!res.ok) return;
+        const data = await res.json();
+        const badge = document.getElementById('whatsappStatusBadge');
+        const body = document.getElementById('whatsappBody');
+        if (!body || !badge) return;
+
+        if (data.state === 'connected') {
+          badge.className = 'badge badge-online';
+          badge.innerHTML = '<span class="status-dot"></span> Active (' + escapeHtml(data.connectedPhone || 'Linked') + ')';
+
+          let eventsHtml = '';
+          if (data.recentEvents && data.recentEvents.length > 0) {
+            eventsHtml = '<div style="margin-top:14px; border-top:1px solid #e2e8f0; padding-top:8px;">' +
+              '<p style="font-size:11px; font-weight:700; color:#475569; text-transform:uppercase; margin-bottom:8px;">Recent WhatsApp Orders</p>' +
+              '<div style="max-height:160px; overflow-y:auto; display:flex; flex-direction:column; gap:6px;">' +
+              data.recentEvents.map(function(e) {
+                return '<div style="display:flex; justify-content:space-between; align-items:center; background:#f8fafc; border:1px solid #e2e8f0; border-radius:8px; padding:6px 10px; font-size:12px;">' +
+                  '<div>' +
+                    '<b>' + escapeHtml(e.senderName) + '</b> (' + escapeHtml(e.senderPhone) + ') · <span style="color:#059669; font-weight:600;">' + escapeHtml(e.filename) + '</span> (' + e.pageCount + 'p)' +
+                  '</div>' +
+                  '<div style="display:flex; align-items:center; gap:8px;">' +
+                    '<span style="font-size:11px; color:#64748b;">' + escapeHtml(e.timestamp) + '</span>' +
+                    (e.configUrl ? '<a href="' + escapeHtml(e.configUrl) + '" target="_blank" style="font-size:11px; color:#059669; font-weight:600; text-decoration:underline;">Open Config</a>' : '<span style="color:#ef4444; font-size:11px;">Failed</span>') +
+                  '</div>' +
+                '</div>';
+              }).join('') +
+              '</div></div>';
+          }
+
+          body.innerHTML = [
+            '<div style="background:#f0fdf4; border:1px solid #bbf7d0; border-radius:10px; padding:12px; font-size:13px; color:#14532d; display:flex; justify-content:space-between; align-items:center;">',
+              '<div>',
+                '<b>✅ WhatsApp Connected:</b> Listening for customer documents on <b>' + escapeHtml(data.connectedPhone || 'Your WhatsApp') + '</b>.<br/>',
+                '<span style="font-size:11.5px; color:#166534;">Auto-reply with document configuration link is live.</span>',
+              '</div>',
+              '<button type="button" class="btn-secondary" style="font-size:11px; color:#b91c1c; border-color:#fca5a5;" onclick="disconnectWhatsApp()">Disconnect</button>',
+            '</div>',
+            eventsHtml
+          ].join('');
+        } else if (data.state === 'qr_ready' && data.qrCodeDataUrl) {
+          badge.className = 'badge';
+          badge.style.background = '#fef3c7';
+          badge.style.color = '#92400e';
+          badge.innerText = 'Scan QR to Link';
+
+          body.innerHTML = [
+            '<div style="display:flex; flex-direction:column; align-items:center; text-align:center; padding:12px 0;">',
+              '<img src="' + data.qrCodeDataUrl + '" style="width:200px; height:200px; border-radius:12px; border:1px solid #cbd5e1; box-shadow:0 4px 6px -1px rgba(0,0,0,0.1); margin-bottom:12px;" alt="WhatsApp QR Code" />',
+              '<p style="font-size:13px; font-weight:700; color:#0f172a; margin-bottom:4px;">Scan with your WhatsApp</p>',
+              '<p style="font-size:12px; color:#64748b; max-width:320px; line-height:1.4;">',
+                '1. Open WhatsApp on your phone<br/>',
+                '2. Go to <b>Linked Devices</b> &gt; <b>Link a device</b><br/>',
+                '3. Scan this QR code to connect your shop number',
+              '</p>',
+              '<div style="display:flex; gap:8px; margin-top:12px;">',
+                '<button type="button" class="btn-primary" style="font-size:11px;" onclick="connectWhatsApp()">🔄 Refresh QR Code</button>',
+                '<button type="button" class="btn-secondary" style="font-size:11px;" onclick="disconnectWhatsApp()">Cancel</button>',
+              '</div>',
+            '</div>'
+          ].join('');
+        } else if (data.state === 'connecting') {
+          badge.className = 'badge';
+          badge.style.background = '#e0f2fe';
+          badge.style.color = '#0369a1';
+          badge.innerText = 'Connecting...';
+
+          body.innerHTML = [
+            '<div style="text-align:center; padding:16px 0;">',
+              '<p style="font-size:13px; font-weight:600; color:#0f172a;">Initializing WhatsApp connection...</p>',
+              '<p style="font-size:11.5px; color:#64748b; margin-top:4px;">Preparing secure link session. A fresh QR code will appear in a moment.</p>',
+              '<button type="button" class="btn-secondary" style="margin-top:12px; font-size:11px;" onclick="disconnectWhatsApp()">Cancel / Reset</button>',
+            '</div>'
+          ].join('');
+        } else {
+          badge.className = 'badge badge-offline';
+          badge.innerHTML = '<span class="status-dot"></span> Disconnected';
+
+          var errBanner = data.lastError ? '<div style="background:#fef2f2; border:1px solid #fecaca; border-radius:8px; padding:8px 12px; margin-bottom:10px; font-size:12px; color:#991b1b;">⚠️ ' + escapeHtml(data.lastError) + '</div>' : '';
+
+          body.innerHTML = [
+            errBanner,
+            '<div style="display:flex; justify-content:space-between; align-items:center; background:#f8fafc; border:1px solid #e2e8f0; border-radius:10px; padding:12px;">',
+              '<div>',
+                '<p style="font-size:13px; font-weight:700; color:#0f172a;">Connect Your Shop WhatsApp</p>',
+                '<p style="font-size:12px; color:#64748b; margin-top:2px;">Scan QR with your shop phone to start accepting documents directly from WhatsApp.</p>',
+              '</div>',
+              '<button type="button" class="btn-primary" style="font-size:12px; white-space:nowrap;" onclick="connectWhatsApp()">🟢 Connect WhatsApp</button>',
+            '</div>'
+          ].join('');
+        }
+      } catch (e) {
+        // ignore
+      }
+    }
+
+    async function connectWhatsApp() {
+      try {
+        await fetch('/api/whatsapp/connect', { method: 'POST' });
+        await refreshWhatsApp();
+      } catch (e) {
+        alert('Failed to connect WhatsApp.');
+      }
+    }
+
+    async function disconnectWhatsApp() {
+      if (!confirm('Are you sure you want to disconnect WhatsApp from Printiva?')) return;
+      try {
+        await fetch('/api/whatsapp/disconnect', { method: 'POST' });
+        await refreshWhatsApp();
+      } catch (e) {
+        alert('Failed to disconnect WhatsApp.');
+      }
+    }
+
     refreshStatus(true);
+    refreshWhatsApp();
     setInterval(() => refreshStatus(false), 3000);
     setInterval(() => refreshCounterQueue(), 2500);
+    setInterval(() => refreshWhatsApp(), 2500);
   </script>
 </body>
 </html>`;

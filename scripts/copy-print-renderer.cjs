@@ -23,4 +23,20 @@ if (fs.existsSync(assetsSrc)) {
     fs.copyFileSync(path.join(assetsSrc, file), path.join(assetsDst, file));
   }
 }
+try {
+  const pkgJsonPath = path.join(__dirname, "../node_modules/whatsapp-rust-bridge/package.json");
+  if (fs.existsSync(pkgJsonPath)) {
+    const pkgJson = JSON.parse(fs.readFileSync(pkgJsonPath, "utf-8"));
+    if (!pkgJson.main || !pkgJson.exports?.["."]?.require) {
+      pkgJson.main = "./dist/index.js";
+      if (!pkgJson.exports) pkgJson.exports = {};
+      if (!pkgJson.exports["."]) pkgJson.exports["."] = {};
+      pkgJson.exports["."].require = "./dist/index.js";
+      pkgJson.exports["."].default = "./dist/index.js";
+      fs.writeFileSync(pkgJsonPath, JSON.stringify(pkgJson, null, 4));
+    }
+  }
+} catch {
+  // ignore
+}
 console.log("Embedded PDF renderer module & app assets generated.");

@@ -7,7 +7,10 @@ import { CustomerPrintFlow } from "@/components/customer-print-flow";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 
-type ShopPageProps = { params: Promise<{ shop_public_identifier: string }> };
+type ShopPageProps = {
+  params: Promise<{ shop_public_identifier: string }>;
+  searchParams?: Promise<{ orderId?: string; token?: string; accessToken?: string }>;
+};
 export const dynamic = "force-dynamic";
 
 export async function generateMetadata({ params }: ShopPageProps): Promise<Metadata> {
@@ -19,8 +22,12 @@ export async function generateMetadata({ params }: ShopPageProps): Promise<Metad
   };
 }
 
-export default async function PublicShopPage({ params }: ShopPageProps) {
+export default async function PublicShopPage({ params, searchParams }: ShopPageProps) {
   const { shop_public_identifier: identifier } = await params;
+  const search = (await searchParams) || {};
+  const initialOrderId = search.orderId || null;
+  const initialAccessToken = search.token || search.accessToken || null;
+
   const [shopResult, pricing] = await Promise.all([
     getPublicShop(identifier),
     getPublicPricing(identifier),
@@ -153,7 +160,13 @@ export default async function PublicShopPage({ params }: ShopPageProps) {
 
           {/* Interactive Customer Print Flow */}
           <div className="p-2.5 sm:p-7">
-            <CustomerPrintFlow shop={shop} identifier={identifier} initialPricingRules={pricing} />
+            <CustomerPrintFlow
+              shop={shop}
+              identifier={identifier}
+              initialPricingRules={pricing}
+              initialOrderId={initialOrderId}
+              initialAccessToken={initialAccessToken}
+            />
 
             {/* Bottom Info Section: Shop Pricing Slabs */}
             <div className="mt-8 sm:mt-10 border-t border-slate-100 pt-5 sm:pt-6">

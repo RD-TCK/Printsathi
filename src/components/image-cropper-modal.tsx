@@ -14,7 +14,6 @@ import {
   BoxSelect,
   Layers,
   Move,
-  LayoutGrid,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -50,7 +49,6 @@ export function ImageCropperModal({
   filename,
   onClose,
   onApplyCrop,
-  onSwitchToMultiImage,
 }: Props) {
   const [cropMode, setCropMode] = useState<CropMode>("page_preset");
   const [selectedRatioId, setSelectedRatioId] = useState<string>("a4_portrait");
@@ -58,6 +56,8 @@ export function ImageCropperModal({
   const [zoom, setZoom] = useState<number>(1);
   const [cropOffset, setCropOffset] = useState<{ x: number; y: number }>({ x: 0, y: 0 });
   const [isProcessing, setIsProcessing] = useState<boolean>(false);
+  const [imageLoading, setImageLoading] = useState<boolean>(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
 
   // Portion Selection Mode state (percentages from 0 to 100 relative to displayed image)
   const [selectionBox, setSelectionBox] = useState<{
@@ -102,6 +102,8 @@ export function ImageCropperModal({
     const nw = img.naturalWidth || 800;
     const nh = img.naturalHeight || 600;
     setNaturalDimensions({ width: nw, height: nh });
+    setImageLoading(false);
+    setLoadError(null);
 
     // Auto default to A4 Landscape if photo is inherently landscape
     if (nw > nh * 1.15) {
@@ -111,6 +113,11 @@ export function ImageCropperModal({
     }
     setZoom(1);
     setCropOffset({ x: 0, y: 0 });
+  };
+
+  const handleImageError = () => {
+    setImageLoading(false);
+    setLoadError("Could not load the image for cropping. Please ensure your connection is active.");
   };
 
   const currentOption = ASPECT_RATIOS.find((r) => r.id === selectedRatioId) || ASPECT_RATIOS[0];
@@ -612,6 +619,7 @@ export function ImageCropperModal({
                 crossOrigin="anonymous"
                 draggable={false}
                 onLoad={handleImageLoad}
+                onError={handleImageError}
                 className="select-none pointer-events-none origin-center"
                 style={{
                   width: baseDisplayWidth > 0 ? `${baseDisplayWidth}px` : "auto",
@@ -620,6 +628,21 @@ export function ImageCropperModal({
                   willChange: "transform",
                 }}
               />
+
+              {/* Loading & Error Overlays */}
+              {imageLoading && (
+                <div className="absolute inset-0 flex items-center justify-center bg-slate-900/60 z-30 backdrop-blur-xs">
+                  <div className="flex items-center gap-2 rounded-xl bg-slate-800/90 px-3.5 py-2 text-xs font-bold text-white shadow-md">
+                    <span className="inline-block size-3.5 animate-spin rounded-full border-2 border-white border-t-transparent" />
+                    <span>Loading high-res preview...</span>
+                  </div>
+                </div>
+              )}
+              {loadError && (
+                <div className="absolute inset-0 flex flex-col items-center justify-center bg-slate-900/80 p-4 text-center z-30">
+                  <p className="text-xs font-bold text-rose-300">{loadError}</p>
+                </div>
+              )}
             </div>
           ) : (
             /* MODE B: Interactive Portion / Snippet Selection (Zero Lag & Large Touch Targets) */
@@ -640,6 +663,7 @@ export function ImageCropperModal({
                 crossOrigin="anonymous"
                 draggable={false}
                 onLoad={handleImageLoad}
+                onError={handleImageError}
                 className="select-none pointer-events-none origin-center"
                 style={{
                   width: `${portionDispW}px`,

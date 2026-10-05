@@ -240,7 +240,8 @@ export async function updateShopSettings(formData: FormData) {
       .eq("shop_id", context.shop.id);
 
     if (error && (error.message?.includes("allow_double_sided") || error.details?.includes("allow_double_sided"))) {
-      const { allow_double_sided, ...fallbackPayload } = settingsPayload;
+      const fallbackPayload = { ...settingsPayload };
+      delete (fallbackPayload as Record<string, unknown>).allow_double_sided;
       const res = await context.client
         .from("shop_settings")
         .update(fallbackPayload)
@@ -263,7 +264,8 @@ export async function updateShopSettings(formData: FormData) {
         );
 
       if (error && (error.message?.includes("allow_double_sided") || error.details?.includes("allow_double_sided"))) {
-        const { allow_double_sided, ...fallbackPayload } = settingsPayload;
+        const fallbackPayload = { ...settingsPayload };
+        delete (fallbackPayload as Record<string, unknown>).allow_double_sided;
         const res = await admin
           .from("shop_settings")
           .upsert(
@@ -285,7 +287,8 @@ export async function updateShopSettings(formData: FormData) {
         });
 
       if (error && (error.message?.includes("allow_double_sided") || error.details?.includes("allow_double_sided"))) {
-        const { allow_double_sided, ...fallbackPayload } = settingsPayload;
+        const fallbackPayload = { ...settingsPayload };
+        delete (fallbackPayload as Record<string, unknown>).allow_double_sided;
         const res = await context.client
           .from("shop_settings")
           .insert({

@@ -8,6 +8,7 @@ import { AgentApiClient } from "./client";
 import { discoverWindowsPrinters, findBestPrinterForJob, findDefaultPrinter } from "./printer-discovery";
 import { prepareAndPrintDocument } from "./print-executor";
 import { logger } from "./logger";
+import { whatsAppAgent } from "./whatsapp";
 
 export class AgentDaemon {
   private instanceLock: net.Server | null = null;
@@ -65,6 +66,9 @@ export class AgentDaemon {
     // Start background intervals
     this.startHeartbeatLoop();
     this.startJobPollingLoop();
+
+    // Auto-resume WhatsApp connector if existing session saved
+    void whatsAppAgent.start(true);
   }
 
   stop(): void {
@@ -74,6 +78,7 @@ export class AgentDaemon {
     if (this.discoveryTimer) clearInterval(this.discoveryTimer);
     if (this.heartbeatTimer) clearInterval(this.heartbeatTimer);
     if (this.pollTimer) clearInterval(this.pollTimer);
+    void whatsAppAgent.disconnect();
     logger.info("Printiva Windows Desktop Agent stopped.");
   }
 

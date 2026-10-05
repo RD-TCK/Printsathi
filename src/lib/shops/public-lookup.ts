@@ -44,7 +44,17 @@ export async function getPublicShop(
   if (!client) return { shop: null, configured: false };
   const inventoryClient = createSupabaseAdminClient() || client;
 
-  let data: any = null;
+  type DirectoryRow = {
+    public_id: string;
+    name: string;
+    is_active?: boolean | null;
+    accepting_orders?: boolean | null;
+    status?: string | null;
+    payment_mode?: string | null;
+    allow_double_sided?: boolean | null;
+    has_custom_razorpay?: boolean | null;
+  };
+  let data: DirectoryRow | null = null;
   const [initialQuery, shopRecordRes] = await Promise.all([
     client
       .from("public_shop_directory")
@@ -156,8 +166,9 @@ export async function getPublicShop(
       }
     }
 
-    if (data && data.allow_double_sided === undefined && directSettings && typeof (directSettings as any).allow_double_sided === "boolean") {
-      data.allow_double_sided = (directSettings as any).allow_double_sided;
+    const shopSettingsRecord = directSettings as { allow_double_sided?: boolean | null } | null;
+    if (data && data.allow_double_sided === undefined && shopSettingsRecord && typeof shopSettingsRecord.allow_double_sided === "boolean") {
+      data.allow_double_sided = shopSettingsRecord.allow_double_sided;
     }
   }
 

@@ -316,7 +316,6 @@ export function PrintPreviewStep({
               {pagesList.map((pageNum) => {
                 const config = includedPagesMap.get(pageNum);
                 const isIncluded = Boolean(config);
-                const isDuplex = config?.sideMode === "double_sided";
                 const isColor = config?.colorMode === "color";
 
                 return (
@@ -675,7 +674,6 @@ export function PrintPreviewStep({
             {(() => {
               const config = includedPagesMap.get(selectedPreviewPage);
               const isIncluded = Boolean(config);
-              const isDuplex = config?.sideMode === "double_sided";
               const isColor = config?.colorMode === "color";
 
               return (

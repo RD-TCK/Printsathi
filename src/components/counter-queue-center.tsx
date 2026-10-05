@@ -103,6 +103,7 @@ export function CounterQueueCenter({ shopName }: { shopName: string }) {
       if (typeof document !== "undefined" && document.visibilityState !== "visible") return;
       void fetchQueue();
     };
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     void fetchQueue();
     const timer = setInterval(doFetch, 2000);
     const onVisibilityChange = () => {

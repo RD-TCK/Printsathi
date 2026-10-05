@@ -35,6 +35,7 @@ import dynamic from "next/dynamic";
 import type { PublicShop, PublicPricingRule } from "@/lib/shops/public-lookup";
 import { type PrintRange, validateRanges } from "@/lib/customer-print";
 import { calculatePricing, type PricingRule } from "@/lib/pricing-engine";
+import type { LayoutTemplate } from "@/components/multi-image-page-modal";
 
 const ImageCropperModal = dynamic(
   () => import("@/components/image-cropper-modal").then((m) => m.ImageCropperModal),
@@ -55,7 +56,6 @@ import { Alert } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
-import { Select } from "@/components/ui/select";
 import { cn } from "@/lib/utils";
 
 export type CustomerDocument = {
@@ -65,12 +65,19 @@ export type CustomerDocument = {
   sizeBytes: number;
   ranges: PrintRange[];
   isImage?: boolean;
+  isCombinedSheet?: boolean;
   originalFile?: File;
   previewUrl?: string;
   croppedImageUrl?: string;
 };
 
-type Props = { shop: PublicShop; identifier: string; initialPricingRules?: PublicPricingRule[] };
+type Props = {
+  shop: PublicShop;
+  identifier: string;
+  initialPricingRules?: PublicPricingRule[];
+  initialOrderId?: string | null;
+  initialAccessToken?: string | null;
+};
 export type TokenDetails = {
   tokenNumber: number;
   publicOrderId: string;
@@ -361,7 +368,13 @@ function uploadWithProgress<T>(
   });
 }
 
-export function CustomerPrintFlow({ shop: initialShop, identifier, initialPricingRules = [] }: Props) {
+export function CustomerPrintFlow({
+  shop: initialShop,
+  identifier,
+  initialPricingRules = [],
+  initialOrderId = null,
+  initialAccessToken = null,
+}: Props) {
   const [shop, setShop] = useState(initialShop);
   const [pricingRules, setPricingRules] = useState<PricingRule[]>(() =>
     (initialPricingRules || []).map((r) => ({
@@ -402,6 +415,7 @@ export function CustomerPrintFlow({ shop: initialShop, identifier, initialPricin
   const [error, setError] = useState<string | null>(null);
   const [failedFiles, setFailedFiles] = useState<Record<string, string>>({});
   const [tokenDetails, setTokenDetails] = useState<TokenDetails | null>(null);
+  const [resumedFromWhatsApp, setResumedFromWhatsApp] = useState(false);
   // Stable snapshot of current time — initialized once per mount
   const [nowSnapshot] = useState(() => Date.now());
 
@@ -456,24 +470,61 @@ export function CustomerPrintFlow({ shop: initialShop, identifier, initialPricin
 
   // Multi-Image Sheet State (Multiple Photos on 1 Page)
   const [multiImageModalOpen, setMultiImageModalOpen] = useState(false);
-  const [multiImageInitialImages, setMultiImageInitialImages] = useState<{ dataUrl: string; filename: string }[]>([]);
+  const [multiImageInitialPreset, setMultiImageInitialPreset] = useState<LayoutTemplate>("grid-2-vert");
+  const [multiImageInitialImages, setMultiImageInitialImages] = useState<{ dataUrl: string; filename: string; documentId?: string }[]>([]);
 
   const existingDocImages = useMemo(() => {
     return documents
+      .filter((d) => !d.isCombinedSheet && !d.filename.startsWith("multi-photo-sheet-"))
       .filter((d) => d.previewUrl || d.isImage || /\.(png|jpg|jpeg|webp|gif|bmp)$/i.test(d.filename))
       .map((d) => ({
-        dataUrl: d.previewUrl || `/api/public/documents/${d.id}/preview`,
+        documentId: d.id,
+        dataUrl: d.previewUrl || (orderId && accessToken ? `/api/customer/document-preview?documentId=${d.id}&orderId=${orderId}&token=${accessToken}` : ""),
         filename: d.filename,
-      }));
-  }, [documents]);
+      }))
+      .filter((x) => Boolean(x.dataUrl));
+  }, [documents, orderId, accessToken]);
 
-  const handleOpenMultiImage = (initialDocIndex?: number) => {
+  const handleOpenMultiImage = (initialDocIndex?: number, defaultPreset?: LayoutTemplate) => {
+    const preset = defaultPreset || "grid-2-vert";
+    setMultiImageInitialPreset(preset);
+
+    // Filter to uncombined raw photos (excluding already combined multi-photo sheets)
+    const rawImageDocs = documents.filter(
+      (d) =>
+        !d.isCombinedSheet &&
+        !d.filename.startsWith("multi-photo-sheet-") &&
+        (d.previewUrl || d.isImage || /\.(png|jpg|jpeg|webp|gif|bmp)$/i.test(d.filename))
+    );
+
     if (typeof initialDocIndex === "number" && documents[initialDocIndex]) {
-      const doc = documents[initialDocIndex];
-      const dataUrl = doc.previewUrl || `/api/public/documents/${doc.id}/preview`;
-      setMultiImageInitialImages([{ dataUrl, filename: doc.filename }]);
+      const activeDoc = documents[initialDocIndex];
+      const activeRawIndex = rawImageDocs.findIndex((d) => d.id === activeDoc.id);
+
+      // Order pool starting from activeDoc, followed by all remaining uncombined photos, then any prior uncombined photos
+      let orderedRawDocs = rawImageDocs;
+      if (activeRawIndex !== -1) {
+        orderedRawDocs = [
+          ...rawImageDocs.slice(activeRawIndex),
+          ...rawImageDocs.slice(0, activeRawIndex),
+        ];
+      }
+
+      const reordered = orderedRawDocs
+        .map((d) => ({
+          documentId: d.id,
+          dataUrl:
+            d.previewUrl ||
+            (orderId && accessToken
+              ? `/api/customer/document-preview?documentId=${d.id}&orderId=${orderId}&token=${accessToken}`
+              : ""),
+          filename: d.filename,
+        }))
+        .filter((x) => Boolean(x.dataUrl));
+
+      setMultiImageInitialImages(reordered.length > 0 ? reordered : existingDocImages);
     } else {
-      setMultiImageInitialImages([]);
+      setMultiImageInitialImages(existingDocImages);
     }
     setMultiImageModalOpen(true);
   };
@@ -567,6 +618,97 @@ export function CustomerPrintFlow({ shop: initialShop, identifier, initialPricin
       window.scrollTo({ top: 0, behavior: "smooth" });
     }
   }, [step]);
+
+  const loadedDraftOrderIdRef = useRef<string | null>(null);
+
+  // Auto-resume draft order created via WhatsApp
+  useEffect(() => {
+    if (!initialOrderId || !initialAccessToken) return;
+    if (loadedDraftOrderIdRef.current === initialOrderId) return;
+    let isSubscribed = true;
+
+    async function loadDraftFromWhatsApp() {
+      try {
+        setBusy(true);
+        setUploadStatus("Connecting to your WhatsApp order draft...");
+        const response = await fetch(
+          `/api/customer/draft-order?orderId=${encodeURIComponent(initialOrderId!)}&accessToken=${encodeURIComponent(initialAccessToken!)}`,
+          { cache: "no-store" }
+        );
+        if (!response.ok) {
+          const errData = await response.json().catch(() => ({}));
+          throw new Error(errData.error || "Order draft is no longer available or has already been completed.");
+        }
+        const data = await response.json();
+        if (!isSubscribed) return;
+
+        loadedDraftOrderIdRef.current = initialOrderId;
+
+        const docs: CustomerDocument[] = (data.documents || []).map((d: { id: string; filename: string; pageCount: number; sizeBytes?: number }) => {
+          const isImg = Boolean(d.filename.match(/\.(jpg|jpeg|png|webp|gif|bmp)$/i));
+          const previewUrl = isImg
+            ? `/api/customer/document-preview?documentId=${d.id}&orderId=${data.orderId}&token=${data.accessToken}`
+            : undefined;
+
+          return {
+            id: d.id,
+            filename: d.filename,
+            pageCount: d.pageCount,
+            sizeBytes: d.sizeBytes || 0,
+            isImage: isImg,
+            previewUrl,
+            ranges: [
+              {
+                startPage: 1,
+                endPage: d.pageCount,
+                colorMode: "black_and_white",
+                paperSize: "a4",
+                sideMode: "single_sided",
+                copies: 1,
+              },
+            ],
+          };
+        });
+
+        setOrderId(data.orderId);
+        setAccessToken(data.accessToken);
+        setDocuments(docs);
+        setActiveDocument(0);
+        setResumedFromWhatsApp(true);
+        setStep(1);
+
+        if (pricingRules.length > 0) {
+          try {
+            const instant = calculatePricing(docs.flatMap((d) => d.ranges), pricingRules, "customer_fee");
+            setEstimate({
+              total: instant.total,
+              subtotal: instant.subtotal,
+              platformFee: instant.platformFee,
+              currency: "INR",
+              totalPages: instant.totalPages,
+              colorPages: instant.colorPages,
+              blackAndWhitePages: instant.blackAndWhitePages,
+            });
+          } catch {
+            // fallback
+          }
+        }
+        void fetchEstimate(docs, data.orderId, data.accessToken);
+      } catch (err) {
+        if (isSubscribed) {
+          setError(err instanceof Error ? err.message : "Failed to load order from WhatsApp link.");
+        }
+      } finally {
+        setBusy(false);
+        setUploadStatus(null);
+      }
+    }
+
+    void loadDraftFromWhatsApp();
+    return () => {
+      isSubscribed = false;
+    };
+  }, [initialOrderId, initialAccessToken, fetchEstimate, pricingRules]);
 
   if (!shop.is_active || !shop.accepting_orders) {
     return (
@@ -879,12 +1021,144 @@ export function CustomerPrintFlow({ shop: initialShop, identifier, initialPricin
   }
 
   // Handle multi-image page creation (compiles multiple photos onto 1 A4 page)
-  async function handleApplyMultiImageSheet(blob: Blob, _dataUrl: string, filename: string) {
+  async function handleApplyMultiImageSheet(
+    blob: Blob,
+    dataUrl: string,
+    filename: string,
+    usedDocInfo: { usedDocumentIds: string[]; usedFilenames: string[]; usedDataUrls: string[] }
+  ) {
     const file = new File([blob], filename, { type: "image/jpeg" });
-    if (step === 0) {
-      await uploadFiles([file], false);
-    } else {
-      await uploadFiles([file], true);
+
+    setBusy(true);
+    setUploadStatus("Uploading combined multi-photo print sheet...");
+    try {
+      const form = new FormData();
+      form.append("shopIdentifier", identifier);
+      if (orderId && accessToken) {
+        form.append("orderId", orderId);
+        form.append("accessToken", accessToken);
+      }
+      form.append("files", file);
+
+      const uploadRes = await uploadWithProgress<{
+        orderId: string;
+        orderPublicId: string;
+        accessToken: string;
+        documents: CustomerDocument[];
+      }>("/api/customer/upload", form, (percent) => {
+        setUploadProgress(percent);
+      });
+
+      if (!uploadRes.ok || !uploadRes.data) {
+        throw new Error(uploadRes.error || "Failed to upload combined print sheet.");
+      }
+
+      const newCombinedDoc = uploadRes.data.documents[uploadRes.data.documents.length - 1];
+      const combinedCustomerDoc: CustomerDocument = {
+        ...newCombinedDoc,
+        filename: filename,
+        pageCount: 1,
+        isImage: true,
+        isCombinedSheet: true,
+        originalFile: file,
+        previewUrl: dataUrl,
+        ranges: [
+          {
+            startPage: 1,
+            endPage: 1,
+            colorMode: "black_and_white",
+            paperSize: "a4",
+            sideMode: "single_sided",
+            copies: 1,
+          },
+        ],
+      };
+
+      // Identify consumed documents that were placed onto this sheet
+      const usedIdSet = new Set(usedDocInfo.usedDocumentIds.filter(Boolean));
+      const usedUrlSet = new Set(usedDocInfo.usedDataUrls.filter(Boolean));
+      const usedNameSet = new Set(usedDocInfo.usedFilenames.filter(Boolean));
+
+      const isDocUsed = (d: CustomerDocument) => {
+        if (d.isCombinedSheet) return false; // Never remove already combined sheets!
+        if (usedIdSet.has(d.id)) return true;
+        if (d.previewUrl && usedUrlSet.has(d.previewUrl)) return true;
+        if (usedIdSet.size === 0 && usedNameSet.has(d.filename)) return true;
+        return false;
+      };
+
+      // Find index of the first consumed document so we can replace in place
+      const firstConsumedIndex = documents.findIndex(isDocUsed);
+
+      // Keep all non-consumed documents (remaining images + all PDFs)
+      const remainingDocs = documents.filter((d) => !isDocUsed(d));
+
+      let nextDocs: CustomerDocument[];
+      if (firstConsumedIndex !== -1) {
+        const insertAt = Math.min(firstConsumedIndex, remainingDocs.length);
+        nextDocs = [
+          ...remainingDocs.slice(0, insertAt),
+          combinedCustomerDoc,
+          ...remainingDocs.slice(insertAt),
+        ];
+      } else {
+        nextDocs = [...remainingDocs, combinedCustomerDoc];
+      }
+
+      setDocuments(nextDocs);
+
+      // Find the index of the newly added combined sheet
+      const combinedIndex = nextDocs.findIndex((d) => d.id === combinedCustomerDoc.id);
+
+      // Check if there are remaining uncombined images after the combined sheet
+      const nextRemainingRawDocIndex = nextDocs.findIndex(
+        (d, idx) =>
+          idx > combinedIndex &&
+          !d.isCombinedSheet &&
+          !d.filename.startsWith("multi-photo-sheet-") &&
+          (d.previewUrl || d.isImage || /\.(png|jpg|jpeg|webp|gif|bmp)$/i.test(d.filename))
+      );
+
+      // If there are subsequent uncombined images, automatically focus on the next uncombined image
+      // so the user can immediately take action and combine the remaining pages!
+      // Otherwise, focus on the newly created combined sheet.
+      if (nextRemainingRawDocIndex !== -1) {
+        setActiveDocument(nextRemainingRawDocIndex);
+      } else if (combinedIndex !== -1) {
+        setActiveDocument(combinedIndex);
+      } else {
+        setActiveDocument(Math.max(0, nextDocs.length - 1));
+      }
+
+      setOrderId(uploadRes.data.orderId);
+      setAccessToken(uploadRes.data.accessToken);
+
+      // Instant price snapshot
+      if (pricingRules.length > 0) {
+        try {
+          const instant = calculatePricing(nextDocs.flatMap((d) => d.ranges), pricingRules, "customer_fee");
+          setEstimate({
+            total: instant.total,
+            subtotal: instant.subtotal,
+            platformFee: instant.platformFee,
+            currency: "INR",
+            totalPages: instant.totalPages,
+            colorPages: instant.colorPages,
+            blackAndWhitePages: instant.blackAndWhitePages,
+          });
+        } catch {
+          // fallback
+        }
+      }
+
+      setStep(1);
+      void fetchEstimate(nextDocs, uploadRes.data.orderId, uploadRes.data.accessToken);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to apply combined photo sheet.");
+    } finally {
+      setBusy(false);
+      setUploadStatus(null);
+      setUploadProgress(null);
     }
   }
 
@@ -1089,7 +1363,21 @@ export function CustomerPrintFlow({ shop: initialShop, identifier, initialPricin
 
       {/* Stage 1: Configure & Crop Options */}
       {step === 1 && current ? (
-        <ConfigureAndCropStep
+        <>
+          {resumedFromWhatsApp && (
+            <div className="mb-4 flex items-center gap-2.5 rounded-2xl border border-emerald-300 bg-emerald-50 px-4 py-3 text-xs text-emerald-950 font-medium shadow-xs">
+              <span className="flex size-7 items-center justify-center rounded-xl bg-emerald-600 text-white font-black text-[11px] shrink-0 shadow-xs">
+                WA
+              </span>
+              <div className="flex-1">
+                <p className="font-bold text-emerald-900 text-[13px]">Document received via WhatsApp!</p>
+                <p className="text-emerald-800 text-[11.5px] mt-0.5">
+                  Choose your page count, color/B&amp;W, single/both sides, and copies below.
+                </p>
+              </div>
+            </div>
+          )}
+          <ConfigureAndCropStep
           shop={shop}
           documents={documents}
           current={current}
@@ -1107,9 +1395,10 @@ export function CustomerPrintFlow({ shop: initialShop, identifier, initialPricin
             setCropTargetDocIndex(docIndex);
             setCropperOpen(true);
           }}
-          onOpenMultiImage={(docIndex) => handleOpenMultiImage(docIndex)}
+          onOpenMultiImage={(docIndex, defaultPreset) => handleOpenMultiImage(docIndex, defaultPreset)}
           onAddMoreFiles={(files) => uploadFiles(files, true)}
         />
+        </>
       ) : null}
 
       {/* Stage 2: Print Preview & Review */}
@@ -1160,7 +1449,9 @@ export function CustomerPrintFlow({ shop: initialShop, identifier, initialPricin
           isOpen={cropperOpen}
           imageUrl={
             documents[cropTargetDocIndex].previewUrl ||
-            `/api/public/documents/${documents[cropTargetDocIndex].id}/preview`
+            (orderId && accessToken
+              ? `/api/customer/document-preview?documentId=${documents[cropTargetDocIndex].id}&orderId=${orderId}&token=${accessToken}`
+              : "")
           }
           filename={documents[cropTargetDocIndex].filename}
           onClose={() => {
@@ -1170,7 +1461,7 @@ export function CustomerPrintFlow({ shop: initialShop, identifier, initialPricin
           onApplyCrop={handleApplyCrop}
           onSwitchToMultiImage={() => {
             setCropperOpen(false);
-            handleOpenMultiImage(cropTargetDocIndex);
+            handleOpenMultiImage(cropTargetDocIndex, "grid-2-vert");
           }}
         />
       )}
@@ -1179,6 +1470,7 @@ export function CustomerPrintFlow({ shop: initialShop, identifier, initialPricin
       {multiImageModalOpen && (
         <MultiImagePageModal
           isOpen={multiImageModalOpen}
+          initialPreset={multiImageInitialPreset}
           initialImages={multiImageInitialImages}
           existingDocImages={existingDocImages}
           onClose={() => {
@@ -1266,7 +1558,6 @@ function UploadStep({
   failedFiles = {},
   onClearFailedFile,
   onSubmit,
-  onOpenMultiImage,
 }: {
   shop: PublicShop;
   busy: boolean;
@@ -1620,7 +1911,7 @@ function ConfigureAndCropStep({
   estimate?: Estimate | null;
   onContinueToPreview: () => void;
   onOpenCropper: (docIndex: number) => void;
-  onOpenMultiImage: (initialDocIndex?: number) => void;
+  onOpenMultiImage: (initialDocIndex?: number, defaultPreset?: LayoutTemplate) => void;
   onAddMoreFiles: (files: File[]) => void;
 }) {
   const rangeError = validateRanges(current.ranges, current.pageCount);
@@ -1639,6 +1930,15 @@ function ConfigureAndCropStep({
   const requestsColorMode = documents.some((doc) => doc.ranges.some((r) => r.colorMode === "color"));
   const colorPrinterUnavailable = requestsColorMode && shop.color_printer_status !== "ready";
   const isImageDoc = current.isImage || Boolean(current.filename.match(/\.(png|jpg|jpeg|webp|gif|bmp)$/i)) || Boolean(current.previewUrl);
+  const isCurrentCombinedSheet = Boolean(current.isCombinedSheet || current.filename.startsWith("multi-photo-sheet-"));
+  const uncombinedImageDocuments = documents.filter(
+    (d) =>
+      !d.isCombinedSheet &&
+      !d.filename.startsWith("multi-photo-sheet-") &&
+      (d.isImage || Boolean(d.previewUrl) || Boolean(d.filename.match(/\.(png|jpg|jpeg|webp|gif|bmp)$/i)))
+  );
+  const hasMultipleImages = uncombinedImageDocuments.length >= 2;
+  const hasAnyImages = uncombinedImageDocuments.length >= 1;
 
   return (
     <div className="space-y-6">
@@ -1711,11 +2011,208 @@ function ConfigureAndCropStep({
           ))}
         </div>
 
+        {/* MULTIPLE PHOTOS ON SAME PAGE FEATURE (ONLY FOR IMAGES) */}
+        {hasAnyImages && (
+          <div className="mt-4 rounded-2xl border border-emerald-300/80 bg-gradient-to-br from-emerald-50/90 via-teal-50/40 to-emerald-50/70 p-4 sm:p-5 shadow-xs space-y-3.5">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <div className="flex items-center gap-2.5">
+                <div className="flex size-8 sm:size-9 items-center justify-center rounded-xl bg-emerald-600 text-white shadow-xs">
+                  <LayoutGrid className="size-4 sm:size-5" />
+                </div>
+                <div>
+                  <h3 className="text-xs sm:text-sm font-black text-emerald-950 flex items-center gap-2">
+                    Multiple Photos on Same Page
+                    <span className="rounded-full bg-emerald-600 text-white text-[9px] sm:text-[10px] font-black px-2 py-0.5">
+                      Save Paper &amp; Cost
+                    </span>
+                  </h3>
+                  <p className="text-[11px] text-emerald-800">
+                    {hasMultipleImages
+                      ? `Select a layout preset to fit your ${uncombinedImageDocuments.length} remaining uploaded photos onto 1 single A4 page.`
+                      : "Select a layout preset to print multiple copies or passport photos onto 1 single A4 page."}
+                  </p>
+                </div>
+              </div>
+
+              <button
+                type="button"
+                onClick={() => onOpenMultiImage(activeDocument, "grid-2-vert")}
+                className="inline-flex items-center gap-1.5 rounded-xl bg-emerald-600 px-3.5 py-1.5 text-xs font-bold text-white shadow-xs hover:bg-emerald-700 transition active:scale-95 cursor-pointer"
+              >
+                <Sparkles className="size-3.5" />
+                <span>Custom Sheet Editor</span>
+              </button>
+            </div>
+
+            {/* Quick Layout Presets Selection Bar */}
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 pt-0.5">
+              {/* Preset 1: 2 Photos Stacked (ID Card Front & Back) */}
+              <button
+                type="button"
+                onClick={() => onOpenMultiImage(activeDocument, "grid-2-vert")}
+                className="flex flex-col items-start rounded-xl border border-emerald-200/90 bg-white p-2.5 text-left transition hover:border-emerald-500 hover:shadow-xs hover:bg-emerald-50/60 active:scale-95 cursor-pointer group"
+              >
+                <div className="flex items-center justify-between w-full">
+                  <span className="text-xs font-bold text-slate-900 group-hover:text-emerald-900">
+                    2 Stacked (ID Card)
+                  </span>
+                  <span className="rounded-md bg-emerald-100 text-emerald-800 text-[9px] font-black px-1.5 py-0.2">
+                    2 Slots
+                  </span>
+                </div>
+                <p className="text-[10px] text-slate-500 mt-1 line-clamp-1">
+                  Top &amp; Bottom (Front &amp; Back)
+                </p>
+              </button>
+
+              {/* Preset 2: 2 Photos Side-by-Side */}
+              <button
+                type="button"
+                onClick={() => onOpenMultiImage(activeDocument, "grid-2-horiz")}
+                className="flex flex-col items-start rounded-xl border border-emerald-200/90 bg-white p-2.5 text-left transition hover:border-emerald-500 hover:shadow-xs hover:bg-emerald-50/60 active:scale-95 cursor-pointer group"
+              >
+                <div className="flex items-center justify-between w-full">
+                  <span className="text-xs font-bold text-slate-900 group-hover:text-emerald-900">
+                    2 Side-by-Side
+                  </span>
+                  <span className="rounded-md bg-emerald-100 text-emerald-800 text-[9px] font-black px-1.5 py-0.2">
+                    2 Slots
+                  </span>
+                </div>
+                <p className="text-[10px] text-slate-500 mt-1 line-clamp-1">
+                  Left &amp; Right columns
+                </p>
+              </button>
+
+              {/* Preset 3: 4 Photos Grid (2x2) */}
+              <button
+                type="button"
+                onClick={() => onOpenMultiImage(activeDocument, "grid-4")}
+                className="flex flex-col items-start rounded-xl border border-emerald-200/90 bg-white p-2.5 text-left transition hover:border-emerald-500 hover:shadow-xs hover:bg-emerald-50/60 active:scale-95 cursor-pointer group"
+              >
+                <div className="flex items-center justify-between w-full">
+                  <span className="text-xs font-bold text-slate-900 group-hover:text-emerald-900">
+                    4 Photos (2×2)
+                  </span>
+                  <span className="rounded-md bg-emerald-100 text-emerald-800 text-[9px] font-black px-1.5 py-0.2">
+                    4 Slots
+                  </span>
+                </div>
+                <p className="text-[10px] text-slate-500 mt-1 line-clamp-1">
+                  {uncombinedImageDocuments.length >= 4 ? "Auto-fills 4 batch photos" : "4 equal quadrants"}
+                </p>
+              </button>
+
+              {/* Preset 4: 6 Photos Grid (2x3) */}
+              <button
+                type="button"
+                onClick={() => onOpenMultiImage(activeDocument, "grid-6")}
+                className="flex flex-col items-start rounded-xl border border-emerald-200/90 bg-white p-2.5 text-left transition hover:border-emerald-500 hover:shadow-xs hover:bg-emerald-50/60 active:scale-95 cursor-pointer group"
+              >
+                <div className="flex items-center justify-between w-full">
+                  <span className="text-xs font-bold text-slate-900 group-hover:text-emerald-900">
+                    6 Photos (2×3)
+                  </span>
+                  <span className="rounded-md bg-emerald-100 text-emerald-800 text-[9px] font-black px-1.5 py-0.2">
+                    6 Slots
+                  </span>
+                </div>
+                <p className="text-[10px] text-slate-500 mt-1 line-clamp-1">
+                  2 columns × 3 rows
+                </p>
+              </button>
+
+              {/* Preset 5: 8 Photos Grid (2x4) */}
+              <button
+                type="button"
+                onClick={() => onOpenMultiImage(activeDocument, "grid-8")}
+                className="flex flex-col items-start rounded-xl border border-emerald-200/90 bg-white p-2.5 text-left transition hover:border-emerald-500 hover:shadow-xs hover:bg-emerald-50/60 active:scale-95 cursor-pointer group"
+              >
+                <div className="flex items-center justify-between w-full">
+                  <span className="text-xs font-bold text-slate-900 group-hover:text-emerald-900">
+                    8 Photos (2×4)
+                  </span>
+                  <span className="rounded-md bg-emerald-100 text-emerald-800 text-[9px] font-black px-1.5 py-0.2">
+                    8 Slots
+                  </span>
+                </div>
+                <p className="text-[10px] text-slate-500 mt-1 line-clamp-1">
+                  2 columns × 4 rows
+                </p>
+              </button>
+
+              {/* Preset 6: 8 Passports */}
+              <button
+                type="button"
+                onClick={() => onOpenMultiImage(activeDocument, "passport-8")}
+                className="flex flex-col items-start rounded-xl border border-emerald-200/90 bg-white p-2.5 text-left transition hover:border-emerald-500 hover:shadow-xs hover:bg-emerald-50/60 active:scale-95 cursor-pointer group"
+              >
+                <div className="flex items-center justify-between w-full">
+                  <span className="text-xs font-bold text-slate-900 group-hover:text-emerald-900">
+                    8 Passports
+                  </span>
+                  <span className="rounded-md bg-emerald-100 text-emerald-800 text-[9px] font-black px-1.5 py-0.2">
+                    8 Slots
+                  </span>
+                </div>
+                <p className="text-[10px] text-slate-500 mt-1 line-clamp-1">
+                  Standard 3.5×4.5cm photos
+                </p>
+              </button>
+
+              {/* Preset 7: 16 Passports */}
+              <button
+                type="button"
+                onClick={() => onOpenMultiImage(activeDocument, "passport-16")}
+                className="flex flex-col items-start rounded-xl border border-emerald-200/90 bg-white p-2.5 text-left transition hover:border-emerald-500 hover:shadow-xs hover:bg-emerald-50/60 active:scale-95 cursor-pointer group"
+              >
+                <div className="flex items-center justify-between w-full">
+                  <span className="text-xs font-bold text-slate-900 group-hover:text-emerald-900">
+                    16 Passports
+                  </span>
+                  <span className="rounded-md bg-emerald-100 text-emerald-800 text-[9px] font-black px-1.5 py-0.2">
+                    16 Slots
+                  </span>
+                </div>
+                <p className="text-[10px] text-slate-500 mt-1 line-clamp-1">
+                  Full A4 passport sheet
+                </p>
+              </button>
+
+              {/* Preset 8: Custom Canvas */}
+              <button
+                type="button"
+                onClick={() => onOpenMultiImage(activeDocument, "custom")}
+                className="flex flex-col items-start rounded-xl border border-dashed border-emerald-300 bg-white p-2.5 text-left transition hover:border-emerald-600 hover:shadow-xs hover:bg-emerald-50/60 active:scale-95 cursor-pointer group"
+              >
+                <div className="flex items-center justify-between w-full">
+                  <span className="text-xs font-bold text-slate-900 group-hover:text-emerald-900">
+                    Custom Layout
+                  </span>
+                  <span className="rounded-md bg-slate-100 text-slate-700 text-[9px] font-bold px-1.5 py-0.2">
+                    Freeform
+                  </span>
+                </div>
+                <p className="text-[10px] text-slate-500 mt-1 line-clamp-1">
+                  Drag &amp; position freely
+                </p>
+              </button>
+            </div>
+          </div>
+        )}
+
         {/* Active Document Details Box */}
         <div className="mt-4 rounded-2xl bg-slate-50/80 border border-slate-200/80 p-4 sm:p-6 space-y-4">
           <div className="flex flex-wrap items-center justify-between gap-2 pb-3.5 border-b border-slate-200/70">
             <div className="min-w-0 max-w-[65%]">
-              <p className="font-bold text-slate-900 text-xs sm:text-base truncate">{current.filename}</p>
+              <div className="flex items-center gap-2">
+                <p className="font-bold text-slate-900 text-xs sm:text-base truncate">{current.filename}</p>
+                {isCurrentCombinedSheet && (
+                  <span className="rounded-md bg-emerald-100 text-emerald-800 text-[10px] font-extrabold px-2 py-0.5 border border-emerald-300 shrink-0">
+                    Combined Sheet
+                  </span>
+                )}
+              </div>
               <p className="text-[11px] text-slate-500 flex items-center gap-1.5 mt-0.5">
                 <span>{(current.sizeBytes / 1024 / 1024).toFixed(2)} MB</span>
                 <span>•</span>
@@ -1723,16 +2220,31 @@ function ConfigureAndCropStep({
               </p>
             </div>
             <div className="flex items-center gap-2">
-              {/* Crop Image Button for Image uploads */}
+              {/* Crop & Multi-Image Action Buttons for Image uploads */}
               {isImageDoc && (
-                <button
-                  type="button"
-                  onClick={() => onOpenCropper(activeDocument)}
-                  className="inline-flex items-center gap-1.5 rounded-xl border border-emerald-300 bg-emerald-50 px-3 py-1.5 text-xs font-bold text-emerald-800 shadow-2xs hover:bg-emerald-100 transition active:scale-95 cursor-pointer"
-                >
-                  <Crop className="size-3.5 text-emerald-700" />
-                  <span>Crop Image</span>
-                </button>
+                <>
+                  <button
+                    type="button"
+                    onClick={() => onOpenCropper(activeDocument)}
+                    className="inline-flex items-center gap-1.5 rounded-xl border border-emerald-300 bg-emerald-50 px-3 py-1.5 text-xs font-bold text-emerald-800 shadow-2xs hover:bg-emerald-100 transition active:scale-95 cursor-pointer"
+                  >
+                    <Crop className="size-3.5 text-emerald-700" />
+                    <span className="hidden sm:inline">Crop Image</span>
+                    <span className="sm:hidden">Crop</span>
+                  </button>
+
+                  {!isCurrentCombinedSheet && (
+                    <button
+                      type="button"
+                      onClick={() => onOpenMultiImage(activeDocument, "grid-2-vert")}
+                      className="inline-flex items-center gap-1.5 rounded-xl border border-blue-300 bg-blue-50 px-3 py-1.5 text-xs font-bold text-blue-900 shadow-2xs hover:bg-blue-100 transition active:scale-95 cursor-pointer"
+                    >
+                      <LayoutGrid className="size-3.5 text-blue-700" />
+                      <span className="hidden sm:inline">Combine on 1 Page</span>
+                      <span className="sm:hidden">Combine</span>
+                    </button>
+                  )}
+                </>
               )}
 
               <button
@@ -2144,7 +2656,6 @@ function CounterTokenStep({
 
   // Real-time status polling (pauses when backgrounded)
   useEffect(() => {
-    let timer: NodeJS.Timeout;
     const controller = new AbortController();
     const refresh = async () => {
       if (typeof document !== "undefined" && document.visibilityState !== "visible") return;
@@ -2167,7 +2678,7 @@ function CounterTokenStep({
       }
     };
     void refresh();
-    timer = setInterval(() => {
+    const timer = setInterval(() => {
       void refresh();
     }, 2000);
     const onVisibilityChange = () => {
@@ -2443,7 +2954,6 @@ function PaymentStep({
 
   const [jobStatuses, setJobStatuses] = useState<Array<{ id: string; status: string; failureReason?: string }>>([]);
   useEffect(() => {
-    let timer: NodeJS.Timeout;
     const controller = new AbortController();
     const refresh = async () => {
       if (typeof document !== "undefined" && document.visibilityState !== "visible") return;
@@ -2460,7 +2970,7 @@ function PaymentStep({
       } catch { /* Poll again without changing confirmed payment state. */ }
     };
     void refresh();
-    timer = setInterval(() => { void refresh(); }, 2000);
+    const timer = setInterval(() => { void refresh(); }, 2000);
     const onVisibilityChange = () => {
       if (document.visibilityState === "visible") void refresh();
     };

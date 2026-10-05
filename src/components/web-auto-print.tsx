@@ -10,7 +10,6 @@ export function WebAutoPrintStation({ shopName }: { shopName: string }) {
   const [status, setStatus] = useState<LiveStatus | null>(null);
   const [error, setError] = useState("");
   useEffect(() => {
-    let timer: NodeJS.Timeout;
     const refresh = async () => {
       if (typeof document !== "undefined" && document.visibilityState !== "visible") return;
       try {
@@ -25,7 +24,7 @@ export function WebAutoPrintStation({ shopName }: { shopName: string }) {
       }
     };
     void refresh();
-    timer = setInterval(() => { void refresh(); }, 2000);
+    const timer = setInterval(() => { void refresh(); }, 2000);
     const onVisibilityChange = () => {
       if (document.visibilityState === "visible") void refresh();
     };

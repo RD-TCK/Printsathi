@@ -16,9 +16,19 @@ const officeExtensions = new Set([".doc", ".docx", ".odt", ".rtf", ".ppt", ".ppt
 const textExtensions = new Set([".txt", ".csv", ".md"]);
 const imageExtensions = new Set([".jpg", ".jpeg", ".png", ".webp", ".gif", ".bmp", ".tif", ".tiff"]);
 
-export async function normalizeDocument(file: File): Promise<{ bytes: Buffer; pageCount: number; filename: string }> {
+export type NormalizedDocumentResult = {
+  bytes: Buffer;
+  pageCount: number;
+  filename: string;
+  previewImage?: Buffer;
+  previewMime?: string;
+};
+
+export async function normalizeDocument(file: File): Promise<NormalizedDocumentResult> {
   const extension = path.extname(file.name).toLowerCase();
   let bytes: Buffer = Buffer.from(await file.arrayBuffer());
+  let previewImage: Buffer | undefined;
+  let previewMime: string | undefined;
 
   if (imageExtensions.has(extension)) {
     const isJpeg = extension === ".jpg" || extension === ".jpeg";
@@ -34,12 +44,16 @@ export async function normalizeDocument(file: File): Promise<{ bytes: Buffer; pa
         .jpeg({ quality: 100, chromaSubsampling: "4:4:4" })
         .toBuffer();
       embeddedImage = await pdf.embedJpg(processedJpeg);
+      previewImage = processedJpeg;
+      previewMime = "image/jpeg";
     } else if (isPng) {
       const processedPng = await sharp(bytes, { limitInputPixels: 268402689 })
         .rotate()
         .png()
         .toBuffer();
       embeddedImage = await pdf.embedPng(processedPng);
+      previewImage = processedPng;
+      previewMime = "image/png";
     } else {
       // Other formats (WebP, GIF, BMP, TIFF) -> lossless PNG
       const png = await sharp(bytes, { limitInputPixels: 268402689 })
@@ -48,6 +62,8 @@ export async function normalizeDocument(file: File): Promise<{ bytes: Buffer; pa
         .png()
         .toBuffer();
       embeddedImage = await pdf.embedPng(png);
+      previewImage = png;
+      previewMime = "image/png";
     }
 
     const page = pdf.addPage([595.28, 841.89]);
@@ -56,6 +72,7 @@ export async function normalizeDocument(file: File): Promise<{ bytes: Buffer; pa
     const height = embeddedImage.height * scale;
     page.drawImage(embeddedImage, { x: (595.28 - width) / 2, y: (841.89 - height) / 2, width, height });
     bytes = Buffer.from(await pdf.save());
+    return { bytes, pageCount: 1, filename: file.name, previewImage, previewMime };
   } else if (extension === ".docx" || extension === ".doc" || extension === ".rtf") {
     // 1. High-fidelity conversion via Microsoft Word COM (preserves exact layout, fonts, margins, tables, pagination)
     let converted = false;

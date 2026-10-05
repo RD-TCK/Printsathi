@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useRef, useEffect } from "react";
+import { useState, useRef, useEffect, useMemo, useCallback } from "react";
 import {
   X,
   Plus,
@@ -19,6 +19,8 @@ import {
   ZoomOut,
   ImageIcon,
   Eye,
+  RefreshCw,
+  Image as LucideImage,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -26,6 +28,7 @@ export type PlacedImage = {
   id: string;
   dataUrl: string;
   filename: string;
+  documentId?: string;
   // Position & size in percentage of A4 sheet (0 to 100)
   x: number;
   y: number;
@@ -50,30 +53,105 @@ export type LayoutTemplate =
   | "passport-8"
   | "passport-16";
 
-type Props = {
-  isOpen: boolean;
-  initialImages?: { dataUrl: string; filename: string }[];
-  existingDocImages?: { dataUrl: string; filename: string }[];
-  onClose: () => void;
-  onApply: (blob: Blob, dataUrl: string, filename: string) => void;
+export type TemplateInfo = {
+  id: LayoutTemplate;
+  label: string;
+  iconLabel: string;
+  count: number;
+  desc: string;
+  badge?: string;
 };
 
-const TEMPLATES: { id: LayoutTemplate; label: string; iconLabel: string; count: number }[] = [
-  { id: "grid-2-vert", label: "2 Photos Stacked (ID Card Front & Back)", iconLabel: "Top / Bottom", count: 2 },
-  { id: "grid-2-horiz", label: "2 Photos Side-by-Side", iconLabel: "Side by Side", count: 2 },
-  { id: "grid-4", label: "4 Photos (2x2 Grid)", iconLabel: "2 × 2 Grid", count: 4 },
-  { id: "grid-3-top", label: "3 Photos (1 Top + 2 Bottom)", iconLabel: "1 Top + 2 Bottom", count: 3 },
-  { id: "grid-6", label: "6 Photos (2x3 Grid)", iconLabel: "2 × 3 Grid", count: 6 },
-  { id: "grid-8", label: "8 Photos (2x4 Grid)", iconLabel: "2 × 4 Grid", count: 8 },
-  { id: "grid-9", label: "9 Photos (3x3 Grid)", iconLabel: "3 × 3 Grid", count: 9 },
-  { id: "passport-4", label: "4 Passport Size Photos", iconLabel: "4 Passports", count: 4 },
-  { id: "passport-8", label: "8 Passport Size Photos", iconLabel: "8 Passports", count: 8 },
-  { id: "passport-16", label: "16 Passport Size Photos", iconLabel: "16 Passports", count: 16 },
-  { id: "grid-1", label: "1 Full Page Photo", iconLabel: "Full Page", count: 1 },
-  { id: "custom", label: "Custom Freeform Canvas", iconLabel: "Freeform Drag & Drop", count: 0 },
+export const TEMPLATES: TemplateInfo[] = [
+  {
+    id: "grid-2-vert",
+    label: "2 Photos Stacked (ID Card Front & Back)",
+    iconLabel: "2 Stacked",
+    count: 2,
+    desc: "Top & Bottom on single page (Ideal for Aadhaar / Voter / College ID)",
+    badge: "Most Popular",
+  },
+  {
+    id: "grid-2-horiz",
+    label: "2 Photos Side-by-Side",
+    iconLabel: "2 Side-by-Side",
+    count: 2,
+    desc: "Left & Right columns",
+  },
+  {
+    id: "grid-4",
+    label: "4 Photos (2×2 Grid)",
+    iconLabel: "4 Grid (2×2)",
+    count: 4,
+    desc: "4 equal quadrants on 1 page",
+    badge: "Popular",
+  },
+  {
+    id: "grid-3-top",
+    label: "3 Photos (1 Top + 2 Bottom)",
+    iconLabel: "3 Photos",
+    count: 3,
+    desc: "1 large header photo + 2 bottom photos",
+  },
+  {
+    id: "grid-6",
+    label: "6 Photos (2×3 Grid)",
+    iconLabel: "6 Grid (2×3)",
+    count: 6,
+    desc: "6 photos arranged in 2 columns × 3 rows",
+  },
+  {
+    id: "grid-8",
+    label: "8 Photos (2×4 Grid)",
+    iconLabel: "8 Grid (2×4)",
+    count: 8,
+    desc: "8 photos arranged in 2 columns × 4 rows",
+  },
+  {
+    id: "grid-9",
+    label: "9 Photos (3×3 Grid)",
+    iconLabel: "9 Grid (3×3)",
+    count: 9,
+    desc: "9 photos arranged in 3 columns × 3 rows",
+  },
+  {
+    id: "passport-4",
+    label: "4 Passport Size Photos",
+    iconLabel: "4 Passports",
+    count: 4,
+    desc: "Standard 3.5 × 4.5 cm passport size photos",
+  },
+  {
+    id: "passport-8",
+    label: "8 Passport Size Photos",
+    iconLabel: "8 Passports",
+    count: 8,
+    desc: "Standard passport size strip (2 rows × 4 columns)",
+  },
+  {
+    id: "passport-16",
+    label: "16 Passport Size Photos",
+    iconLabel: "16 Passports",
+    count: 16,
+    desc: "Full A4 passport photo print sheet (4 × 4)",
+  },
+  {
+    id: "grid-1",
+    label: "1 Full Page Photo",
+    iconLabel: "Full Page",
+    count: 1,
+    desc: "Single photo centered with margins",
+  },
+  {
+    id: "custom",
+    label: "Custom Freeform Canvas",
+    iconLabel: "Freeform",
+    count: 0,
+    desc: "Freely move, resize, and position photos anywhere",
+  },
 ];
 
-function calculateLayoutPositions(
+export function calculateLayoutPositions(
   tmpl: LayoutTemplate,
   imgList: PlacedImage[],
   orient: "portrait" | "landscape",
@@ -182,15 +260,30 @@ function calculateLayoutPositions(
   });
 }
 
+type Props = {
+  isOpen: boolean;
+  initialPreset?: LayoutTemplate;
+  initialImages?: { dataUrl: string; filename: string; documentId?: string }[];
+  existingDocImages?: { dataUrl: string; filename: string; documentId?: string }[];
+  onClose: () => void;
+  onApply: (
+    blob: Blob,
+    dataUrl: string,
+    filename: string,
+    usedDocInfo: { usedDocumentIds: string[]; usedFilenames: string[]; usedDataUrls: string[] }
+  ) => void;
+};
+
 export function MultiImagePageModal({
   isOpen,
+  initialPreset = "grid-2-vert",
   initialImages = [],
   existingDocImages = [],
   onClose,
   onApply,
 }: Props) {
   const [orientation, setOrientation] = useState<"portrait" | "landscape">("portrait");
-  const [template, setTemplate] = useState<LayoutTemplate>("grid-2-vert");
+  const [template, setTemplate] = useState<LayoutTemplate>(initialPreset);
   const [marginMm, setMarginMm] = useState<number>(8); // Safe margins
   const [gapMm, setGapMm] = useState<number>(5); // Gap between photos
   const [showCuttingGuides, setShowCuttingGuides] = useState<boolean>(true);
@@ -199,27 +292,80 @@ export function MultiImagePageModal({
   const [zoom, setZoom] = useState<number>(1);
   const [mobileTab, setMobileTab] = useState<"canvas" | "presets" | "settings">("canvas");
 
-  const [images, setImages] = useState<PlacedImage[]>(() => {
-    const startingImages = initialImages.length > 0 ? initialImages : existingDocImages.slice(0, 4);
-    if (startingImages.length > 0) {
-      const placed: PlacedImage[] = startingImages.map((img, idx) => ({
-        id: `img-${Date.now()}-${idx}`,
-        dataUrl: img.dataUrl,
-        filename: img.filename,
-        x: 0,
-        y: 0,
-        width: 100,
-        height: 100,
-        rotation: 0,
-        objectFit: "contain",
-        border: false,
-      }));
-      return calculateLayoutPositions("grid-2-vert", placed, "portrait", 8, 5);
-    }
-    return [];
-  });
+  // Combined pool of available uploaded batch photos
+  const availableBatchPool = useMemo(() => {
+    const list: { dataUrl: string; filename: string; documentId?: string }[] = [];
+    const seen = new Set<string>();
 
+    const addImg = (img?: { dataUrl: string; filename: string; documentId?: string }) => {
+      if (!img || !img.dataUrl) return;
+      const key = img.documentId || img.dataUrl;
+      if (!seen.has(key)) {
+        seen.add(key);
+        list.push(img);
+      }
+    };
+
+    initialImages.forEach(addImg);
+    existingDocImages.forEach(addImg);
+    return list;
+  }, [initialImages, existingDocImages]);
+
+  // Placed images state on the A4 sheet
+  const [images, setImages] = useState<PlacedImage[]>([]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
+
+  // Function to construct filled images from the batch pool for a target preset
+  const buildImagesForTemplate = useCallback(
+    (tmpl: LayoutTemplate, orient: "portrait" | "landscape", m: number, g: number, border: boolean) => {
+      if (tmpl === "custom") return images;
+      const tmplObj = TEMPLATES.find((t) => t.id === tmpl);
+      const targetCount = tmplObj?.count || 2;
+
+      const pool = availableBatchPool.length > 0
+        ? availableBatchPool
+        : images.length > 0
+        ? images.map((i) => ({ dataUrl: i.dataUrl, filename: i.filename, documentId: i.documentId }))
+        : [];
+
+      if (pool.length === 0) return [];
+
+      const isPassport = tmpl.startsWith("passport-");
+      const filled: PlacedImage[] = Array.from({ length: targetCount }, (_, idx) => {
+        // For passport templates, replicate the first active photo across all slots; for grid templates, fill sequentially from remaining batch images!
+        const source = isPassport ? pool[0] : (pool[idx] || pool[idx % pool.length]);
+        return {
+          id: `img-${Date.now()}-${idx}-${Math.random().toString(36).slice(2, 6)}`,
+          dataUrl: source.dataUrl,
+          filename: source.filename,
+          documentId: source.documentId,
+          x: 0,
+          y: 0,
+          width: 100,
+          height: 100,
+          rotation: 0,
+          objectFit: "contain",
+          border: border,
+        };
+      });
+
+      return calculateLayoutPositions(tmpl, filled, orient, m, g);
+    },
+    [availableBatchPool, images]
+  );
+
+  // Initialize or re-sync when modal opens
+  useEffect(() => {
+    if (isOpen) {
+      const chosenPreset = initialPreset || "grid-2-vert";
+      // eslint-disable-next-line react-hooks/set-state-in-effect
+      setTemplate(chosenPreset);
+      const newPlaced = buildImagesForTemplate(chosenPreset, orientation, marginMm, gapMm, photoBorder);
+      setImages(newPlaced);
+      if (newPlaced.length > 0) setSelectedId(newPlaced[0].id);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isOpen, initialPreset, availableBatchPool]);
 
   // Dragging state on canvas
   const [dragState, setDragState] = useState<{
@@ -237,11 +383,14 @@ export function MultiImagePageModal({
   const sheetRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
+  // When user clicks a preset, other images from the batch fill the slots automatically!
   const handleTemplateChange = (newTemplate: LayoutTemplate) => {
     setTemplate(newTemplate);
-    if (newTemplate !== "custom") {
-      setImages((prev) => calculateLayoutPositions(newTemplate, prev, orientation, marginMm, gapMm));
-    }
+    if (newTemplate === "custom") return;
+
+    const newPlaced = buildImagesForTemplate(newTemplate, orientation, marginMm, gapMm, photoBorder);
+    setImages(newPlaced);
+    if (newPlaced.length > 0) setSelectedId(newPlaced[0].id);
   };
 
   const handleOrientationChange = (newOrient: "portrait" | "landscape") => {
@@ -298,6 +447,22 @@ export function MultiImagePageModal({
     });
   };
 
+  // Assign a specific batch photo to a placed slot
+  const handleAssignBatchPhotoToSlot = (slotId: string, photo: { dataUrl: string; filename: string; documentId?: string }) => {
+    setImages((prev) =>
+      prev.map((img) =>
+        img.id === slotId
+          ? {
+              ...img,
+              dataUrl: photo.dataUrl,
+              filename: photo.filename,
+              documentId: photo.documentId,
+            }
+          : img
+      )
+    );
+  };
+
   // Duplicate an image
   const handleDuplicateImage = (imgId: string) => {
     const src = images.find((i) => i.id === imgId);
@@ -332,6 +497,13 @@ export function MultiImagePageModal({
     }));
 
     setImages(calculateLayoutPositions(template, filled, orientation, marginMm, gapMm));
+  };
+
+  // Reset to auto-fill from batch pool
+  const handleResetToBatchPool = () => {
+    const newPlaced = buildImagesForTemplate(template, orientation, marginMm, gapMm, photoBorder);
+    setImages(newPlaced);
+    if (newPlaced.length > 0) setSelectedId(newPlaced[0].id);
   };
 
   // Delete an image
@@ -597,6 +769,23 @@ export function MultiImagePageModal({
         ctx.restore();
       }
 
+      // Collect unique identifiers of images actually used on this sheet
+      const usedDocumentIds: string[] = [];
+      const usedFilenames: string[] = [];
+      const usedDataUrls: string[] = [];
+
+      for (const item of images) {
+        if (item.documentId && !usedDocumentIds.includes(item.documentId)) {
+          usedDocumentIds.push(item.documentId);
+        }
+        if (item.filename && !usedFilenames.includes(item.filename)) {
+          usedFilenames.push(item.filename);
+        }
+        if (item.dataUrl && !usedDataUrls.includes(item.dataUrl)) {
+          usedDataUrls.push(item.dataUrl);
+        }
+      }
+
       // Export as high quality JPEG blob
       canvas.toBlob(
         (blob) => {
@@ -608,7 +797,11 @@ export function MultiImagePageModal({
           const generatedDataUrl = canvas.toDataURL("image/jpeg", 0.98);
           const generatedName = `multi-photo-sheet-${orientation}-${Date.now()}.jpg`;
 
-          onApply(blob, generatedDataUrl, generatedName);
+          onApply(blob, generatedDataUrl, generatedName, {
+            usedDocumentIds,
+            usedFilenames,
+            usedDataUrls,
+          });
           setIsRendering(false);
           onClose();
         },
@@ -623,6 +816,8 @@ export function MultiImagePageModal({
   };
 
   if (!isOpen) return null;
+
+  const currentSelectedImage = images.find((i) => i.id === selectedId);
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/85 backdrop-blur-md p-2 sm:p-4 overflow-y-auto">
@@ -653,6 +848,11 @@ export function MultiImagePageModal({
                 <span className="rounded-full bg-emerald-100 text-emerald-800 border border-emerald-200/80 px-2 py-0.5 text-[10px] font-bold">
                   A4 Print Sheet
                 </span>
+                {availableBatchPool.length > 1 && (
+                  <span className="hidden sm:inline-flex rounded-full bg-blue-100 text-blue-800 border border-blue-200 px-2 py-0.5 text-[10px] font-bold">
+                    {availableBatchPool.length} Photos in Batch
+                  </span>
+                )}
               </h2>
               <p className="text-xs text-slate-500">
                 Arrange, resize, and print multiple photos, ID cards, or passport photos together on a single A4 page.
@@ -669,7 +869,7 @@ export function MultiImagePageModal({
           </button>
         </div>
 
-        {/* Mobile Navigation Tabs (visible on mobile only) */}
+        {/* Mobile Navigation Tabs */}
         <div className="lg:hidden flex items-center border-b border-slate-200 bg-slate-50/95 p-1.5 gap-1 shrink-0">
           <button
             type="button"
@@ -712,10 +912,65 @@ export function MultiImagePageModal({
           </button>
         </div>
 
-        {/* Main Workspace: Left Controls + Center Canvas + Right Settings */}
+        {/* Main Workspace */}
         <div className="flex-1 grid grid-cols-1 lg:grid-cols-12 gap-0 overflow-hidden min-h-0">
-          {/* Left Panel: Layout Presets & Images List (col-span-3) */}
+          {/* Left Panel: Layout Presets & Batch Photos Strip (col-span-3) */}
           <div className={cn("lg:col-span-3 border-r border-slate-200/90 bg-slate-50/60 p-4 space-y-4 overflow-y-auto max-h-[80vh] no-scrollbar", mobileTab !== "presets" && "hidden lg:block")}>
+            {/* Batch Photos Pool Strip */}
+            {availableBatchPool.length > 0 && (
+              <div className="rounded-2xl border border-blue-200/80 bg-blue-50/60 p-3 space-y-2">
+                <div className="flex items-center justify-between">
+                  <span className="text-[11px] font-bold text-blue-900 flex items-center gap-1.5">
+                    <LucideImage className="size-3.5 text-blue-600" />
+                    Uploaded Batch Photos ({availableBatchPool.length})
+                  </span>
+                  <button
+                    type="button"
+                    onClick={handleResetToBatchPool}
+                    title="Auto-fill slots with batch photos"
+                    className="text-[10px] font-bold text-blue-700 hover:text-blue-900 flex items-center gap-1 cursor-pointer"
+                  >
+                    <RefreshCw className="size-3" /> Auto-fill
+                  </button>
+                </div>
+                <div className="flex gap-1.5 overflow-x-auto pb-1 no-scrollbar">
+                  {availableBatchPool.map((photo, pIdx) => (
+                    <button
+                      key={`${photo.filename}-${pIdx}`}
+                      type="button"
+                      onClick={() => {
+                        if (selectedId) {
+                          handleAssignBatchPhotoToSlot(selectedId, photo);
+                        }
+                      }}
+                      title={selectedId ? `Click to place into selected slot: ${photo.filename}` : photo.filename}
+                      className={cn(
+                        "relative flex flex-col items-center shrink-0 rounded-xl border p-1 bg-white transition hover:scale-105 cursor-pointer",
+                        currentSelectedImage?.dataUrl === photo.dataUrl
+                          ? "border-emerald-600 ring-2 ring-emerald-500/40 shadow-xs"
+                          : "border-slate-200 hover:border-blue-400"
+                      )}
+                    >
+                      {/* eslint-disable-next-line @next/next/no-img-element */}
+                      <img
+                        src={photo.dataUrl}
+                        alt={photo.filename}
+                        className="size-10 rounded-lg object-cover bg-slate-100"
+                      />
+                      <span className="text-[9px] font-bold text-slate-700 truncate max-w-12 mt-0.5">
+                        #{pIdx + 1}
+                      </span>
+                    </button>
+                  ))}
+                </div>
+                {selectedId && (
+                  <p className="text-[10px] text-blue-800 font-medium">
+                    💡 Click any thumbnail above to place it into the selected slot on page.
+                  </p>
+                )}
+              </div>
+            )}
+
             {/* Template Selector */}
             <div>
               <label className="text-[11px] font-bold uppercase tracking-wider text-slate-500 block mb-2">
@@ -728,15 +983,20 @@ export function MultiImagePageModal({
                     type="button"
                     onClick={() => handleTemplateChange(tmpl.id)}
                     className={cn(
-                      "flex flex-col items-start rounded-xl p-2 text-left text-xs transition border cursor-pointer",
+                      "flex flex-col items-start rounded-xl p-2 text-left text-xs transition border cursor-pointer relative",
                       template === tmpl.id
                         ? "border-emerald-600 bg-emerald-50 text-emerald-950 font-bold shadow-xs ring-1 ring-emerald-500/20"
                         : "border-slate-200 bg-white text-slate-700 hover:bg-slate-100/70 hover:border-slate-300"
                     )}
                   >
-                    <span className="font-semibold truncate w-full">{tmpl.iconLabel}</span>
+                    {tmpl.badge && (
+                      <span className="absolute top-1.5 right-1.5 rounded-full bg-emerald-600 text-white text-[8px] font-black px-1.5 py-0.2">
+                        {tmpl.badge}
+                      </span>
+                    )}
+                    <span className="font-semibold truncate w-full pr-4">{tmpl.iconLabel}</span>
                     <span className={cn("text-[10px] truncate w-full mt-0.5", template === tmpl.id ? "text-emerald-700 font-medium" : "text-slate-400")}>
-                      {tmpl.label}
+                      {tmpl.count > 0 ? `${tmpl.count} Slots` : "Freeform"}
                     </span>
                   </button>
                 ))}
@@ -747,7 +1007,7 @@ export function MultiImagePageModal({
             <div>
               <div className="flex items-center justify-between mb-2">
                 <label className="text-[11px] font-bold uppercase tracking-wider text-slate-500">
-                  2. Photos on Page ({images.length})
+                  2. Slots on Page ({images.length})
                 </label>
                 <button
                   type="button"
@@ -788,7 +1048,7 @@ export function MultiImagePageModal({
                           className="size-8 rounded-md object-cover bg-slate-100 shrink-0 border border-slate-200"
                         />
                         <span className="truncate text-xs font-medium text-slate-800">
-                          #{idx + 1} {img.filename || "Photo"}
+                          Slot #{idx + 1}: {img.filename || "Photo"}
                         </span>
                       </div>
                       <div className="flex items-center gap-1 shrink-0" onClick={(e) => e.stopPropagation()}>
@@ -823,15 +1083,27 @@ export function MultiImagePageModal({
               )}
 
               {/* Quick Fill / Duplicate button */}
-              {images.length === 1 && template !== "custom" && (
-                <button
-                  type="button"
-                  onClick={() => handleReplicateToFill(images[0].id)}
-                  className="mt-2.5 w-full inline-flex items-center justify-center gap-1.5 rounded-xl border border-emerald-300 bg-emerald-50 px-3 py-2 text-xs font-bold text-emerald-850 hover:bg-emerald-100 transition cursor-pointer shadow-2xs"
-                >
-                  <Sparkles className="size-3.5 text-emerald-600" />
-                  Fill All Sheet Slots with This Photo
-                </button>
+              {images.length > 0 && template !== "custom" && (
+                <div className="mt-2.5 space-y-1.5">
+                  <button
+                    type="button"
+                    onClick={handleResetToBatchPool}
+                    className="w-full inline-flex items-center justify-center gap-1.5 rounded-xl border border-blue-300 bg-blue-50 px-3 py-2 text-xs font-bold text-blue-900 hover:bg-blue-100 transition cursor-pointer shadow-2xs"
+                  >
+                    <RefreshCw className="size-3.5 text-blue-600" />
+                    Fill Slots with Batch Photos (1, 2, 3...)
+                  </button>
+                  {selectedId && (
+                    <button
+                      type="button"
+                      onClick={() => handleReplicateToFill(selectedId)}
+                      className="w-full inline-flex items-center justify-center gap-1.5 rounded-xl border border-emerald-300 bg-emerald-50 px-3 py-2 text-xs font-bold text-emerald-900 hover:bg-emerald-100 transition cursor-pointer shadow-2xs"
+                    >
+                      <Sparkles className="size-3.5 text-emerald-600" />
+                      Replicate Selected Photo across All Slots
+                    </button>
+                  )}
+                </div>
               )}
             </div>
           </div>
