@@ -1888,6 +1888,275 @@ function UploadStep({
   );
 }
 
+function ConfigureDocPreviewSection({
+  doc,
+  docIndex,
+  isFocusedView,
+  onFocusThisDoc,
+  onOpenFullscreen,
+  orderId,
+  accessToken,
+}: {
+  doc: CustomerDocument;
+  docIndex: number;
+  isFocusedView: boolean;
+  onFocusThisDoc?: () => void;
+  onOpenFullscreen: (docIndex: number, pageNum: number) => void;
+  orderId?: string | null;
+  accessToken?: string | null;
+}) {
+  const scrollContainerRef = useRef<HTMLDivElement>(null);
+  const [canScrollLeft, setCanScrollLeft] = useState(false);
+  const [canScrollRight, setCanScrollRight] = useState(false);
+
+  const includedPagesMap = useMemo(() => {
+    const map = new Map<number, { colorMode: string; sideMode: string; copies: number }>();
+    if (doc?.ranges) {
+      doc.ranges.forEach((r) => {
+        const start = Number(r.startPage) || 1;
+        const end = Number(r.endPage) || start;
+        const copies = Number(r.copies) || 1;
+        for (let p = Math.min(start, end); p <= Math.max(start, end); p++) {
+          map.set(p, {
+            colorMode: r.colorMode,
+            sideMode: r.sideMode ?? "single_sided",
+            copies,
+          });
+        }
+      });
+    }
+    return map;
+  }, [doc]);
+
+  const totalPagesInDoc = doc ? doc.pageCount : 1;
+  const pagesList = useMemo(() => Array.from({ length: totalPagesInDoc }, (_, i) => i + 1), [totalPagesInDoc]);
+
+  const checkScroll = useCallback(() => {
+    const el = scrollContainerRef.current;
+    if (!el) return;
+    setCanScrollLeft(el.scrollLeft > 10);
+    setCanScrollRight(el.scrollLeft + el.clientWidth < el.scrollWidth - 10);
+  }, []);
+
+  useEffect(() => {
+    const el = scrollContainerRef.current;
+    if (!el) return;
+    checkScroll();
+    el.addEventListener("scroll", checkScroll, { passive: true });
+    window.addEventListener("resize", checkScroll);
+    return () => {
+      el.removeEventListener("scroll", checkScroll);
+      window.removeEventListener("resize", checkScroll);
+    };
+  }, [checkScroll, totalPagesInDoc]);
+
+  const scrollByDirection = (direction: "left" | "right") => {
+    const el = scrollContainerRef.current;
+    if (!el) return;
+    const scrollAmount = Math.max(el.clientWidth * 0.75, 200);
+    el.scrollBy({
+      left: direction === "left" ? -scrollAmount : scrollAmount,
+      behavior: "smooth",
+    });
+  };
+
+  const docPreviewUrl =
+    doc.previewUrl ||
+    (orderId && accessToken
+      ? `/api/customer/document-preview?documentId=${doc.id}&orderId=${orderId}&token=${accessToken}`
+      : "");
+  const isImageDoc = doc.isImage || Boolean(doc.filename.match(/\.(png|jpg|jpeg|webp|gif|bmp)$/i)) || Boolean(doc.previewUrl);
+  const totalCopies = doc.ranges.reduce((s, r) => s + (Number(r.copies) || 1), 0);
+
+  return (
+    <div className={cn("space-y-2.5", !isFocusedView && "rounded-2xl border border-slate-200/90 bg-slate-50/50 p-3 sm:p-4")}>
+      <div className="flex items-center justify-between gap-2">
+        <div className="flex items-center gap-2 min-w-0">
+          <div className="flex size-7 sm:size-8 shrink-0 items-center justify-center rounded-lg bg-white border border-slate-200 shadow-2xs text-emerald-600">
+            <FileText className="size-3.5 sm:size-4" />
+          </div>
+          <div className="min-w-0">
+            <div className="flex items-center gap-1.5 flex-wrap">
+              {!isFocusedView && (
+                <span className="rounded-md bg-emerald-100 px-1.5 py-0.5 text-[9px] font-extrabold text-emerald-900 border border-emerald-200/80">
+                  Doc #{docIndex + 1}
+                </span>
+              )}
+              <h4 className="text-xs sm:text-sm font-bold text-slate-900 truncate max-w-[180px] sm:max-w-xs">
+                {doc.filename}
+              </h4>
+            </div>
+            <p className="text-[10px] sm:text-[11px] text-slate-500">
+              {doc.pageCount}p · {includedPagesMap.size} selected · {totalCopies} {totalCopies === 1 ? "copy" : "copies"}
+            </p>
+          </div>
+        </div>
+
+        <div className="flex items-center gap-1.5 shrink-0">
+          {totalPagesInDoc > 2 && (
+            <div className="flex items-center gap-1">
+              <button
+                type="button"
+                disabled={!canScrollLeft}
+                onClick={() => scrollByDirection("left")}
+                className="flex size-5 sm:size-6 items-center justify-center rounded-lg border border-slate-200 bg-white text-slate-600 hover:bg-slate-50 disabled:opacity-30 disabled:pointer-events-none transition shadow-2xs cursor-pointer"
+                title="Scroll left"
+                aria-label="Scroll left"
+              >
+                <ChevronLeft className="size-3" />
+              </button>
+              <button
+                type="button"
+                disabled={!canScrollRight}
+                onClick={() => scrollByDirection("right")}
+                className="flex size-5 sm:size-6 items-center justify-center rounded-lg border border-slate-200 bg-white text-slate-600 hover:bg-slate-50 disabled:opacity-30 disabled:pointer-events-none transition shadow-2xs cursor-pointer"
+                title="Scroll right"
+                aria-label="Scroll right"
+              >
+                <ChevronRight className="size-3" />
+              </button>
+            </div>
+          )}
+          {!isFocusedView && onFocusThisDoc && (
+            <button
+              type="button"
+              onClick={onFocusThisDoc}
+              className="inline-flex items-center gap-1 rounded-lg border border-slate-200 bg-white px-2 py-0.5 sm:py-1 text-[10px] sm:text-xs font-bold text-slate-700 hover:bg-slate-50 hover:border-emerald-500 transition shadow-2xs cursor-pointer"
+            >
+              <Eye className="size-3 text-emerald-600" /> Focus
+            </button>
+          )}
+          <span className="text-[10px] sm:text-[11px] text-slate-400 font-semibold flex items-center gap-0.5">
+            <ZoomIn className="size-3 text-emerald-600" /> Zoom
+          </span>
+        </div>
+      </div>
+
+      {/* Horizontal Scrollable Sheet Strip */}
+      <div className="relative group/carousel">
+        {canScrollLeft && (
+          <div className="pointer-events-none absolute left-0 top-0 bottom-2 z-10 w-6 bg-gradient-to-r from-white via-white/80 to-transparent rounded-l-2xl" />
+        )}
+
+        <div
+          ref={scrollContainerRef}
+          className="flex gap-2 sm:gap-2.5 overflow-x-auto pb-2 pt-1 px-1 snap-x snap-mandatory scroll-smooth no-scrollbar touch-pan-x"
+        >
+          {pagesList.map((pageNum) => {
+            const config = includedPagesMap.get(pageNum);
+            const isIncluded = Boolean(config);
+            const isColor = config?.colorMode === "color";
+            const isDuplex = config?.sideMode === "double_sided";
+
+            return (
+              <div
+                key={`doc-${docIndex}-preview-${pageNum}`}
+                onClick={() => onOpenFullscreen(docIndex, pageNum)}
+                className={cn(
+                  "group relative flex flex-col justify-between rounded-xl border-2 p-2 transition-all duration-150 cursor-pointer active:scale-97 hover:shadow-md shrink-0 snap-start select-none",
+                  totalPagesInDoc === 1
+                    ? "w-[155px] sm:w-[175px]"
+                    : "w-[calc(50%-5px)] min-w-[125px] max-w-[155px] sm:w-[145px]",
+                  isIncluded
+                    ? "border-emerald-500 bg-white shadow-xs ring-1 ring-emerald-500/20"
+                    : "border-slate-200 bg-slate-50/80 opacity-60"
+                )}
+              >
+                {/* Sheet Header Badge */}
+                <div className="flex items-center justify-between gap-1">
+                  <span
+                    className={cn(
+                      "rounded-md px-1.5 py-0.5 text-[9px] font-black shrink-0",
+                      isIncluded
+                        ? "bg-emerald-100 text-emerald-900 border border-emerald-200"
+                        : "bg-slate-200 text-slate-600"
+                    )}
+                  >
+                    P. {pageNum}
+                  </span>
+
+                  {isIncluded ? (
+                    <span
+                      className={cn(
+                        "rounded-md px-1.5 py-0.5 text-[8.5px] font-bold truncate",
+                        isColor
+                          ? "bg-emerald-50 text-emerald-800 border border-emerald-200/80"
+                          : "bg-slate-100 text-slate-700 border border-slate-200/60"
+                      )}
+                    >
+                      {isColor ? "🎨 Color" : "📄 B&W"}
+                    </span>
+                  ) : (
+                    <span className="text-[8.5px] font-bold text-slate-400">
+                      Skipped
+                    </span>
+                  )}
+                </div>
+
+                {/* Simulated Paper Graphic / Image Preview */}
+                <div
+                  className={cn(
+                    "my-1.5 flex aspect-[1/1.25] w-full items-center justify-center rounded-lg bg-white border shadow-inner p-1 text-center overflow-hidden transition-all group-hover:border-emerald-500",
+                    isIncluded && !isColor ? "border-slate-300 bg-slate-50" : "border-slate-200/90"
+                  )}
+                >
+                  {docPreviewUrl && (totalPagesInDoc === 1 || isImageDoc) ? (
+                    // eslint-disable-next-line @next/next/no-img-element
+                    <img
+                      src={docPreviewUrl}
+                      alt={`Page ${pageNum} preview`}
+                      className={cn(
+                        "max-h-full max-w-full object-contain rounded-xs transition-all",
+                        isIncluded && !isColor && "grayscale contrast-105 brightness-95"
+                      )}
+                      style={isIncluded && !isColor ? { filter: "grayscale(100%) contrast(1.1) brightness(0.96)" } : undefined}
+                    />
+                  ) : (
+                    <div className="space-y-0.5 text-slate-400">
+                      <FileText
+                        className={cn(
+                          "size-5 mx-auto transition-colors",
+                          isIncluded ? (isColor ? "text-emerald-600" : "text-slate-600") : "text-slate-300"
+                        )}
+                      />
+                      <span className={cn("block text-[9px] font-bold", isIncluded ? (isColor ? "text-emerald-900" : "text-slate-700") : "text-slate-600")}>
+                        Page #{pageNum}
+                      </span>
+                      {isIncluded && (
+                        <span className="block text-[8px] font-semibold text-emerald-700">
+                          {config?.copies && config.copies > 1 ? `× ${config.copies} Copies` : "1 Copy"}
+                        </span>
+                      )}
+                    </div>
+                  )}
+                </div>
+
+                {/* Sheet Footer Details */}
+                <div className="flex items-center justify-between border-t border-slate-100 pt-1 text-[8.5px] sm:text-[9px]">
+                  <span className="font-semibold text-slate-500 truncate">
+                    {isDuplex ? "📑 2-Side" : "📄 1-Side"}
+                  </span>
+                  {isIncluded ? (
+                    <span className="font-extrabold text-emerald-700 flex items-center gap-0.5 shrink-0">
+                      <CheckCircle2 className="size-2.5" /> Ready
+                    </span>
+                  ) : (
+                    <span className="text-slate-400 font-medium">Excluded</span>
+                  )}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+
+        {canScrollRight && (
+          <div className="pointer-events-none absolute right-0 top-0 bottom-2 z-10 w-6 bg-gradient-to-l from-white via-white/80 to-transparent rounded-r-2xl" />
+        )}
+      </div>
+    </div>
+  );
+}
+
 function ConfigureAndCropStep({
   shop,
   documents,
@@ -1934,6 +2203,14 @@ function ConfigureAndCropStep({
 
   const shopPaymentMode = shop.payment_mode || "both";
 
+  // "all" shows preview of all files; number shows focused preview of that specific file
+  const [previewDocView, setPreviewDocView] = useState<"all" | number>(() => (documents.length > 1 ? "all" : 0));
+  const [fullscreenTarget, setFullscreenTarget] = useState<{ docIndex: number; pageNum: number } | null>(null);
+
+  const totalDocPages = useMemo(() => {
+    return documents.reduce((sum, doc) => sum + (doc.pageCount || 1), 0);
+  }, [documents]);
+
   const fallbackTotalPages = documents.reduce((sum, doc) => {
     const docPages = doc.ranges.reduce((acc, r) => {
       const start = Number(r.startPage) || 1;
@@ -1951,8 +2228,6 @@ function ConfigureAndCropStep({
 
   const requestsColorMode = documents.some((doc) => doc.ranges.some((r) => r.colorMode === "color"));
   const colorPrinterUnavailable = requestsColorMode && shop.color_printer_status !== "ready";
-  const isImageDoc = current.isImage || Boolean(current.filename.match(/\.(png|jpg|jpeg|webp|gif|bmp)$/i)) || Boolean(current.previewUrl);
-  const isCurrentCombinedSheet = Boolean(current.isCombinedSheet || current.filename.startsWith("multi-photo-sheet-"));
   const uncombinedImageDocuments = documents.filter(
     (d) =>
       !d.isCombinedSheet &&
@@ -1961,103 +2236,61 @@ function ConfigureAndCropStep({
   );
   const hasMultipleImages = uncombinedImageDocuments.length >= 2;
   const hasAnyImages = uncombinedImageDocuments.length >= 1;
-
-  // Build live preview map reflecting user's currently selected configuration
-  const includedPagesMap = useMemo(() => {
-    const map = new Map<number, { colorMode: string; sideMode: string; copies: number }>();
-    if (current) {
-      current.ranges.forEach((r) => {
-        const start = Number(r.startPage) || 1;
-        const end = Number(r.endPage) || start;
-        const copies = Number(r.copies) || 1;
-        for (let p = Math.min(start, end); p <= Math.max(start, end); p++) {
-          map.set(p, {
-            colorMode: r.colorMode,
-            sideMode: r.sideMode ?? "single_sided",
-            copies,
-          });
-        }
-      });
-    }
-    return map;
-  }, [current]);
-
-  const totalPagesInDoc = current ? current.pageCount : 1;
-  const pagesList = useMemo(() => Array.from({ length: totalPagesInDoc }, (_, i) => i + 1), [totalPagesInDoc]);
-
-  const [selectedPreviewPage, setSelectedPreviewPage] = useState<number | null>(null);
-  const scrollContainerRef = useRef<HTMLDivElement>(null);
-  const [canScrollLeft, setCanScrollLeft] = useState(false);
-  const [canScrollRight, setCanScrollRight] = useState(false);
-
-
-  const checkScroll = useCallback(() => {
-    const el = scrollContainerRef.current;
-    if (!el) return;
-    setCanScrollLeft(el.scrollLeft > 10);
-    setCanScrollRight(el.scrollLeft + el.clientWidth < el.scrollWidth - 10);
-  }, []);
-
-  useEffect(() => {
-    const el = scrollContainerRef.current;
-    if (!el) return;
-    checkScroll();
-    el.addEventListener("scroll", checkScroll, { passive: true });
-    window.addEventListener("resize", checkScroll);
-    return () => {
-      el.removeEventListener("scroll", checkScroll);
-      window.removeEventListener("resize", checkScroll);
-    };
-  }, [checkScroll, activeDocument, totalPagesInDoc]);
-
-  const scrollByDirection = (direction: "left" | "right") => {
-    const el = scrollContainerRef.current;
-    if (!el) return;
-    const scrollAmount = Math.max(el.clientWidth * 0.75, 200);
-    el.scrollBy({
-      left: direction === "left" ? -scrollAmount : scrollAmount,
-      behavior: "smooth",
-    });
-  };
+  const isImageDoc = current.isImage || Boolean(current.filename.match(/\.(png|jpg|jpeg|webp|gif|bmp)$/i)) || Boolean(current.previewUrl);
+  const isCurrentCombinedSheet = Boolean(current.isCombinedSheet || current.filename.startsWith("multi-photo-sheet-"));
 
   const closeFullscreenPreview = useCallback(() => {
-    setSelectedPreviewPage(null);
+    setFullscreenTarget(null);
   }, []);
 
-  const openFullscreenPreview = (pageNum: number) => {
-    setSelectedPreviewPage(pageNum);
+  const openFullscreenPreview = useCallback((docIndex: number, pageNum: number) => {
+    setFullscreenTarget({ docIndex, pageNum });
     if (typeof window !== "undefined") {
       window.history.pushState({ previewModal: true }, "");
     }
-  };
+  }, []);
 
   useEffect(() => {
-    if (selectedPreviewPage === null) return;
+    if (!fullscreenTarget) return;
+
+    const currentDoc = documents[fullscreenTarget.docIndex];
+    const totalPages = currentDoc ? currentDoc.pageCount : 1;
+
     const handlePopState = () => {
       closeFullscreenPreview();
     };
+
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key === "Escape") {
         closeFullscreenPreview();
       } else if (e.key === "ArrowLeft") {
-        setSelectedPreviewPage((prev) => (prev && prev > 1 ? prev - 1 : prev));
+        setFullscreenTarget((prev) =>
+          prev && prev.pageNum > 1 ? { ...prev, pageNum: prev.pageNum - 1 } : prev
+        );
       } else if (e.key === "ArrowRight") {
-        setSelectedPreviewPage((prev) => (prev && prev < totalPagesInDoc ? prev + 1 : prev));
+        setFullscreenTarget((prev) =>
+          prev && prev.pageNum < totalPages ? { ...prev, pageNum: prev.pageNum + 1 } : prev
+        );
       }
     };
+
     window.addEventListener("popstate", handlePopState);
     window.addEventListener("keydown", handleKeyDown);
+
     return () => {
       window.removeEventListener("popstate", handlePopState);
       window.removeEventListener("keydown", handleKeyDown);
     };
-  }, [selectedPreviewPage, totalPagesInDoc, closeFullscreenPreview]);
+  }, [fullscreenTarget, documents, closeFullscreenPreview]);
 
-  const docPreviewUrl =
-    current.previewUrl ||
-    (orderId && accessToken
-      ? `/api/customer/document-preview?documentId=${current.id}&orderId=${orderId}&token=${accessToken}`
-      : "");
+  // Keep previewDocView valid if documents change
+  useEffect(() => {
+    if (typeof previewDocView === "number" && previewDocView >= documents.length) {
+      setPreviewDocView(documents.length > 1 ? "all" : 0);
+    }
+  }, [documents.length, previewDocView]);
+
+  const focusedPreviewDoc = typeof previewDocView === "number" ? documents[previewDocView] || current : null;
 
   return (
     <div className="space-y-4 sm:space-y-6">
@@ -2070,172 +2303,90 @@ function ConfigureAndCropStep({
 
       {/* TOP: Live Document & Sheet Preview */}
       <Card className="p-3.5 sm:p-6 border-slate-200/80 bg-white shadow-lg shadow-slate-900/5 rounded-2xl sm:rounded-3xl overflow-hidden">
-        <div className="flex items-center justify-between gap-2 mb-3">
-          <div className="flex items-center gap-2">
-            <span className="flex size-7 items-center justify-center rounded-xl bg-emerald-100 text-emerald-800 font-bold text-xs">
-              <Eye className="size-4" />
-            </span>
-            <div>
-              <h3 className="text-sm sm:text-base font-black text-slate-900 leading-tight">
-                Document Preview
-              </h3>
-              <p className="text-[10px] sm:text-xs text-slate-500">
-                {current ? current.filename : "Uploaded Document"} · {includedPagesMap.size} of {current.pageCount}p selected
-              </p>
+        {/* Document Filter Tabs (When multiple documents exist) */}
+        {documents.length > 1 && (
+          <div className="mb-3.5 pb-2.5 border-b border-slate-100">
+            <div className="flex items-center justify-between gap-2 mb-2">
+              <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">
+                Preview Filter:
+              </span>
+              <span className="text-[11px] text-slate-400 font-medium">
+                {previewDocView === "all" ? `Showing all ${documents.length} files` : `Showing 1 file`}
+              </span>
             </div>
-          </div>
-          <div className="flex items-center gap-1.5 shrink-0">
-            {totalPagesInDoc > 2 && (
-              <div className="flex items-center gap-1">
+            <div className="flex gap-2 overflow-x-auto pb-1 no-scrollbar">
+              <button
+                type="button"
+                onClick={() => setPreviewDocView("all")}
+                className={cn(
+                  "flex items-center gap-1.5 shrink-0 rounded-xl border px-3 py-1.5 text-left text-xs transition-all cursor-pointer select-none",
+                  previewDocView === "all"
+                    ? "border-emerald-600 bg-emerald-50 font-bold text-emerald-950 shadow-xs ring-1 ring-emerald-500/20"
+                    : "border-slate-200 bg-white text-slate-600 hover:bg-slate-50"
+                )}
+              >
+                <Layers className="size-3.5 text-emerald-600 shrink-0" />
+                <span>All Files</span>
+                <span className="rounded-md bg-white px-1.5 py-0.5 text-[10px] font-semibold text-slate-500 border border-slate-200/60">
+                  {documents.length} files · {totalDocPages}p
+                </span>
+              </button>
+
+              {documents.map((doc, idx) => (
                 <button
+                  key={doc.id}
                   type="button"
-                  disabled={!canScrollLeft}
-                  onClick={() => scrollByDirection("left")}
-                  className="flex size-6 items-center justify-center rounded-lg border border-slate-200 bg-white text-slate-600 hover:bg-slate-50 disabled:opacity-30 disabled:pointer-events-none transition shadow-2xs cursor-pointer"
-                  title="Scroll left"
-                  aria-label="Scroll left"
-                >
-                  <ChevronLeft className="size-3.5" />
-                </button>
-                <button
-                  type="button"
-                  disabled={!canScrollRight}
-                  onClick={() => scrollByDirection("right")}
-                  className="flex size-6 items-center justify-center rounded-lg border border-slate-200 bg-white text-slate-600 hover:bg-slate-50 disabled:opacity-30 disabled:pointer-events-none transition shadow-2xs cursor-pointer"
-                  title="Scroll right"
-                  aria-label="Scroll right"
-                >
-                  <ChevronRight className="size-3.5" />
-                </button>
-              </div>
-            )}
-            <span className="text-[10px] sm:text-[11px] text-slate-400 font-semibold flex items-center gap-0.5">
-              <ZoomIn className="size-3 text-emerald-600" /> Tap to zoom
-            </span>
-          </div>
-        </div>
-
-        {/* Horizontal Scrollable Sheet Strip */}
-        <div className="relative group/carousel">
-          {canScrollLeft && (
-            <div className="pointer-events-none absolute left-0 top-0 bottom-2 z-10 w-6 bg-gradient-to-r from-white via-white/80 to-transparent rounded-l-2xl" />
-          )}
-
-          <div
-            ref={scrollContainerRef}
-            className="flex gap-2.5 sm:gap-3 overflow-x-auto pb-2 pt-1 px-1 snap-x snap-mandatory scroll-smooth no-scrollbar touch-pan-x"
-          >
-            {pagesList.map((pageNum) => {
-              const config = includedPagesMap.get(pageNum);
-              const isIncluded = Boolean(config);
-              const isColor = config?.colorMode === "color";
-              const isDuplex = config?.sideMode === "double_sided";
-
-              return (
-                <div
-                  key={`page-preview-${pageNum}`}
-                  onClick={() => openFullscreenPreview(pageNum)}
+                  onClick={() => {
+                    setPreviewDocView(idx);
+                    setActiveDocument(idx);
+                  }}
                   className={cn(
-                    "group relative flex flex-col justify-between rounded-2xl border-2 p-2 sm:p-2.5 transition-all duration-150 cursor-pointer active:scale-97 hover:shadow-md shrink-0 snap-start select-none",
-                    totalPagesInDoc === 1
-                      ? "w-[170px] sm:w-[190px]"
-                      : "w-[calc(50%-5px)] min-w-[130px] max-w-[160px] sm:w-[155px]",
-                    isIncluded
-                      ? "border-emerald-500 bg-white shadow-xs ring-1 ring-emerald-500/20"
-                      : "border-slate-200 bg-slate-50/80 opacity-60"
+                    "flex items-center gap-1.5 shrink-0 rounded-xl border px-3 py-1.5 text-left text-xs transition-all cursor-pointer select-none",
+                    previewDocView === idx
+                      ? "border-emerald-600 bg-emerald-50 font-bold text-emerald-950 shadow-xs ring-1 ring-emerald-500/20"
+                      : "border-slate-200 bg-white text-slate-600 hover:bg-slate-50"
                   )}
                 >
-                  {/* Sheet Header Badge */}
-                  <div className="flex items-center justify-between gap-1">
-                    <span
-                      className={cn(
-                        "rounded-md px-1.5 py-0.5 text-[9.5px] font-black shrink-0",
-                        isIncluded
-                          ? "bg-emerald-100 text-emerald-900 border border-emerald-200"
-                          : "bg-slate-200 text-slate-600"
-                      )}
-                    >
-                      P. {pageNum}
-                    </span>
-
-                    {isIncluded ? (
-                      <span
-                        className={cn(
-                          "rounded-md px-1.5 py-0.5 text-[8.5px] font-bold truncate",
-                          isColor
-                            ? "bg-emerald-50 text-emerald-800 border border-emerald-200/80"
-                            : "bg-slate-100 text-slate-700 border border-slate-200/60"
-                        )}
-                      >
-                        {isColor ? "🎨 Color" : "📄 B&W"}
-                      </span>
-                    ) : (
-                      <span className="text-[8.5px] font-bold text-slate-400">
-                        Skipped
-                      </span>
-                    )}
-                  </div>
-
-                  {/* Simulated Paper Graphic / Image Preview */}
-                  <div
-                    className={cn(
-                      "my-1.5 flex aspect-[1/1.25] w-full items-center justify-center rounded-xl bg-white border shadow-inner p-1 text-center overflow-hidden transition-all group-hover:border-emerald-500",
-                      isIncluded && !isColor ? "border-slate-300 bg-slate-50" : "border-slate-200/90"
-                    )}
-                  >
-                    {docPreviewUrl && (totalPagesInDoc === 1 || isImageDoc) ? (
-                      // eslint-disable-next-line @next/next/no-img-element
-                      <img
-                        src={docPreviewUrl}
-                        alt={`Page ${pageNum} preview`}
-                        className={cn(
-                          "max-h-full max-w-full object-contain rounded-sm transition-all",
-                          isIncluded && !isColor && "grayscale contrast-105 brightness-95"
-                        )}
-                        style={isIncluded && !isColor ? { filter: "grayscale(100%) contrast(1.1) brightness(0.96)" } : undefined}
-                      />
-                    ) : (
-                      <div className="space-y-0.5 text-slate-400">
-                        <FileText
-                          className={cn(
-                            "size-5 sm:size-6 mx-auto transition-colors",
-                            isIncluded ? (isColor ? "text-emerald-600" : "text-slate-600") : "text-slate-300"
-                          )}
-                        />
-                        <span className={cn("block text-[9.5px] font-bold", isIncluded ? (isColor ? "text-emerald-900" : "text-slate-700") : "text-slate-600")}>
-                          Page #{pageNum}
-                        </span>
-                        {isIncluded && (
-                          <span className="block text-[8px] font-semibold text-emerald-700">
-                            {config?.copies && config.copies > 1 ? `× ${config.copies} Copies` : "1 Copy"}
-                          </span>
-                        )}
-                      </div>
-                    )}
-                  </div>
-
-                  {/* Sheet Footer Details */}
-                  <div className="flex items-center justify-between border-t border-slate-100 pt-1 text-[9px]">
-                    <span className="font-semibold text-slate-500 truncate">
-                      {isDuplex ? "📑 2-Side" : "📄 1-Side"}
-                    </span>
-                    {isIncluded ? (
-                      <span className="font-extrabold text-emerald-700 flex items-center gap-0.5 shrink-0">
-                        <CheckCircle2 className="size-2.5" /> Ready
-                      </span>
-                    ) : (
-                      <span className="text-slate-400 font-medium">Excluded</span>
-                    )}
-                  </div>
-                </div>
-              );
-            })}
+                  <FileText className="size-3.5 text-emerald-600 shrink-0" />
+                  <span className="max-w-28 sm:max-w-36 truncate">{doc.filename}</span>
+                  <span className="rounded-md bg-white px-1.5 py-0.5 text-[10px] font-semibold text-slate-500 border border-slate-200/60">
+                    {doc.pageCount}p
+                  </span>
+                </button>
+              ))}
+            </div>
           </div>
+        )}
 
-          {canScrollRight && (
-            <div className="pointer-events-none absolute right-0 top-0 bottom-2 z-10 w-6 bg-gradient-to-l from-white via-white/80 to-transparent rounded-r-2xl" />
-          )}
-        </div>
+        {/* Content: All Documents Preview OR Specific Document Preview */}
+        {previewDocView === "all" ? (
+          <div className="space-y-3.5">
+            {documents.map((doc, idx) => (
+              <ConfigureDocPreviewSection
+                key={doc.id}
+                doc={doc}
+                docIndex={idx}
+                isFocusedView={false}
+                orderId={orderId}
+                accessToken={accessToken}
+                onFocusThisDoc={() => {
+                  setPreviewDocView(idx);
+                  setActiveDocument(idx);
+                }}
+                onOpenFullscreen={openFullscreenPreview}
+              />
+            ))}
+          </div>
+        ) : focusedPreviewDoc ? (
+          <ConfigureDocPreviewSection
+            doc={focusedPreviewDoc}
+            docIndex={typeof previewDocView === "number" ? previewDocView : activeDocument}
+            isFocusedView={true}
+            orderId={orderId}
+            accessToken={accessToken}
+            onOpenFullscreen={openFullscreenPreview}
+          />
+        ) : null}
       </Card>
 
       {/* 1. Document Configuration Card (Below Preview) */}
@@ -2283,7 +2434,10 @@ function ConfigureAndCropStep({
           {documents.map((document, index) => (
             <button
               key={document.id}
-              onClick={() => setActiveDocument(index)}
+              onClick={() => {
+                setActiveDocument(index);
+                setPreviewDocView(index);
+              }}
               className={cn(
                 "flex items-center gap-2 shrink-0 rounded-xl border px-3.5 py-2 text-left text-xs transition-all cursor-pointer select-none",
                 index === activeDocument
@@ -3017,87 +3171,122 @@ function ConfigureAndCropStep({
       </div>
 
       {/* Fullscreen Page Inspector Modal on tap */}
-      {selectedPreviewPage !== null && (
-        <div className="fixed inset-0 z-50 flex flex-col bg-slate-950/70 backdrop-blur-md animate-in fade-in duration-200">
-          <div className="flex items-center justify-between border-b border-slate-200 bg-white px-4 py-3 text-slate-900 shadow-xs">
-            <button
-              type="button"
-              onClick={closeFullscreenPreview}
-              className="inline-flex items-center gap-1.5 rounded-xl border border-slate-200 bg-white px-2.5 py-1.5 text-xs font-bold text-slate-700 shadow-2xs hover:bg-slate-50 transition cursor-pointer"
-            >
-              <ArrowLeft className="size-3.5" />
-              Back
-            </button>
-            <div className="text-center">
-              <span className="text-xs font-extrabold text-slate-900">
-                Page {selectedPreviewPage} of {totalPagesInDoc}
-              </span>
-              <span className="block text-[10px] text-slate-500 font-medium truncate max-w-[180px]">
-                {current.filename}
-              </span>
-            </div>
-            <button
-              type="button"
-              onClick={closeFullscreenPreview}
-              className="flex size-7 items-center justify-center rounded-lg border border-slate-200 text-slate-500 hover:text-slate-900 transition"
-              aria-label="Close preview"
-            >
-              <X className="size-4" />
-            </button>
-          </div>
+      {fullscreenTarget !== null && (() => {
+        const targetDoc = documents[fullscreenTarget.docIndex] || current;
+        const targetIncludedMap = new Map<number, { colorMode: string; sideMode: string; copies: number }>();
+        if (targetDoc?.ranges) {
+          targetDoc.ranges.forEach((r) => {
+            const start = Number(r.startPage) || 1;
+            const end = Number(r.endPage) || start;
+            const copies = Number(r.copies) || 1;
+            for (let p = Math.min(start, end); p <= Math.max(start, end); p++) {
+              targetIncludedMap.set(p, {
+                colorMode: r.colorMode,
+                sideMode: r.sideMode ?? "single_sided",
+                copies,
+              });
+            }
+          });
+        }
+        const targetTotalPages = targetDoc ? targetDoc.pageCount : 1;
+        const targetDocPreviewUrl =
+          targetDoc.previewUrl ||
+          (orderId && accessToken
+            ? `/api/customer/document-preview?documentId=${targetDoc.id}&orderId=${orderId}&token=${accessToken}`
+            : "");
+        const targetIsImage = targetDoc.isImage || Boolean(targetDoc.filename.match(/\.(png|jpg|jpeg|webp|gif|bmp)$/i)) || Boolean(targetDoc.previewUrl);
+        const config = targetIncludedMap.get(fullscreenTarget.pageNum);
+        const isIncluded = Boolean(config);
+        const isColor = config?.colorMode === "color";
+        const isDuplex = config?.sideMode === "double_sided";
 
-          <div className="relative flex flex-1 items-center justify-center overflow-auto p-4">
-            <div className="relative flex max-h-[80vh] w-auto max-w-[90vw] items-center justify-center rounded-2xl bg-white p-2 shadow-2xl border border-slate-800/10">
-              {docPreviewUrl && (totalPagesInDoc === 1 || isImageDoc) ? (
-                // eslint-disable-next-line @next/next/no-img-element
-                <img
-                  src={docPreviewUrl}
-                  alt={`Page ${selectedPreviewPage}`}
-                  className="max-h-[75vh] w-auto max-w-full object-contain rounded-lg"
-                  style={
-                    includedPagesMap.get(selectedPreviewPage)?.colorMode === "color"
-                      ? undefined
-                      : { filter: "grayscale(100%) contrast(1.1) brightness(0.96)" }
-                  }
-                />
-              ) : (
-                <div className="flex flex-col items-center justify-center p-12 text-center text-slate-400 space-y-2">
-                  <FileText className="size-16 text-slate-300" />
-                  <p className="text-sm font-bold text-slate-700">Page {selectedPreviewPage}</p>
-                  <p className="text-xs text-slate-400">
-                    {includedPagesMap.get(selectedPreviewPage)?.colorMode === "color" ? "Full Color" : "Black & White"} ·{" "}
-                    {includedPagesMap.get(selectedPreviewPage)?.sideMode === "double_sided" ? "2-Sided" : "1-Sided"}
-                  </p>
-                </div>
-              )}
+        return (
+          <div className="fixed inset-0 z-50 flex flex-col bg-slate-950/70 backdrop-blur-md animate-in fade-in duration-200">
+            <div className="flex items-center justify-between border-b border-slate-200 bg-white px-4 py-3 text-slate-900 shadow-xs">
+              <button
+                type="button"
+                onClick={closeFullscreenPreview}
+                className="inline-flex items-center gap-1.5 rounded-xl border border-slate-200 bg-white px-2.5 sm:px-3 py-1.5 text-xs font-bold text-slate-700 shadow-2xs hover:bg-slate-50 transition cursor-pointer"
+              >
+                <ArrowLeft className="size-3.5" />
+                Back
+              </button>
+              <div className="text-center min-w-0 px-2">
+                <span className="block text-xs font-extrabold text-slate-900 truncate max-w-[180px] sm:max-w-xs">
+                  {targetDoc.filename}
+                </span>
+                <span className="text-[11px] text-slate-500 font-medium">
+                  Page {fullscreenTarget.pageNum} of {targetTotalPages}
+                </span>
+              </div>
+              <button
+                type="button"
+                onClick={closeFullscreenPreview}
+                className="flex size-7 items-center justify-center rounded-lg border border-slate-200 text-slate-500 hover:text-slate-900 transition"
+                aria-label="Close preview"
+              >
+                <X className="size-4" />
+              </button>
+            </div>
+
+            <div className="relative flex flex-1 items-center justify-center overflow-auto p-4 select-none bg-slate-100/90">
+              <div className="relative flex max-h-[80vh] w-auto max-w-[90vw] items-center justify-center rounded-2xl bg-white p-2 shadow-2xl border border-slate-800/10">
+                {targetDocPreviewUrl && (targetTotalPages === 1 || targetIsImage) ? (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img
+                    src={targetDocPreviewUrl}
+                    alt={`Page ${fullscreenTarget.pageNum}`}
+                    className="max-h-[75vh] w-auto max-w-full object-contain rounded-lg"
+                    style={
+                      isColor
+                        ? undefined
+                        : { filter: "grayscale(100%) contrast(1.1) brightness(0.96)" }
+                    }
+                  />
+                ) : (
+                  <div className="flex flex-col items-center justify-center p-12 text-center text-slate-400 space-y-2">
+                    <FileText className="size-16 text-slate-300" />
+                    <p className="text-sm font-bold text-slate-700">Page {fullscreenTarget.pageNum}</p>
+                    <p className="text-xs text-slate-400">
+                      {isColor ? "Full Color" : "Black & White"} · {isDuplex ? "2-Sided" : "1-Sided"}
+                    </p>
+                  </div>
+                )}
+              </div>
+            </div>
+
+            <div className="flex items-center justify-between border-t border-slate-800/60 bg-slate-950/80 px-4 py-3 text-white backdrop-blur-md">
+              <button
+                type="button"
+                disabled={fullscreenTarget.pageNum <= 1}
+                onClick={() =>
+                  setFullscreenTarget((p) => (p && p.pageNum > 1 ? { ...p, pageNum: p.pageNum - 1 } : p))
+                }
+                className="inline-flex items-center gap-1 rounded-xl bg-white/10 px-3 py-1.5 text-xs font-bold text-white hover:bg-white/20 disabled:opacity-30 disabled:pointer-events-none transition cursor-pointer"
+              >
+                <ChevronLeft className="size-3.5" />
+                Prev
+              </button>
+              <span className="text-[11px] text-slate-400">
+                Page {fullscreenTarget.pageNum} of {targetTotalPages}
+              </span>
+              <button
+                type="button"
+                disabled={fullscreenTarget.pageNum >= targetTotalPages}
+                onClick={() =>
+                  setFullscreenTarget((p) =>
+                    p && p.pageNum < targetTotalPages ? { ...p, pageNum: p.pageNum + 1 } : p
+                  )
+                }
+                className="inline-flex items-center gap-1 rounded-xl bg-white/10 px-3 py-1.5 text-xs font-bold text-white hover:bg-white/20 disabled:opacity-30 disabled:pointer-events-none transition cursor-pointer"
+              >
+                Next
+                <ChevronRight className="size-3.5" />
+              </button>
             </div>
           </div>
-
-          <div className="flex items-center justify-between border-t border-slate-800/60 bg-slate-950/80 px-4 py-3 text-white backdrop-blur-md">
-            <button
-              type="button"
-              disabled={selectedPreviewPage <= 1}
-              onClick={() => setSelectedPreviewPage((p) => (p && p > 1 ? p - 1 : p))}
-              className="inline-flex items-center gap-1 rounded-xl bg-white/10 px-3 py-1.5 text-xs font-bold text-white hover:bg-white/20 disabled:opacity-30 disabled:pointer-events-none transition cursor-pointer"
-            >
-              <ChevronLeft className="size-3.5" />
-              Prev
-            </button>
-            <span className="text-[11px] text-slate-400">
-              Page {selectedPreviewPage} of {totalPagesInDoc}
-            </span>
-            <button
-              type="button"
-              disabled={selectedPreviewPage >= totalPagesInDoc}
-              onClick={() => setSelectedPreviewPage((p) => (p && p < totalPagesInDoc ? p + 1 : p))}
-              className="inline-flex items-center gap-1 rounded-xl bg-white/10 px-3 py-1.5 text-xs font-bold text-white hover:bg-white/20 disabled:opacity-30 disabled:pointer-events-none transition cursor-pointer"
-            >
-              Next
-              <ChevronRight className="size-3.5" />
-            </button>
-          </div>
-        </div>
-      )}
+        );
+      })()}
     </div>
   );
 }
