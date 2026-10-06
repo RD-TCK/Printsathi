@@ -62,8 +62,8 @@ export default async function PublicShopPage({ params, searchParams }: ShopPageP
 
         {/* Main Content Card */}
         <Card className="mt-1 sm:mt-2 overflow-hidden border-emerald-200 bg-white shadow-xl shadow-emerald-950/5 rounded-2xl sm:rounded-3xl">
-          {/* Shop Header Banner */}
-          <div className="relative overflow-hidden bg-emerald-950 px-3.5 py-2.5 sm:px-8 sm:py-8 text-white border-b border-emerald-800">
+          {/* Shop Header Banner (Desktop Only - Hidden on Mobile) */}
+          <div className="hidden sm:block relative overflow-hidden bg-emerald-950 px-3.5 py-2.5 sm:px-8 sm:py-8 text-white border-b border-emerald-800">
             <div className="relative z-10 space-y-2 sm:space-y-4">
               {/* Top Meta Bar */}
               <div className="flex flex-wrap items-center justify-between gap-1.5 sm:gap-2">

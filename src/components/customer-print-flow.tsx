@@ -15,6 +15,10 @@ import {
   Trash2,
   Sparkles,
   ArrowRight,
+  ArrowLeft,
+  ChevronLeft,
+  ChevronRight,
+  ZoomIn,
   Camera,
   Ticket,
   Clock3,
@@ -1335,8 +1339,10 @@ export function CustomerPrintFlow({
         </div>
       )}
 
-      {/* 4-Stage Step Progress Indicator */}
-      <StepIndicator step={step} />
+      {/* 4-Stage Step Progress Indicator (Desktop Only - Hidden on Mobile for direct preview flow) */}
+      <div className="hidden sm:block">
+        <StepIndicator step={step} />
+      </div>
 
       {error ? <Alert tone="error">{error}</Alert> : null}
 
@@ -1378,26 +1384,32 @@ export function CustomerPrintFlow({
             </div>
           )}
           <ConfigureAndCropStep
-          shop={shop}
-          documents={documents}
-          current={current}
-          activeDocument={activeDocument}
-          setActiveDocument={setActiveDocument}
-          updateRange={updateRange}
-          addRange={addRange}
-          removeRange={removeRange}
-          removeDocument={removeDocument}
-          allValid={allValid}
-          busy={busy}
-          estimate={estimate}
-          onContinueToPreview={() => setStep(2)}
-          onOpenCropper={(docIndex) => {
-            setCropTargetDocIndex(docIndex);
-            setCropperOpen(true);
-          }}
-          onOpenMultiImage={(docIndex, defaultPreset) => handleOpenMultiImage(docIndex, defaultPreset)}
-          onAddMoreFiles={(files) => uploadFiles(files, true)}
-        />
+            shop={shop}
+            documents={documents}
+            current={current}
+            activeDocument={activeDocument}
+            setActiveDocument={setActiveDocument}
+            updateRange={updateRange}
+            addRange={addRange}
+            removeRange={removeRange}
+            removeDocument={removeDocument}
+            allValid={allValid}
+            busy={busy}
+            estimate={estimate}
+            onContinueToPreview={() => setStep(2)}
+            onOpenCropper={(docIndex) => {
+              setCropTargetDocIndex(docIndex);
+              setCropperOpen(true);
+            }}
+            onOpenMultiImage={(docIndex, defaultPreset) => handleOpenMultiImage(docIndex, defaultPreset)}
+            onAddMoreFiles={(files) => uploadFiles(files, true)}
+            orderId={orderId}
+            accessToken={accessToken}
+            onProceedToPay={handleProceedToPay}
+            onProceedToCounterToken={handleProceedToCounterToken}
+            selectedMode={selectedMode}
+            setSelectedMode={setSelectedMode}
+          />
         </>
       ) : null}
 
@@ -1498,19 +1510,17 @@ export function CustomerPrintFlow({
 }
 
 function StepIndicator({ step }: { step: number }) {
-  // Map internal steps (0, 1, 2, 3/4) to index (0, 1, 2, 3)
-  const displayStep = step >= 3 ? 3 : step;
+  // 2 clean stages: 0 = Upload, 1+ = Configure & Print
+  const displayStep = step >= 1 ? 1 : 0;
 
   const stepList = [
-    { short: "Upload", full: "1. Upload" },
-    { short: "Configure", full: "2. Configure & Crop" },
-    { short: "Preview", full: "3. Print Preview" },
-    { short: "Checkout", full: "4. Checkout & Pay" },
+    { short: "Upload", full: "1. Upload Documents" },
+    { short: "Configure & Print", full: "2. Configure & Print" },
   ];
 
   return (
     <div className="relative rounded-2xl border border-slate-200/80 bg-white/95 backdrop-blur-sm p-1.5 sm:p-2 shadow-xs">
-      <div className="grid grid-cols-4 gap-1 sm:gap-2">
+      <div className="grid grid-cols-2 gap-1.5 sm:gap-2">
         {stepList.map((item, index) => {
           const isCurrent = displayStep === index;
           const isCompleted = displayStep > index;
@@ -1896,6 +1906,12 @@ function ConfigureAndCropStep({
   onOpenCropper,
   onOpenMultiImage,
   onAddMoreFiles,
+  orderId,
+  accessToken,
+  onProceedToPay,
+  onProceedToCounterToken,
+  selectedMode,
+  setSelectedMode,
 }: {
   shop: PublicShop;
   documents: CustomerDocument[];
@@ -1913,9 +1929,17 @@ function ConfigureAndCropStep({
   onOpenCropper: (docIndex: number) => void;
   onOpenMultiImage: (initialDocIndex?: number, defaultPreset?: LayoutTemplate) => void;
   onAddMoreFiles: (files: File[]) => void;
+  orderId?: string | null;
+  accessToken?: string | null;
+  onProceedToPay?: () => void;
+  onProceedToCounterToken?: () => void;
+  selectedMode?: "counter" | "online";
+  setSelectedMode?: (mode: "counter" | "online") => void;
 }) {
   const rangeError = validateRanges(current.ranges, current.pageCount);
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const shopPaymentMode = shop.payment_mode || "both";
 
   const fallbackTotalPages = documents.reduce((sum, doc) => {
     const docPages = doc.ranges.reduce((acc, r) => {
@@ -1926,6 +1950,11 @@ function ConfigureAndCropStep({
     }, 0);
     return sum + docPages;
   }, 0);
+
+  const displayTotalAmount =
+    estimate && estimate.total > 0
+      ? estimate.total.toFixed(2)
+      : (fallbackTotalPages * 5).toFixed(2);
 
   const requestsColorMode = documents.some((doc) => doc.ranges.some((r) => r.colorMode === "color"));
   const colorPrinterUnavailable = requestsColorMode && shop.color_printer_status !== "ready";
@@ -1940,8 +1969,109 @@ function ConfigureAndCropStep({
   const hasMultipleImages = uncombinedImageDocuments.length >= 2;
   const hasAnyImages = uncombinedImageDocuments.length >= 1;
 
+  // Build live preview map reflecting user's currently selected configuration
+  const includedPagesMap = useMemo(() => {
+    const map = new Map<number, { colorMode: string; sideMode: string; copies: number }>();
+    if (current) {
+      current.ranges.forEach((r) => {
+        const start = Number(r.startPage) || 1;
+        const end = Number(r.endPage) || start;
+        const copies = Number(r.copies) || 1;
+        for (let p = Math.min(start, end); p <= Math.max(start, end); p++) {
+          map.set(p, {
+            colorMode: r.colorMode,
+            sideMode: r.sideMode ?? "single_sided",
+            copies,
+          });
+        }
+      });
+    }
+    return map;
+  }, [current]);
+
+  const totalPagesInDoc = current ? current.pageCount : 1;
+  const pagesList = useMemo(() => Array.from({ length: totalPagesInDoc }, (_, i) => i + 1), [totalPagesInDoc]);
+
+  const [selectedPreviewPage, setSelectedPreviewPage] = useState<number | null>(null);
+  const scrollContainerRef = useRef<HTMLDivElement>(null);
+  const [canScrollLeft, setCanScrollLeft] = useState(false);
+  const [canScrollRight, setCanScrollRight] = useState(false);
+  const [activeScrolledPage, setActiveScrolledPage] = useState(1);
+
+  const checkScroll = useCallback(() => {
+    const el = scrollContainerRef.current;
+    if (!el) return;
+    setCanScrollLeft(el.scrollLeft > 10);
+    setCanScrollRight(el.scrollLeft + el.clientWidth < el.scrollWidth - 10);
+
+    const cardWidth = el.firstElementChild ? (el.firstElementChild as HTMLElement).offsetWidth + 10 : 150;
+    const page = Math.min(totalPagesInDoc, Math.max(1, Math.round(el.scrollLeft / cardWidth) + 1));
+    setActiveScrolledPage(page);
+  }, [totalPagesInDoc]);
+
+  useEffect(() => {
+    const el = scrollContainerRef.current;
+    if (!el) return;
+    checkScroll();
+    el.addEventListener("scroll", checkScroll, { passive: true });
+    window.addEventListener("resize", checkScroll);
+    return () => {
+      el.removeEventListener("scroll", checkScroll);
+      window.removeEventListener("resize", checkScroll);
+    };
+  }, [checkScroll, activeDocument, totalPagesInDoc]);
+
+  const scrollByDirection = (direction: "left" | "right") => {
+    const el = scrollContainerRef.current;
+    if (!el) return;
+    const scrollAmount = Math.max(el.clientWidth * 0.75, 200);
+    el.scrollBy({
+      left: direction === "left" ? -scrollAmount : scrollAmount,
+      behavior: "smooth",
+    });
+  };
+
+  const closeFullscreenPreview = useCallback(() => {
+    setSelectedPreviewPage(null);
+  }, []);
+
+  const openFullscreenPreview = (pageNum: number) => {
+    setSelectedPreviewPage(pageNum);
+    if (typeof window !== "undefined") {
+      window.history.pushState({ previewModal: true }, "");
+    }
+  };
+
+  useEffect(() => {
+    if (selectedPreviewPage === null) return;
+    const handlePopState = () => {
+      closeFullscreenPreview();
+    };
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape") {
+        closeFullscreenPreview();
+      } else if (e.key === "ArrowLeft") {
+        setSelectedPreviewPage((prev) => (prev && prev > 1 ? prev - 1 : prev));
+      } else if (e.key === "ArrowRight") {
+        setSelectedPreviewPage((prev) => (prev && prev < totalPagesInDoc ? prev + 1 : prev));
+      }
+    };
+    window.addEventListener("popstate", handlePopState);
+    window.addEventListener("keydown", handleKeyDown);
+    return () => {
+      window.removeEventListener("popstate", handlePopState);
+      window.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [selectedPreviewPage, totalPagesInDoc, closeFullscreenPreview]);
+
+  const docPreviewUrl =
+    current.previewUrl ||
+    (orderId && accessToken
+      ? `/api/customer/document-preview?documentId=${current.id}&orderId=${orderId}&token=${accessToken}`
+      : "");
+
   return (
-    <div className="space-y-6">
+    <div className="space-y-4 sm:space-y-6">
       {/* Offline Warnings */}
       {colorPrinterUnavailable ? (
         <Alert tone="warning" title="Color Printer Currently Offline">
@@ -1949,7 +2079,177 @@ function ConfigureAndCropStep({
         </Alert>
       ) : null}
 
-      {/* 1. Document Configuration Card */}
+      {/* TOP: Live Document & Sheet Preview */}
+      <Card className="p-3.5 sm:p-6 border-slate-200/80 bg-white shadow-lg shadow-slate-900/5 rounded-2xl sm:rounded-3xl overflow-hidden">
+        <div className="flex items-center justify-between gap-2 mb-3">
+          <div className="flex items-center gap-2">
+            <span className="flex size-7 items-center justify-center rounded-xl bg-emerald-100 text-emerald-800 font-bold text-xs">
+              <Eye className="size-4" />
+            </span>
+            <div>
+              <h3 className="text-sm sm:text-base font-black text-slate-900 leading-tight">
+                Document Preview
+              </h3>
+              <p className="text-[10px] sm:text-xs text-slate-500">
+                {current ? current.filename : "Uploaded Document"} · {includedPagesMap.size} of {current.pageCount}p selected
+              </p>
+            </div>
+          </div>
+          <div className="flex items-center gap-1.5 shrink-0">
+            {totalPagesInDoc > 2 && (
+              <div className="flex items-center gap-1">
+                <button
+                  type="button"
+                  disabled={!canScrollLeft}
+                  onClick={() => scrollByDirection("left")}
+                  className="flex size-6 items-center justify-center rounded-lg border border-slate-200 bg-white text-slate-600 hover:bg-slate-50 disabled:opacity-30 disabled:pointer-events-none transition shadow-2xs cursor-pointer"
+                  title="Scroll left"
+                  aria-label="Scroll left"
+                >
+                  <ChevronLeft className="size-3.5" />
+                </button>
+                <button
+                  type="button"
+                  disabled={!canScrollRight}
+                  onClick={() => scrollByDirection("right")}
+                  className="flex size-6 items-center justify-center rounded-lg border border-slate-200 bg-white text-slate-600 hover:bg-slate-50 disabled:opacity-30 disabled:pointer-events-none transition shadow-2xs cursor-pointer"
+                  title="Scroll right"
+                  aria-label="Scroll right"
+                >
+                  <ChevronRight className="size-3.5" />
+                </button>
+              </div>
+            )}
+            <span className="text-[10px] sm:text-[11px] text-slate-400 font-semibold flex items-center gap-0.5">
+              <ZoomIn className="size-3 text-emerald-600" /> Tap to zoom
+            </span>
+          </div>
+        </div>
+
+        {/* Horizontal Scrollable Sheet Strip */}
+        <div className="relative group/carousel">
+          {canScrollLeft && (
+            <div className="pointer-events-none absolute left-0 top-0 bottom-2 z-10 w-6 bg-gradient-to-r from-white via-white/80 to-transparent rounded-l-2xl" />
+          )}
+
+          <div
+            ref={scrollContainerRef}
+            className="flex gap-2.5 sm:gap-3 overflow-x-auto pb-2 pt-1 px-1 snap-x snap-mandatory scroll-smooth no-scrollbar touch-pan-x"
+          >
+            {pagesList.map((pageNum) => {
+              const config = includedPagesMap.get(pageNum);
+              const isIncluded = Boolean(config);
+              const isColor = config?.colorMode === "color";
+              const isDuplex = config?.sideMode === "double_sided";
+
+              return (
+                <div
+                  key={`page-preview-${pageNum}`}
+                  onClick={() => openFullscreenPreview(pageNum)}
+                  className={cn(
+                    "group relative flex flex-col justify-between rounded-2xl border-2 p-2 sm:p-2.5 transition-all duration-150 cursor-pointer active:scale-97 hover:shadow-md shrink-0 snap-start select-none",
+                    totalPagesInDoc === 1
+                      ? "w-[170px] sm:w-[190px]"
+                      : "w-[calc(50%-5px)] min-w-[130px] max-w-[160px] sm:w-[155px]",
+                    isIncluded
+                      ? "border-emerald-500 bg-white shadow-xs ring-1 ring-emerald-500/20"
+                      : "border-slate-200 bg-slate-50/80 opacity-60"
+                  )}
+                >
+                  {/* Sheet Header Badge */}
+                  <div className="flex items-center justify-between gap-1">
+                    <span
+                      className={cn(
+                        "rounded-md px-1.5 py-0.5 text-[9.5px] font-black shrink-0",
+                        isIncluded
+                          ? "bg-emerald-100 text-emerald-900 border border-emerald-200"
+                          : "bg-slate-200 text-slate-600"
+                      )}
+                    >
+                      P. {pageNum}
+                    </span>
+
+                    {isIncluded ? (
+                      <span
+                        className={cn(
+                          "rounded-md px-1.5 py-0.5 text-[8.5px] font-bold truncate",
+                          isColor
+                            ? "bg-emerald-50 text-emerald-800 border border-emerald-200/80"
+                            : "bg-slate-100 text-slate-700 border border-slate-200/60"
+                        )}
+                      >
+                        {isColor ? "🎨 Color" : "📄 B&W"}
+                      </span>
+                    ) : (
+                      <span className="text-[8.5px] font-bold text-slate-400">
+                        Skipped
+                      </span>
+                    )}
+                  </div>
+
+                  {/* Simulated Paper Graphic / Image Preview */}
+                  <div
+                    className={cn(
+                      "my-1.5 flex aspect-[1/1.25] w-full items-center justify-center rounded-xl bg-white border shadow-inner p-1 text-center overflow-hidden transition-all group-hover:border-emerald-500",
+                      isIncluded && !isColor ? "border-slate-300 bg-slate-50" : "border-slate-200/90"
+                    )}
+                  >
+                    {docPreviewUrl && (totalPagesInDoc === 1 || isImageDoc) ? (
+                      // eslint-disable-next-line @next/next/no-img-element
+                      <img
+                        src={docPreviewUrl}
+                        alt={`Page ${pageNum} preview`}
+                        className={cn(
+                          "max-h-full max-w-full object-contain rounded-sm transition-all",
+                          isIncluded && !isColor && "grayscale contrast-105 brightness-95"
+                        )}
+                        style={isIncluded && !isColor ? { filter: "grayscale(100%) contrast(1.1) brightness(0.96)" } : undefined}
+                      />
+                    ) : (
+                      <div className="space-y-0.5 text-slate-400">
+                        <FileText
+                          className={cn(
+                            "size-5 sm:size-6 mx-auto transition-colors",
+                            isIncluded ? (isColor ? "text-emerald-600" : "text-slate-600") : "text-slate-300"
+                          )}
+                        />
+                        <span className={cn("block text-[9.5px] font-bold", isIncluded ? (isColor ? "text-emerald-900" : "text-slate-700") : "text-slate-600")}>
+                          Page #{pageNum}
+                        </span>
+                        {isIncluded && (
+                          <span className="block text-[8px] font-semibold text-emerald-700">
+                            {config?.copies && config.copies > 1 ? `× ${config.copies} Copies` : "1 Copy"}
+                          </span>
+                        )}
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Sheet Footer Details */}
+                  <div className="flex items-center justify-between border-t border-slate-100 pt-1 text-[9px]">
+                    <span className="font-semibold text-slate-500 truncate">
+                      {isDuplex ? "📑 2-Side" : "📄 1-Side"}
+                    </span>
+                    {isIncluded ? (
+                      <span className="font-extrabold text-emerald-700 flex items-center gap-0.5 shrink-0">
+                        <CheckCircle2 className="size-2.5" /> Ready
+                      </span>
+                    ) : (
+                      <span className="text-slate-400 font-medium">Excluded</span>
+                    )}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+
+          {canScrollRight && (
+            <div className="pointer-events-none absolute right-0 top-0 bottom-2 z-10 w-6 bg-gradient-to-l from-white via-white/80 to-transparent rounded-r-2xl" />
+          )}
+        </div>
+      </Card>
+
+      {/* 1. Document Configuration Card (Below Preview) */}
       <Card className="p-4 sm:p-7 border-slate-200/80 bg-white shadow-lg shadow-slate-900/5 rounded-2xl sm:rounded-3xl">
         <div className="flex flex-wrap items-center justify-between gap-2.5">
           <div>
@@ -2579,41 +2879,236 @@ function ConfigureAndCropStep({
         </div>
       </Card>
 
-      {/* Advance to Step 2: Print Preview & Review */}
-      <div className="pt-2">
-        <button
-          type="button"
-          disabled={!allValid || busy}
-          onClick={onContinueToPreview}
-          className="flex w-full items-center justify-center gap-2.5 rounded-2xl bg-emerald-600 px-6 py-4 text-base font-bold text-white shadow-[0_4px_0_#047857,0_12px_24px_-2px_rgba(5,150,105,0.4)] transition-all hover:bg-emerald-700 active:bg-emerald-800 active:translate-y-1 active:shadow-[0_1px_0_#047857] cursor-pointer disabled:opacity-50 disabled:pointer-events-none"
-        >
-          <Eye className="size-5" />
-          <span>Continue to Print Preview ({fallbackTotalPages} Pages)</span>
-          <ArrowRight className="size-4" />
-        </button>
-      </div>
+      {/* Primary Action Buttons (Generate Token & Pay Online) */}
+      <div className="pt-2 space-y-2.5">
+        {/* If shop accepts both counter token and online payment */}
+        {shopPaymentMode === "both" ? (
+          <div className="grid gap-2 sm:grid-cols-2">
+            <button
+              type="button"
+              disabled={!allValid || busy}
+              onClick={onProceedToCounterToken}
+              className="flex items-center justify-center gap-2 rounded-2xl bg-emerald-600 px-4 py-3.5 sm:py-4 text-sm sm:text-base font-bold text-white shadow-[0_4px_0_#047857,0_10px_20px_-2px_rgba(5,150,105,0.35)] hover:bg-emerald-700 active:bg-emerald-800 active:translate-y-0.5 active:shadow-none transition-all cursor-pointer disabled:opacity-50 disabled:pointer-events-none"
+            >
+              {busy ? (
+                <>
+                  <LoaderCircle className="size-4 animate-spin" />
+                  <span>Processing...</span>
+                </>
+              ) : (
+                <>
+                  <Ticket className="size-4.5 shrink-0" />
+                  <span>Generate Token · ₹{displayTotalAmount}</span>
+                </>
+              )}
+            </button>
 
-      {/* Mobile Floating Sticky Bottom Bar for Step 1 */}
-      <div className="fixed bottom-0 inset-x-0 z-30 sm:hidden border-t border-slate-200/90 bg-white/95 backdrop-blur-md p-3 pb-safe shadow-[0_-8px_24px_rgba(0,0,0,0.08)]">
-        <div className="flex items-center gap-3">
-          <div className="min-w-0 flex-1">
-            <p className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">Step 2: Configure</p>
-            <p className="text-xs font-black text-slate-900 truncate">
-              {fallbackTotalPages} {fallbackTotalPages === 1 ? "Page" : "Pages"}
-              {estimate && estimate.total > 0 ? ` · Est. ₹${estimate.total.toFixed(2)}` : ""}
-            </p>
+            <button
+              type="button"
+              disabled={!allValid || busy}
+              onClick={onProceedToPay}
+              className="flex items-center justify-center gap-2 rounded-2xl bg-slate-900 px-4 py-3.5 sm:py-4 text-sm sm:text-base font-bold text-white shadow-[0_4px_0_#0f172a,0_10px_20px_-2px_rgba(15,23,42,0.35)] hover:bg-slate-800 active:bg-slate-950 active:translate-y-0.5 active:shadow-none transition-all cursor-pointer disabled:opacity-50 disabled:pointer-events-none"
+            >
+              {busy ? (
+                <>
+                  <LoaderCircle className="size-4 animate-spin" />
+                  <span>Processing...</span>
+                </>
+              ) : (
+                <>
+                  <CreditCard className="size-4.5 shrink-0" />
+                  <span>Pay Online · ₹{displayTotalAmount}</span>
+                </>
+              )}
+            </button>
           </div>
+        ) : shopPaymentMode === "counter" ? (
           <button
             type="button"
             disabled={!allValid || busy}
-            onClick={onContinueToPreview}
-            className="inline-flex items-center justify-center gap-1.5 rounded-xl bg-emerald-600 px-4 py-2.5 text-xs font-bold text-white shadow-md shadow-emerald-900/20 active:scale-95 transition disabled:opacity-50 hover:bg-emerald-700"
+            onClick={onProceedToCounterToken}
+            className="flex w-full items-center justify-center gap-2 rounded-2xl bg-emerald-600 px-4 py-3.5 sm:py-4 text-sm sm:text-base font-bold text-white shadow-[0_4px_0_#047857,0_10px_20px_-2px_rgba(5,150,105,0.35)] hover:bg-emerald-700 active:bg-emerald-800 active:translate-y-0.5 active:shadow-none transition-all cursor-pointer disabled:opacity-50 disabled:pointer-events-none"
           >
-            <span>Preview</span>
-            <ArrowRight className="size-3.5" />
+            {busy ? (
+              <>
+                <LoaderCircle className="size-4 animate-spin" />
+                <span>Generating Token...</span>
+              </>
+            ) : (
+              <>
+                <Ticket className="size-5 shrink-0" />
+                <span>Confirm &amp; Generate Counter Token (₹{displayTotalAmount})</span>
+                <ArrowRight className="size-4" />
+              </>
+            )}
           </button>
+        ) : (
+          <button
+            type="button"
+            disabled={!allValid || busy}
+            onClick={onProceedToPay}
+            className="flex w-full items-center justify-center gap-2 rounded-2xl bg-emerald-600 px-4 py-3.5 sm:py-4 text-sm sm:text-base font-bold text-white shadow-[0_4px_0_#047857,0_10px_20px_-2px_rgba(5,150,105,0.35)] hover:bg-emerald-700 active:bg-emerald-800 active:translate-y-0.5 active:shadow-none transition-all cursor-pointer disabled:opacity-50 disabled:pointer-events-none"
+          >
+            {busy ? (
+              <>
+                <LoaderCircle className="size-4 animate-spin" />
+                <span>Preparing Payment...</span>
+              </>
+            ) : (
+              <>
+                <CreditCard className="size-5 shrink-0" />
+                <span>Proceed to Pay ₹{displayTotalAmount} Online</span>
+                <ArrowRight className="size-4" />
+              </>
+            )}
+          </button>
+        )}
+
+        <div className="flex items-center justify-center gap-2 text-[11px] text-slate-500 text-center pt-1">
+          <ShieldCheck className="size-3.5 text-emerald-600 shrink-0" />
+          <span>Instant counter pickup or auto-print after payment</span>
         </div>
       </div>
+
+      {/* Mobile Floating Sticky Bottom Bar */}
+      <div className="fixed bottom-0 inset-x-0 z-30 sm:hidden border-t border-slate-200/90 bg-white/95 backdrop-blur-md p-2.5 pb-safe shadow-[0_-8px_24px_rgba(0,0,0,0.1)]">
+        <div className="flex items-center gap-2">
+          <div className="min-w-0 shrink-0 pr-1">
+            <p className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">
+              {fallbackTotalPages} {fallbackTotalPages === 1 ? "Page" : "Pages"}
+            </p>
+            <p className="text-sm font-black text-emerald-800 font-mono">
+              ₹{displayTotalAmount}
+            </p>
+          </div>
+
+          {shopPaymentMode === "both" ? (
+            <div className="flex flex-1 items-center gap-1.5 min-w-0">
+              <button
+                type="button"
+                disabled={!allValid || busy}
+                onClick={onProceedToCounterToken}
+                className="flex-1 inline-flex items-center justify-center gap-1 rounded-xl bg-emerald-600 py-2.5 px-2 text-[11.5px] font-bold text-white shadow-xs active:scale-95 transition disabled:opacity-50 truncate"
+              >
+                <Ticket className="size-3.5 shrink-0" />
+                <span className="truncate">Token</span>
+              </button>
+              <button
+                type="button"
+                disabled={!allValid || busy}
+                onClick={onProceedToPay}
+                className="flex-1 inline-flex items-center justify-center gap-1 rounded-xl bg-slate-900 py-2.5 px-2 text-[11.5px] font-bold text-white shadow-xs active:scale-95 transition disabled:opacity-50 truncate"
+              >
+                <CreditCard className="size-3.5 shrink-0" />
+                <span className="truncate">Pay Online</span>
+              </button>
+            </div>
+          ) : shopPaymentMode === "counter" ? (
+            <button
+              type="button"
+              disabled={!allValid || busy}
+              onClick={onProceedToCounterToken}
+              className="flex-1 inline-flex items-center justify-center gap-1.5 rounded-xl bg-emerald-600 py-2.5 px-3 text-xs font-bold text-white shadow-xs active:scale-95 transition disabled:opacity-50"
+            >
+              <Ticket className="size-4 shrink-0" />
+              <span>Generate Token (₹{displayTotalAmount})</span>
+            </button>
+          ) : (
+            <button
+              type="button"
+              disabled={!allValid || busy}
+              onClick={onProceedToPay}
+              className="flex-1 inline-flex items-center justify-center gap-1.5 rounded-xl bg-emerald-600 py-2.5 px-3 text-xs font-bold text-white shadow-xs active:scale-95 transition disabled:opacity-50"
+            >
+              <CreditCard className="size-4 shrink-0" />
+              <span>Pay Online (₹{displayTotalAmount})</span>
+            </button>
+          )}
+        </div>
+      </div>
+
+      {/* Fullscreen Page Inspector Modal on tap */}
+      {selectedPreviewPage !== null && (
+        <div className="fixed inset-0 z-50 flex flex-col bg-slate-950/70 backdrop-blur-md animate-in fade-in duration-200">
+          <div className="flex items-center justify-between border-b border-slate-200 bg-white px-4 py-3 text-slate-900 shadow-xs">
+            <button
+              type="button"
+              onClick={closeFullscreenPreview}
+              className="inline-flex items-center gap-1.5 rounded-xl border border-slate-200 bg-white px-2.5 py-1.5 text-xs font-bold text-slate-700 shadow-2xs hover:bg-slate-50 transition cursor-pointer"
+            >
+              <ArrowLeft className="size-3.5" />
+              Back
+            </button>
+            <div className="text-center">
+              <span className="text-xs font-extrabold text-slate-900">
+                Page {selectedPreviewPage} of {totalPagesInDoc}
+              </span>
+              <span className="block text-[10px] text-slate-500 font-medium truncate max-w-[180px]">
+                {current.filename}
+              </span>
+            </div>
+            <button
+              type="button"
+              onClick={closeFullscreenPreview}
+              className="flex size-7 items-center justify-center rounded-lg border border-slate-200 text-slate-500 hover:text-slate-900 transition"
+              aria-label="Close preview"
+            >
+              <X className="size-4" />
+            </button>
+          </div>
+
+          <div className="relative flex flex-1 items-center justify-center overflow-auto p-4">
+            <div className="relative flex max-h-[80vh] w-auto max-w-[90vw] items-center justify-center rounded-2xl bg-white p-2 shadow-2xl border border-slate-800/10">
+              {docPreviewUrl && (totalPagesInDoc === 1 || isImageDoc) ? (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img
+                  src={docPreviewUrl}
+                  alt={`Page ${selectedPreviewPage}`}
+                  className="max-h-[75vh] w-auto max-w-full object-contain rounded-lg"
+                  style={
+                    includedPagesMap.get(selectedPreviewPage)?.colorMode === "color"
+                      ? undefined
+                      : { filter: "grayscale(100%) contrast(1.1) brightness(0.96)" }
+                  }
+                />
+              ) : (
+                <div className="flex flex-col items-center justify-center p-12 text-center text-slate-400 space-y-2">
+                  <FileText className="size-16 text-slate-300" />
+                  <p className="text-sm font-bold text-slate-700">Page {selectedPreviewPage}</p>
+                  <p className="text-xs text-slate-400">
+                    {includedPagesMap.get(selectedPreviewPage)?.colorMode === "color" ? "Full Color" : "Black & White"} ·{" "}
+                    {includedPagesMap.get(selectedPreviewPage)?.sideMode === "double_sided" ? "2-Sided" : "1-Sided"}
+                  </p>
+                </div>
+              )}
+            </div>
+          </div>
+
+          <div className="flex items-center justify-between border-t border-slate-800/60 bg-slate-950/80 px-4 py-3 text-white backdrop-blur-md">
+            <button
+              type="button"
+              disabled={selectedPreviewPage <= 1}
+              onClick={() => setSelectedPreviewPage((p) => (p && p > 1 ? p - 1 : p))}
+              className="inline-flex items-center gap-1 rounded-xl bg-white/10 px-3 py-1.5 text-xs font-bold text-white hover:bg-white/20 disabled:opacity-30 disabled:pointer-events-none transition cursor-pointer"
+            >
+              <ChevronLeft className="size-3.5" />
+              Prev
+            </button>
+            <span className="text-[11px] text-slate-400">
+              Page {selectedPreviewPage} of {totalPagesInDoc}
+            </span>
+            <button
+              type="button"
+              disabled={selectedPreviewPage >= totalPagesInDoc}
+              onClick={() => setSelectedPreviewPage((p) => (p && p < totalPagesInDoc ? p + 1 : p))}
+              className="inline-flex items-center gap-1 rounded-xl bg-white/10 px-3 py-1.5 text-xs font-bold text-white hover:bg-white/20 disabled:opacity-30 disabled:pointer-events-none transition cursor-pointer"
+            >
+              Next
+              <ChevronRight className="size-3.5" />
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
