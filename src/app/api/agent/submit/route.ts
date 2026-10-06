@@ -44,7 +44,9 @@ export async function POST(request: Request) {
   const stepReported = parsed.data.duplexStep;
   const isHardwareAll = stepReported === "all";
   const isOddStep = stepReported ? stepReported === "odd" : existingJob?.duplex_step === "odd";
-  const isEvenStep = stepReported ? (stepReported === "even" || stepReported === "completed") : existingJob?.duplex_step === "even";
+  const isEvenStep = stepReported
+    ? stepReported === "even" || stepReported === "completed"
+    : existingJob?.duplex_step === "even";
 
   // "print_submitted" is the only valid print_job_status for a job that has been
   // sent to the Windows spooler. "partially_printed" is an ORDER status only —
@@ -68,12 +70,16 @@ export async function POST(request: Request) {
 
   // Reserve dispatch before Windows receives any bytes. Never allow an expired
   // lease to start printing, even if another agent has not reclaimed it yet.
-  const { data: success, error } = await adminClient.from("print_jobs")
+  const { data: success, error } = await adminClient
+    .from("print_jobs")
     .update(updateFields)
-    .eq("id", parsed.data.jobId).eq("shop_id", auth.shop.id)
-    .eq("claimed_by_agent_id", auth.agent.id).eq("status", "claimed")
+    .eq("id", parsed.data.jobId)
+    .eq("shop_id", auth.shop.id)
+    .eq("claimed_by_agent_id", auth.agent.id)
+    .eq("status", "claimed")
     .gt("claim_expires_at", new Date().toISOString())
-    .select("id").maybeSingle();
+    .select("id")
+    .maybeSingle();
 
   if (error || !success) {
     return NextResponse.json(

@@ -5,12 +5,7 @@ import { z } from "zod";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { hashGuestOrderToken } from "@/lib/guest-order";
-import {
-  fetchRazorpayPayment,
-  getRazorpayClient,
-  toPaise,
-  verifyPaymentSignature,
-} from "@/lib/razorpay/server";
+import { fetchRazorpayPayment, getRazorpayClient, toPaise, verifyPaymentSignature } from "@/lib/razorpay/server";
 
 const failureSchema = z.object({
   code: z.string().optional(),
@@ -72,14 +67,15 @@ export async function POST(request: Request) {
     .eq("shop_id", order.shop_id)
     .maybeSingle();
 
-  const shopCredentials = (shopSettings?.razorpay_key_id && shopSettings?.razorpay_key_secret)
-    ? {
-        keyId: shopSettings.razorpay_key_id.trim(),
-        keySecret: shopSettings.razorpay_key_secret.trim(),
-        webhookSecret: shopSettings.razorpay_webhook_secret?.trim() || undefined,
-        isTestMode: shopSettings.razorpay_key_id.startsWith("rzp_test_"),
-      }
-    : null;
+  const shopCredentials =
+    shopSettings?.razorpay_key_id && shopSettings?.razorpay_key_secret
+      ? {
+          keyId: shopSettings.razorpay_key_id.trim(),
+          keySecret: shopSettings.razorpay_key_secret.trim(),
+          webhookSecret: shopSettings.razorpay_webhook_secret?.trim() || undefined,
+          isTestMode: shopSettings.razorpay_key_id.startsWith("rzp_test_"),
+        }
+      : null;
 
   const razorpayConfig = getRazorpayClient(shopCredentials);
   if (!razorpayConfig) {
@@ -156,7 +152,8 @@ export async function POST(request: Request) {
           },
         },
       })
-      .eq("id", payment.id).neq("status", "verified");
+      .eq("id", payment.id)
+      .neq("status", "verified");
 
     await adminClient.from("payment_transactions").insert({
       payment_id: payment.id,
@@ -193,8 +190,14 @@ export async function POST(request: Request) {
   // 5. Idempotency Check: Already verified with this payment ID
   if (payment.status === "verified") {
     if (payment.provider_payment_id === razorpayPaymentId) {
-      try { await releasePaidOrder(adminClient, order.id); }
-      catch (error) { return NextResponse.json({ error: error instanceof Error ? error.message : "Queue update failed" }, { status: 503 }); }
+      try {
+        await releasePaidOrder(adminClient, order.id);
+      } catch (error) {
+        return NextResponse.json(
+          { error: error instanceof Error ? error.message : "Queue update failed" },
+          { status: 503 },
+        );
+      }
       return NextResponse.json({
         success: true,
         verified: true,
@@ -254,9 +257,25 @@ export async function POST(request: Request) {
   let razorpayPaymentData: Record<string, unknown> = {};
 
   const fetchedPayment = await fetchRazorpayPayment(razorpayPaymentId, shopCredentials);
-  if (!fetchedPayment) return NextResponse.json({ error: "Payment verification is temporarily unavailable. Your order stays unpaid until Razorpay confirms capture. Please check order status shortly." }, { status: 503 });
-  if (!capturedPaymentMatches(fetchedPayment, { providerOrderId: payment.provider_order_id, amountPaise: toPaise(Number(payment.amount)), currency: payment.currency })) {
-    return NextResponse.json({ error: "Payment is not captured or does not match this order. Printing remains locked." }, { status: 409 });
+  if (!fetchedPayment)
+    return NextResponse.json(
+      {
+        error:
+          "Payment verification is temporarily unavailable. Your order stays unpaid until Razorpay confirms capture. Please check order status shortly.",
+      },
+      { status: 503 },
+    );
+  if (
+    !capturedPaymentMatches(fetchedPayment, {
+      providerOrderId: payment.provider_order_id,
+      amountPaise: toPaise(Number(payment.amount)),
+      currency: payment.currency,
+    })
+  ) {
+    return NextResponse.json(
+      { error: "Payment is not captured or does not match this order. Printing remains locked." },
+      { status: 409 },
+    );
   }
   razorpayPaymentData = fetchedPayment as unknown as Record<string, unknown>;
   paymentMethod = String(fetchedPayment.method || "razorpay");
@@ -279,14 +298,21 @@ export async function POST(request: Request) {
         verified_at: verifiedAt,
       },
     })
-    .eq("id", payment.id).neq("status", "verified");
+    .eq("id", payment.id)
+    .neq("status", "verified");
 
   if (updatePaymentError) {
     return NextResponse.json({ error: "Could not update payment status." }, { status: 500 });
   }
 
-  try { await releasePaidOrder(adminClient, order.id); }
-  catch (error) { return NextResponse.json({ error: error instanceof Error ? error.message : "Queue update failed" }, { status: 503 }); }
+  try {
+    await releasePaidOrder(adminClient, order.id);
+  } catch (error) {
+    return NextResponse.json(
+      { error: error instanceof Error ? error.message : "Queue update failed" },
+      { status: 503 },
+    );
+  }
 
   // 10. Record transaction log & audit log
   await Promise.all([

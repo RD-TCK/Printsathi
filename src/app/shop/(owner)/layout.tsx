@@ -6,11 +6,7 @@ import { getShopContext } from "@/lib/shop-portal";
 export default async function ShopOwnerLayout({ children }: { children: ReactNode }) {
   const context = await getShopContext();
   const { data: settings } = context
-    ? await context.client
-        .from("shop_settings")
-        .select("accepting_orders")
-        .eq("shop_id", context.shop.id)
-        .maybeSingle()
+    ? await context.client.from("shop_settings").select("accepting_orders").eq("shop_id", context.shop.id).maybeSingle()
     : { data: null };
 
   const initialAcceptingOrders = settings?.accepting_orders ?? true;

@@ -104,7 +104,7 @@ export async function POST(request: Request) {
             storedPaths.push(previewStoragePath);
           }
         }
-      })
+      }),
     );
 
     // 2. Batch insert into documents table
@@ -133,7 +133,7 @@ export async function POST(request: Request) {
     await client.from("orders").delete().eq("id", orderId);
     return NextResponse.json(
       { error: err instanceof Error ? err.message : "Failed to store document batch." },
-      { status: 500 }
+      { status: 500 },
     );
   }
 

@@ -156,7 +156,7 @@ export function calculateLayoutPositions(
   imgList: PlacedImage[],
   orient: "portrait" | "landscape",
   margin: number,
-  gap: number
+  gap: number,
 ): PlacedImage[] {
   if (tmpl === "custom" || imgList.length === 0) return imgList;
 
@@ -270,7 +270,7 @@ type Props = {
     blob: Blob,
     dataUrl: string,
     filename: string,
-    usedDocInfo: { usedDocumentIds: string[]; usedFilenames: string[]; usedDataUrls: string[] }
+    usedDocInfo: { usedDocumentIds: string[]; usedFilenames: string[]; usedDataUrls: string[] },
   ) => void;
 };
 
@@ -322,18 +322,19 @@ export function MultiImagePageModal({
       const tmplObj = TEMPLATES.find((t) => t.id === tmpl);
       const targetCount = tmplObj?.count || 2;
 
-      const pool = availableBatchPool.length > 0
-        ? availableBatchPool
-        : images.length > 0
-        ? images.map((i) => ({ dataUrl: i.dataUrl, filename: i.filename, documentId: i.documentId }))
-        : [];
+      const pool =
+        availableBatchPool.length > 0
+          ? availableBatchPool
+          : images.length > 0
+            ? images.map((i) => ({ dataUrl: i.dataUrl, filename: i.filename, documentId: i.documentId }))
+            : [];
 
       if (pool.length === 0) return [];
 
       const isPassport = tmpl.startsWith("passport-");
       const filled: PlacedImage[] = Array.from({ length: targetCount }, (_, idx) => {
         // For passport templates, replicate the first active photo across all slots; for grid templates, fill sequentially from remaining batch images!
-        const source = isPassport ? pool[0] : (pool[idx] || pool[idx % pool.length]);
+        const source = isPassport ? pool[0] : pool[idx] || pool[idx % pool.length];
         return {
           id: `img-${Date.now()}-${idx}-${Math.random().toString(36).slice(2, 6)}`,
           dataUrl: source.dataUrl,
@@ -351,7 +352,7 @@ export function MultiImagePageModal({
 
       return calculateLayoutPositions(tmpl, filled, orient, m, g);
     },
-    [availableBatchPool, images]
+    [availableBatchPool, images],
   );
 
   // Initialize or re-sync when modal opens
@@ -448,7 +449,10 @@ export function MultiImagePageModal({
   };
 
   // Assign a specific batch photo to a placed slot
-  const handleAssignBatchPhotoToSlot = (slotId: string, photo: { dataUrl: string; filename: string; documentId?: string }) => {
+  const handleAssignBatchPhotoToSlot = (
+    slotId: string,
+    photo: { dataUrl: string; filename: string; documentId?: string },
+  ) => {
     setImages((prev) =>
       prev.map((img) =>
         img.id === slotId
@@ -458,8 +462,8 @@ export function MultiImagePageModal({
               filename: photo.filename,
               documentId: photo.documentId,
             }
-          : img
-      )
+          : img,
+      ),
     );
   };
 
@@ -519,33 +523,20 @@ export function MultiImagePageModal({
 
   // Rotate an image
   const handleRotateImage = (imgId: string) => {
-    setImages((prev) =>
-      prev.map((img) =>
-        img.id === imgId
-          ? { ...img, rotation: (img.rotation + 90) % 360 }
-          : img
-      )
-    );
+    setImages((prev) => prev.map((img) => (img.id === imgId ? { ...img, rotation: (img.rotation + 90) % 360 } : img)));
   };
 
   // Toggle Object Fit
   const handleToggleFit = (imgId: string) => {
     setImages((prev) =>
       prev.map((img) =>
-        img.id === imgId
-          ? { ...img, objectFit: img.objectFit === "contain" ? "cover" : "contain" }
-          : img
-      )
+        img.id === imgId ? { ...img, objectFit: img.objectFit === "contain" ? "cover" : "contain" } : img,
+      ),
     );
   };
 
   // Drag & Move / Resize Handlers on Sheet
-  const handlePointerDown = (
-    e: React.PointerEvent,
-    id: string,
-    mode: "move" | "resize",
-    corner?: string
-  ) => {
+  const handlePointerDown = (e: React.PointerEvent, id: string, mode: "move" | "resize", corner?: string) => {
     e.stopPropagation();
     e.preventDefault();
     setSelectedId(id);
@@ -580,11 +571,7 @@ export function MultiImagePageModal({
         const nextX = Math.max(0, Math.min(100 - dragState.origW, dragState.origX + deltaXPercent));
         const nextY = Math.max(0, Math.min(100 - dragState.origH, dragState.origY + deltaYPercent));
 
-        setImages((prev) =>
-          prev.map((img) =>
-            img.id === dragState.id ? { ...img, x: nextX, y: nextY } : img
-          )
-        );
+        setImages((prev) => prev.map((img) => (img.id === dragState.id ? { ...img, x: nextX, y: nextY } : img)));
         if (template !== "custom") setTemplate("custom");
       } else if (dragState.mode === "resize" && dragState.corner) {
         let nextW = dragState.origW;
@@ -615,10 +602,8 @@ export function MultiImagePageModal({
 
         setImages((prev) =>
           prev.map((img) =>
-            img.id === dragState.id
-              ? { ...img, x: nextX, y: nextY, width: nextW, height: nextH }
-              : img
-          )
+            img.id === dragState.id ? { ...img, x: nextX, y: nextY, width: nextW, height: nextH } : img,
+          ),
         );
         if (template !== "custom") setTemplate("custom");
       }
@@ -675,8 +660,8 @@ export function MultiImagePageModal({
               img.onload = () => resolve({ item, img });
               img.onerror = () => reject(new Error(`Failed to load ${item.filename}`));
               img.src = item.dataUrl;
-            })
-        )
+            }),
+        ),
       );
 
       // Draw each placed image onto high-res canvas
@@ -806,7 +791,7 @@ export function MultiImagePageModal({
           onClose();
         },
         "image/jpeg",
-        0.98
+        0.98,
       );
     } catch (err) {
       console.error("Multi-image rendering failed:", err);
@@ -878,7 +863,7 @@ export function MultiImagePageModal({
               "flex-1 flex items-center justify-center gap-1.5 py-2 rounded-xl text-xs font-bold transition cursor-pointer",
               mobileTab === "canvas"
                 ? "bg-white text-emerald-950 shadow-2xs border border-emerald-300 ring-1 ring-emerald-500/20"
-                : "text-slate-600 hover:bg-slate-100"
+                : "text-slate-600 hover:bg-slate-100",
             )}
           >
             <Eye className="size-3.5 text-emerald-600" />
@@ -891,7 +876,7 @@ export function MultiImagePageModal({
               "flex-1 flex items-center justify-center gap-1.5 py-2 rounded-xl text-xs font-bold transition cursor-pointer",
               mobileTab === "presets"
                 ? "bg-white text-emerald-950 shadow-2xs border border-emerald-300 ring-1 ring-emerald-500/20"
-                : "text-slate-600 hover:bg-slate-100"
+                : "text-slate-600 hover:bg-slate-100",
             )}
           >
             <LayoutGrid className="size-3.5 text-emerald-600" />
@@ -904,7 +889,7 @@ export function MultiImagePageModal({
               "flex-1 flex items-center justify-center gap-1.5 py-2 rounded-xl text-xs font-bold transition cursor-pointer",
               mobileTab === "settings"
                 ? "bg-white text-emerald-950 shadow-2xs border border-emerald-300 ring-1 ring-emerald-500/20"
-                : "text-slate-600 hover:bg-slate-100"
+                : "text-slate-600 hover:bg-slate-100",
             )}
           >
             <Layers className="size-3.5 text-emerald-600" />
@@ -915,7 +900,12 @@ export function MultiImagePageModal({
         {/* Main Workspace */}
         <div className="flex-1 grid grid-cols-1 lg:grid-cols-12 gap-0 overflow-hidden min-h-0">
           {/* Left Panel: Layout Presets & Batch Photos Strip (col-span-3) */}
-          <div className={cn("lg:col-span-3 border-r border-slate-200/90 bg-slate-50/60 p-4 space-y-4 overflow-y-auto max-h-[80vh] no-scrollbar", mobileTab !== "presets" && "hidden lg:block")}>
+          <div
+            className={cn(
+              "lg:col-span-3 border-r border-slate-200/90 bg-slate-50/60 p-4 space-y-4 overflow-y-auto max-h-[80vh] no-scrollbar",
+              mobileTab !== "presets" && "hidden lg:block",
+            )}
+          >
             {/* Batch Photos Pool Strip */}
             {availableBatchPool.length > 0 && (
               <div className="rounded-2xl border border-blue-200/80 bg-blue-50/60 p-3 space-y-2">
@@ -948,7 +938,7 @@ export function MultiImagePageModal({
                         "relative flex flex-col items-center shrink-0 rounded-xl border p-1 bg-white transition hover:scale-105 cursor-pointer",
                         currentSelectedImage?.dataUrl === photo.dataUrl
                           ? "border-emerald-600 ring-2 ring-emerald-500/40 shadow-xs"
-                          : "border-slate-200 hover:border-blue-400"
+                          : "border-slate-200 hover:border-blue-400",
                       )}
                     >
                       {/* eslint-disable-next-line @next/next/no-img-element */}
@@ -957,9 +947,7 @@ export function MultiImagePageModal({
                         alt={photo.filename}
                         className="size-10 rounded-lg object-cover bg-slate-100"
                       />
-                      <span className="text-[9px] font-bold text-slate-700 truncate max-w-12 mt-0.5">
-                        #{pIdx + 1}
-                      </span>
+                      <span className="text-[9px] font-bold text-slate-700 truncate max-w-12 mt-0.5">#{pIdx + 1}</span>
                     </button>
                   ))}
                 </div>
@@ -986,7 +974,7 @@ export function MultiImagePageModal({
                       "flex flex-col items-start rounded-xl p-2 text-left text-xs transition border cursor-pointer relative",
                       template === tmpl.id
                         ? "border-emerald-600 bg-emerald-50 text-emerald-950 font-bold shadow-xs ring-1 ring-emerald-500/20"
-                        : "border-slate-200 bg-white text-slate-700 hover:bg-slate-100/70 hover:border-slate-300"
+                        : "border-slate-200 bg-white text-slate-700 hover:bg-slate-100/70 hover:border-slate-300",
                     )}
                   >
                     {tmpl.badge && (
@@ -995,7 +983,12 @@ export function MultiImagePageModal({
                       </span>
                     )}
                     <span className="font-semibold truncate w-full pr-4">{tmpl.iconLabel}</span>
-                    <span className={cn("text-[10px] truncate w-full mt-0.5", template === tmpl.id ? "text-emerald-700 font-medium" : "text-slate-400")}>
+                    <span
+                      className={cn(
+                        "text-[10px] truncate w-full mt-0.5",
+                        template === tmpl.id ? "text-emerald-700 font-medium" : "text-slate-400",
+                      )}
+                    >
                       {tmpl.count > 0 ? `${tmpl.count} Slots` : "Freeform"}
                     </span>
                   </button>
@@ -1037,7 +1030,7 @@ export function MultiImagePageModal({
                         "flex items-center justify-between gap-2 rounded-xl border p-2 text-xs transition cursor-pointer",
                         selectedId === img.id
                           ? "border-emerald-600 bg-emerald-50 text-emerald-950 font-bold ring-1 ring-emerald-500/20 shadow-2xs"
-                          : "border-slate-200 bg-white text-slate-700 hover:bg-slate-50"
+                          : "border-slate-200 bg-white text-slate-700 hover:bg-slate-50",
                       )}
                     >
                       <div className="flex items-center gap-2 truncate">
@@ -1109,7 +1102,12 @@ export function MultiImagePageModal({
           </div>
 
           {/* Center: Live Interactive A4 Sheet Canvas (col-span-6) */}
-          <div className={cn("lg:col-span-6 flex flex-col items-center justify-center p-3 sm:p-4 bg-slate-100/90 relative overflow-auto min-h-[380px] sm:min-h-[420px]", mobileTab !== "canvas" && "hidden lg:flex")}>
+          <div
+            className={cn(
+              "lg:col-span-6 flex flex-col items-center justify-center p-3 sm:p-4 bg-slate-100/90 relative overflow-auto min-h-[380px] sm:min-h-[420px]",
+              mobileTab !== "canvas" && "hidden lg:flex",
+            )}
+          >
             {/* Zoom Controls */}
             <div className="absolute top-3 right-3 flex items-center gap-1.5 bg-white/95 border border-slate-200/90 rounded-xl px-2 py-1 shadow-md z-20 backdrop-blur-xs">
               <button
@@ -1171,9 +1169,7 @@ export function MultiImagePageModal({
                     }}
                     className={cn(
                       "absolute flex items-center justify-center p-0.5 transition-shadow cursor-move z-10",
-                      isSelected
-                        ? "ring-2 ring-emerald-600 shadow-xl z-20"
-                        : "hover:ring-1 hover:ring-emerald-400/80"
+                      isSelected ? "ring-2 ring-emerald-600 shadow-xl z-20" : "hover:ring-1 hover:ring-emerald-400/80",
                     )}
                   >
                     <div
@@ -1182,7 +1178,7 @@ export function MultiImagePageModal({
                       }}
                       className={cn(
                         "w-full h-full relative overflow-hidden flex items-center justify-center transition-transform",
-                        (photoBorder || img.border) && "border border-slate-300"
+                        (photoBorder || img.border) && "border border-slate-300",
                       )}
                     >
                       {/* eslint-disable-next-line @next/next/no-img-element */}
@@ -1192,7 +1188,7 @@ export function MultiImagePageModal({
                         draggable={false}
                         className={cn(
                           "w-full h-full pointer-events-none select-none",
-                          img.objectFit === "cover" ? "object-cover" : "object-contain"
+                          img.objectFit === "cover" ? "object-cover" : "object-contain",
                         )}
                       />
                     </div>
@@ -1273,7 +1269,12 @@ export function MultiImagePageModal({
           </div>
 
           {/* Right Panel: Page, Orientation & Output Controls (col-span-3) */}
-          <div className={cn("lg:col-span-3 border-l border-slate-200/90 bg-slate-50/60 p-4 space-y-4 overflow-y-auto max-h-[80vh] no-scrollbar", mobileTab !== "settings" && "hidden lg:block")}>
+          <div
+            className={cn(
+              "lg:col-span-3 border-l border-slate-200/90 bg-slate-50/60 p-4 space-y-4 overflow-y-auto max-h-[80vh] no-scrollbar",
+              mobileTab !== "settings" && "hidden lg:block",
+            )}
+          >
             {/* Orientation */}
             <div>
               <label className="text-[11px] font-bold uppercase tracking-wider text-slate-500 block mb-2">
@@ -1287,7 +1288,7 @@ export function MultiImagePageModal({
                     "flex items-center justify-center gap-1.5 rounded-xl border p-2.5 text-xs font-bold transition cursor-pointer",
                     orientation === "portrait"
                       ? "border-emerald-600 bg-emerald-50 text-emerald-950 ring-1 ring-emerald-500/20 shadow-xs"
-                      : "border-slate-200 bg-white text-slate-700 hover:bg-slate-100 hover:border-slate-300"
+                      : "border-slate-200 bg-white text-slate-700 hover:bg-slate-100 hover:border-slate-300",
                   )}
                 >
                   📄 A4 Portrait
@@ -1299,7 +1300,7 @@ export function MultiImagePageModal({
                     "flex items-center justify-center gap-1.5 rounded-xl border p-2.5 text-xs font-bold transition cursor-pointer",
                     orientation === "landscape"
                       ? "border-emerald-600 bg-emerald-50 text-emerald-950 ring-1 ring-emerald-500/20 shadow-xs"
-                      : "border-slate-200 bg-white text-slate-700 hover:bg-slate-100 hover:border-slate-300"
+                      : "border-slate-200 bg-white text-slate-700 hover:bg-slate-100 hover:border-slate-300",
                   )}
                 >
                   📑 A4 Landscape
@@ -1370,7 +1371,7 @@ export function MultiImagePageModal({
                         "flex-1 rounded-lg border py-1 text-xs font-medium transition cursor-pointer",
                         marginMm === m
                           ? "border-emerald-600 bg-emerald-600 text-white font-bold shadow-2xs"
-                          : "border-slate-200 bg-white text-slate-600 hover:bg-slate-100 hover:border-slate-300"
+                          : "border-slate-200 bg-white text-slate-600 hover:bg-slate-100 hover:border-slate-300",
                       )}
                     >
                       {m === 0 ? "0" : `${m}mm`}
@@ -1394,7 +1395,7 @@ export function MultiImagePageModal({
                         "flex-1 rounded-lg border py-1 text-xs font-medium transition cursor-pointer",
                         gapMm === g
                           ? "border-emerald-600 bg-emerald-600 text-white font-bold shadow-2xs"
-                          : "border-slate-200 bg-white text-slate-600 hover:bg-slate-100 hover:border-slate-300"
+                          : "border-slate-200 bg-white text-slate-600 hover:bg-slate-100 hover:border-slate-300",
                       )}
                     >
                       {g === 0 ? "0" : `${g}mm`}

@@ -102,7 +102,7 @@ Set `NEXT_PUBLIC_SUPABASE_URL` and `NEXT_PUBLIC_SUPABASE_ANON_KEY` in `.env.loca
 | `RAZORPAY_KEY_SECRET`           | Server only | Razorpay secret for HMAC verification                              |
 | `RAZORPAY_WEBHOOK_SECRET`       | Server only | Razorpay webhook signature verification                            |
 | `NEXT_PUBLIC_APP_URL`           | Client      | Production URL of the application                                  |
-| `PRINTIVA_SERVER_URL`        | Agent       | Backend URL for the Windows Agent (default: `NEXT_PUBLIC_APP_URL`) |
+| `PRINTIVA_SERVER_URL`           | Agent       | Backend URL for the Windows Agent (default: `NEXT_PUBLIC_APP_URL`) |
 
 ## Supabase migrations
 
@@ -159,7 +159,6 @@ npm run format:check
 npm run build
 npm run test
 ```
-
 
 ## Shop subscription checkout
 

@@ -18,11 +18,7 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
   }
 
-  const { data: member } = await client
-    .from("shop_members")
-    .select("shop_id")
-    .eq("user_id", user.id)
-    .maybeSingle();
+  const { data: member } = await client.from("shop_members").select("shop_id").eq("user_id", user.id).maybeSingle();
 
   if (!member) {
     return NextResponse.json({ error: "Not a shop member." }, { status: 403 });
@@ -37,9 +33,12 @@ export async function POST(request: Request) {
 
   const adminClient = createSupabaseAdminClient() || client;
 
-  const { data: job, error: lookupError } = await adminClient.from("print_jobs")
+  const { data: job, error: lookupError } = await adminClient
+    .from("print_jobs")
     .select("id, status, claimed_by_agent_id")
-    .eq("id", jobId).eq("shop_id", member.shop_id).maybeSingle();
+    .eq("id", jobId)
+    .eq("shop_id", member.shop_id)
+    .maybeSingle();
   if (lookupError) return NextResponse.json({ error: "Could not load the print job." }, { status: 500 });
   if (!job) return NextResponse.json({ error: "Print job not found." }, { status: 404 });
   if (job.status === "completed" && status === "completed")
@@ -48,7 +47,8 @@ export async function POST(request: Request) {
   // If claimed by Windows agent, call the agent completion RPC
   if (job.claimed_by_agent_id && status === "completed") {
     const { data: completed, error: completionError } = await adminClient.rpc("complete_print_job", {
-      p_job_id: job.id, p_agent_id: job.claimed_by_agent_id,
+      p_job_id: job.id,
+      p_agent_id: job.claimed_by_agent_id,
     });
     if (!completionError && completed) {
       return NextResponse.json({ success: true, job: { id: job.id, status: "completed" } });

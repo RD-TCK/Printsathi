@@ -282,7 +282,9 @@ export class WhatsAppAgentService {
           const isRestartRequired = statusCode === DisconnectReason.restartRequired || statusCode === 515;
           const isLoggedOut = statusCode === DisconnectReason.loggedOut || statusCode === 401;
 
-          logger.warn(`WhatsApp connection closed (statusCode=${statusCode}, isRestartRequired=${isRestartRequired}, isLoggedOut=${isLoggedOut})`);
+          logger.warn(
+            `WhatsApp connection closed (statusCode=${statusCode}, isRestartRequired=${isRestartRequired}, isLoggedOut=${isLoggedOut})`,
+          );
 
           if (isLoggedOut) {
             this.state = "disconnected";
@@ -441,7 +443,8 @@ export class WhatsAppAgentService {
 
     // Anti-ban measure 3: Strictly only handle direct 1-to-1 customer messages (never groups, newsletters, or broadcasts)
     const isGroup = isJidGroup(remoteJid) || remoteJid.endsWith("@g.us");
-    const isBroadcast = isJidBroadcast(remoteJid) || isJidStatusBroadcast(remoteJid) || remoteJid.endsWith("@broadcast");
+    const isBroadcast =
+      isJidBroadcast(remoteJid) || isJidStatusBroadcast(remoteJid) || remoteJid.endsWith("@broadcast");
     const isNewsletter = isJidNewsletter(remoteJid) || remoteJid.endsWith("@newsletter");
     const isBot = isJidBot(remoteJid) || remoteJid.endsWith("@bot");
 
@@ -517,23 +520,19 @@ export class WhatsAppAgentService {
       return curr && typeof curr === "object" ? (curr as Record<string, unknown>) : undefined;
     };
 
-    const documentMsg = (
-      getNested(normalizedContent, "documentMessage") ||
+    const documentMsg = (getNested(normalizedContent, "documentMessage") ||
       getNested(normalizedContent, "documentWithCaptionMessage", "message", "documentMessage") ||
       getNested(rawMsg, "documentMessage") ||
       getNested(rawMsg, "documentWithCaptionMessage", "message", "documentMessage") ||
-      getNested(currentContainer, "documentMessage")
-    ) as { fileName?: string; mimetype?: string } | undefined;
+      getNested(currentContainer, "documentMessage")) as { fileName?: string; mimetype?: string } | undefined;
 
-    const imageMsg = (
-      getNested(normalizedContent, "imageMessage") ||
+    const imageMsg = (getNested(normalizedContent, "imageMessage") ||
       getNested(normalizedContent, "viewOnceMessage", "message", "imageMessage") ||
       getNested(normalizedContent, "viewOnceMessageV2", "message", "imageMessage") ||
       getNested(rawMsg, "imageMessage") ||
       getNested(rawMsg, "viewOnceMessage", "message", "imageMessage") ||
       getNested(rawMsg, "viewOnceMessageV2", "message", "imageMessage") ||
-      getNested(currentContainer, "imageMessage")
-    ) as { mimetype?: string } | undefined;
+      getNested(currentContainer, "imageMessage")) as { mimetype?: string } | undefined;
 
     if (!documentMsg && !imageMsg) {
       logger.debug(`Skipping WhatsApp message ${msgId}: not a document or image`);
@@ -550,7 +549,10 @@ export class WhatsAppAgentService {
     }
 
     let senderPhone = "";
-    if (msg.key.participant && (msg.key.participant.endsWith("@s.whatsapp.net") || msg.key.participant.endsWith("@c.us"))) {
+    if (
+      msg.key.participant &&
+      (msg.key.participant.endsWith("@s.whatsapp.net") || msg.key.participant.endsWith("@c.us"))
+    ) {
       senderPhone = msg.key.participant.split("@")[0].split(":")[0];
     } else if (remoteJid.endsWith("@s.whatsapp.net") || remoteJid.endsWith("@c.us")) {
       senderPhone = remoteJid.split("@")[0].split(":")[0];
@@ -560,20 +562,24 @@ export class WhatsAppAgentService {
 
     const senderName = msg.pushName || "Customer";
     const rawFilename =
-      documentMsg?.fileName || (imageMsg ? `photo_${Date.now()}_${Math.floor(Math.random() * 1000)}.jpg` : "document.pdf");
+      documentMsg?.fileName ||
+      (imageMsg ? `photo_${Date.now()}_${Math.floor(Math.random() * 1000)}.jpg` : "document.pdf");
     const filename = rawFilename.replace(/[/\\?%*:|"<>]/g, "_");
 
     logger.info(
-      `Received WhatsApp ${documentMsg ? "document" : "image"} from ${senderName} (+${senderPhone}): "${filename}"`
+      `Received WhatsApp ${documentMsg ? "document" : "image"} from ${senderName} (+${senderPhone}): "${filename}"`,
     );
 
     // Anti-ban measure: Simulate human read receipt asynchronously without blocking the message queue
     if (this.socket) {
       const socket = this.socket;
       const key = msg.key;
-      setTimeout(() => {
-        socket.readMessages([key]).catch(() => {});
-      }, 500 + Math.random() * 1000);
+      setTimeout(
+        () => {
+          socket.readMessages([key]).catch(() => {});
+        },
+        500 + Math.random() * 1000,
+      );
     }
 
     const config = loadConfig();
@@ -588,12 +594,10 @@ export class WhatsAppAgentService {
       try {
         mediaBuffer = (await downloadMediaMessage(msg, "buffer", {})) as Buffer;
       } catch (dlErr) {
-        logger.debug("Primary downloadMediaMessage failed, trying with normalized message container...", { error: dlErr });
-        mediaBuffer = (await downloadMediaMessage(
-          { ...msg, message: normalizedContent },
-          "buffer",
-          {}
-        )) as Buffer;
+        logger.debug("Primary downloadMediaMessage failed, trying with normalized message container...", {
+          error: dlErr,
+        });
+        mediaBuffer = (await downloadMediaMessage({ ...msg, message: normalizedContent }, "buffer", {})) as Buffer;
       }
 
       if (!mediaBuffer || mediaBuffer.length === 0) {
@@ -622,7 +626,9 @@ export class WhatsAppAgentService {
         existingBatch.timer = setTimeout(() => {
           void this.flushBatch(remoteJid);
         }, delay);
-        logger.info(`Added "${filename}" to pending batch for +${senderPhone} (${existingBatch.attachments.length} files queued, waiting ${delay}ms).`);
+        logger.info(
+          `Added "${filename}" to pending batch for +${senderPhone} (${existingBatch.attachments.length} files queued, waiting ${delay}ms).`,
+        );
       } else {
         const newBatch: PendingSenderBatch = {
           senderPhone,
@@ -636,7 +642,9 @@ export class WhatsAppAgentService {
           }, DEBOUNCE_MS),
         };
         this.pendingBatches.set(remoteJid, newBatch);
-        logger.info(`Started new batch for +${senderPhone} with "${filename}". Waiting ${DEBOUNCE_MS / 1000}s for consecutive files...`);
+        logger.info(
+          `Started new batch for +${senderPhone} with "${filename}". Waiting ${DEBOUNCE_MS / 1000}s for consecutive files...`,
+        );
       }
     } catch (err) {
       const errorMsg = err instanceof Error ? err.message : "Media download failed";
@@ -684,7 +692,7 @@ export class WhatsAppAgentService {
       }
 
       logger.info(
-        `Uploading batch of ${attachments.length} document(s) for +${senderPhone} in ${chunks.length} chunk(s) (max ${CHUNK_SIZE}/order)...`
+        `Uploading batch of ${attachments.length} document(s) for +${senderPhone} in ${chunks.length} chunk(s) (max ${CHUNK_SIZE}/order)...`,
       );
 
       const chunkResults: Array<{
@@ -766,7 +774,7 @@ export class WhatsAppAgentService {
         const totalDocsCount = chunkResults.reduce((sum, c) => sum + c.documents.length, 0);
         const totalPagesCount = chunkResults.reduce(
           (sum, c) => sum + c.documents.reduce((dSum, d) => dSum + (d.pageCount || 1), 0),
-          0
+          0,
         );
 
         let bodySections = "";
@@ -798,7 +806,7 @@ export class WhatsAppAgentService {
         try {
           const baseDelay = Math.min(3500, Math.max(1500, (replyText.length / 8) * 1000));
           const jitter = Math.random() * 800;
-          
+
           await this.socket.sendPresenceUpdate("composing", remoteJid);
           await new Promise((resolve) => setTimeout(resolve, baseDelay + jitter));
           await this.socket.sendPresenceUpdate("paused", remoteJid);
@@ -838,16 +846,12 @@ export class WhatsAppAgentService {
       if (this.socket) {
         try {
           const fallbackText = `⚠️ *Printiva Notice:* We received your file(s), but could not process them (${errorMsg}). Please send PDF, Word documents, or clear images.`;
-          
+
           await this.socket.sendPresenceUpdate("composing", remoteJid);
           await new Promise((resolve) => setTimeout(resolve, 1500));
           await this.socket.sendPresenceUpdate("paused", remoteJid);
-          
-          await this.socket.sendMessage(
-            remoteJid,
-            { text: fallbackText },
-            { quoted: lastMessage }
-          );
+
+          await this.socket.sendMessage(remoteJid, { text: fallbackText }, { quoted: lastMessage });
         } catch {
           // ignore
         }

@@ -30,15 +30,16 @@ describe("WhatsApp Agent Service", () => {
     const service = new WhatsAppAgentService(testDir);
 
     // Call private handleIncomingMessage via reflection for unit testing
-    const handleIncoming = (service as unknown as { handleIncomingMessage: (msg: unknown) => Promise<void> })
-      .handleIncomingMessage.bind(service);
+    const handleIncoming = (
+      service as unknown as { handleIncomingMessage: (msg: unknown) => Promise<void> }
+    ).handleIncomingMessage.bind(service);
 
     // Message from a group should be ignored
     await expect(
       handleIncoming({
         key: { id: "msg_group", remoteJid: "120363401033312987@g.us", fromMe: false },
         message: { documentMessage: { fileName: "doc.pdf" } },
-      })
+      }),
     ).resolves.toBeUndefined();
 
     // Message with no content should be skipped
@@ -46,7 +47,7 @@ describe("WhatsApp Agent Service", () => {
       handleIncoming({
         key: { id: "msg_empty", remoteJid: "174603523616967@lid", fromMe: false },
         message: null,
-      })
+      }),
     ).resolves.toBeUndefined();
 
     if (fs.existsSync(testDir)) fs.rmSync(testDir, { recursive: true, force: true });

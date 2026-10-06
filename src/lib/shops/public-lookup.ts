@@ -58,7 +58,9 @@ export async function getPublicShop(
   const [initialQuery, shopRecordRes] = await Promise.all([
     client
       .from("public_shop_directory")
-      .select("public_id, name, is_active, accepting_orders, status, payment_mode, allow_double_sided, has_custom_razorpay")
+      .select(
+        "public_id, name, is_active, accepting_orders, status, payment_mode, allow_double_sided, has_custom_razorpay",
+      )
       .eq("public_id", publicIdentifier)
       .maybeSingle(),
     inventoryClient.from("shops").select("id").eq("public_id", publicIdentifier).maybeSingle(),
@@ -112,7 +114,7 @@ export async function getPublicShop(
         .maybeSingle()
         .then(
           (res) => res,
-          () => ({ data: null })
+          () => ({ data: null }),
         ),
     ]);
 
@@ -153,8 +155,6 @@ export async function getPublicShop(
         }
       }
 
-
-
       if (bwStatus === "ready" || colorStatus === "ready") {
         overallPrinterStatus = "ready";
       } else if (bwStatus === "offline" || colorStatus === "offline") {
@@ -163,7 +163,12 @@ export async function getPublicShop(
     }
 
     const shopSettingsRecord = directSettings as { allow_double_sided?: boolean | null } | null;
-    if (data && data.allow_double_sided === undefined && shopSettingsRecord && typeof shopSettingsRecord.allow_double_sided === "boolean") {
+    if (
+      data &&
+      data.allow_double_sided === undefined &&
+      shopSettingsRecord &&
+      typeof shopSettingsRecord.allow_double_sided === "boolean"
+    ) {
       data.allow_double_sided = shopSettingsRecord.allow_double_sided;
     }
   }

@@ -91,7 +91,8 @@ export async function GET(request: Request) {
   // If PDF, check if we need to slice page ranges, duplicate copies, or handle duplexStep
   if (mimeType === "application/pdf") {
     try {
-      let pageConfigs: Array<{ start_page: number; end_page: number; copies?: number; side_mode?: string }> | null = null;
+      let pageConfigs: Array<{ start_page: number; end_page: number; copies?: number; side_mode?: string }> | null =
+        null;
       if (jobId) {
         const { data: configs } = await adminClient
           .from("print_job_pages")
@@ -150,7 +151,12 @@ export async function GET(request: Request) {
 
         if (outputDoc.getPageCount() > 0) {
           const slicedBytes = await outputDoc.save();
-          const suffix = duplexStep === "odd" ? "_Front_Odd_Pages.pdf" : duplexStep === "even" ? "_Back_Even_Pages.pdf" : "_Print.pdf";
+          const suffix =
+            duplexStep === "odd"
+              ? "_Front_Odd_Pages.pdf"
+              : duplexStep === "even"
+                ? "_Back_Even_Pages.pdf"
+                : "_Print.pdf";
           const slicedFilename = filename.replace(/\.pdf$/i, "") + suffix;
 
           return new NextResponse(Buffer.from(slicedBytes), {

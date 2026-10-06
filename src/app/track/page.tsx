@@ -15,7 +15,6 @@ import {
   XCircle,
 } from "lucide-react";
 
-
 type TrackResult = {
   publicId: string;
   status: string;
@@ -129,9 +128,7 @@ export default function PublicTrackPage() {
         </form>
 
         {error && (
-          <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
-            {error}
-          </div>
+          <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{error}</div>
         )}
 
         {/* No result */}
@@ -139,9 +136,7 @@ export default function PublicTrackPage() {
           <div className="flex flex-col items-center rounded-2xl border-2 border-dashed border-slate-200 bg-white py-16 text-center">
             <Package className="size-10 text-slate-300" />
             <p className="mt-4 font-semibold text-slate-600">Order not found</p>
-            <p className="mt-1 text-sm text-slate-400">
-              Check the order ID and try again.
-            </p>
+            <p className="mt-1 text-sm text-slate-400">Check the order ID and try again.</p>
           </div>
         )}
 
@@ -152,9 +147,7 @@ export default function PublicTrackPage() {
         <div className="flex flex-wrap items-center justify-between gap-4 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
           <div>
             <p className="font-semibold text-slate-900">Have a Printiva account?</p>
-            <p className="text-sm text-slate-500">
-              Sign in to see all your orders in one place with full history.
-            </p>
+            <p className="text-sm text-slate-500">Sign in to see all your orders in one place with full history.</p>
           </div>
           <Link
             href="/customer"
@@ -181,12 +174,8 @@ function TrackResultCard({ data }: { data: TrackResult }) {
         <div className="rounded-2xl border-2 border-emerald-300 bg-emerald-50/80 p-5 text-emerald-950 shadow-xs">
           <div className="flex flex-wrap items-center justify-between gap-3">
             <div>
-              <span className="text-xs font-bold uppercase tracking-wider text-emerald-700">
-                Pay at Counter Token
-              </span>
-              <p className="mt-0.5 text-3xl font-black font-mono text-emerald-800">
-                #{data.tokenNumber}
-              </p>
+              <span className="text-xs font-bold uppercase tracking-wider text-emerald-700">Pay at Counter Token</span>
+              <p className="mt-0.5 text-3xl font-black font-mono text-emerald-800">#{data.tokenNumber}</p>
             </div>
             <div className="text-right text-xs text-emerald-800">
               <span className="block font-semibold">Show Token #{data.tokenNumber} at counter</span>
@@ -208,8 +197,8 @@ function TrackResultCard({ data }: { data: TrackResult }) {
               : isVerified
                 ? "border-blue-200 bg-blue-50"
                 : isCounter
-                ? "border-amber-200 bg-amber-50"
-                : "border-amber-200 bg-amber-50"
+                  ? "border-amber-200 bg-amber-50"
+                  : "border-amber-200 bg-amber-50"
         }`}
       >
         {allDone && isVerified ? (
@@ -230,8 +219,8 @@ function TrackResultCard({ data }: { data: TrackResult }) {
                 : isVerified
                   ? "Printing in progress…"
                   : isCounter
-                  ? "Waiting for shopkeeper at counter"
-                  : "Awaiting payment confirmation"}
+                    ? "Waiting for shopkeeper at counter"
+                    : "Awaiting payment confirmation"}
           </p>
           <p className="text-sm text-slate-500">
             Order #{data.publicId} · {data.shopName}
@@ -253,10 +242,10 @@ function TrackResultCard({ data }: { data: TrackResult }) {
                   ? "Paid at Counter ✓"
                   : "Verified ✓"
                 : isFailed
-                ? "Failed"
-                : isCounter
-                ? "Pay at Counter"
-                : "Pending",
+                  ? "Failed"
+                  : isCounter
+                    ? "Pay at Counter"
+                    : "Pending",
               highlight: isVerified ? "text-emerald-700" : isFailed ? "text-red-700" : "text-amber-700",
             },
             { label: "Date", value: new Date(data.createdAt).toLocaleDateString("en-IN", { dateStyle: "medium" }) },
@@ -277,9 +266,7 @@ function TrackResultCard({ data }: { data: TrackResult }) {
 
         {data.jobs.length > 0 && (
           <div>
-            <p className="mb-2 text-xs font-semibold uppercase tracking-wider text-slate-400">
-              Print jobs
-            </p>
+            <p className="mb-2 text-xs font-semibold uppercase tracking-wider text-slate-400">Print jobs</p>
             <div className="space-y-2">
               {data.jobs.map((job) => (
                 <div
@@ -292,9 +279,7 @@ function TrackResultCard({ data }: { data: TrackResult }) {
                 >
                   <div className="flex items-center gap-3">
                     <FileText
-                      className={`size-4 shrink-0 ${
-                        job.status === "failed" ? "text-red-500" : "text-slate-400"
-                      }`}
+                      className={`size-4 shrink-0 ${job.status === "failed" ? "text-red-500" : "text-slate-400"}`}
                     />
                     <span className="flex-1 truncate text-slate-700 font-medium">
                       {job.filename || `Job #${job.id.slice(0, 8).toUpperCase()}`}

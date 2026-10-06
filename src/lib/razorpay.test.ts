@@ -160,17 +160,11 @@ describe("Razorpay Integration & Security", () => {
         .digest("hex");
 
       // Verify with Shop 1 credentials (Should succeed)
-      const isShop1Valid = verifyPaymentSignature(
-        { orderId, paymentId, signature: shop1Signature },
-        shop1Credentials,
-      );
+      const isShop1Valid = verifyPaymentSignature({ orderId, paymentId, signature: shop1Signature }, shop1Credentials);
       expect(isShop1Valid).toBe(true);
 
       // Verify with Shop 2 credentials (Cross-shop attack / signature mismatch must fail)
-      const isShop2Valid = verifyPaymentSignature(
-        { orderId, paymentId, signature: shop1Signature },
-        shop2Credentials,
-      );
+      const isShop2Valid = verifyPaymentSignature({ orderId, paymentId, signature: shop1Signature }, shop2Credentials);
       expect(isShop2Valid).toBe(false);
     });
   });

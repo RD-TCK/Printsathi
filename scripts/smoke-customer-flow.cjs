@@ -7,12 +7,18 @@ const client = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL, process.env.SU
 const base = process.env.PRINTIVA_SERVER_URL || "http://localhost:3000";
 
 async function main() {
-  const { data: shops, error } = await client.from("shops").select("id, public_id, shop_settings(accepting_orders), subscriptions(status, trial_end)").eq("is_active", true);
+  const { data: shops, error } = await client
+    .from("shops")
+    .select("id, public_id, shop_settings(accepting_orders), subscriptions(status, trial_end)")
+    .eq("is_active", true);
   if (error) throw error;
-  const shop = shops.find(s => {
+  const shop = shops.find((s) => {
     const settings = Array.isArray(s.shop_settings) ? s.shop_settings[0] : s.shop_settings;
     const sub = Array.isArray(s.subscriptions) ? s.subscriptions[0] : s.subscriptions;
-    return settings?.accepting_orders && (sub?.status === "active" || (sub?.status === "trial" && new Date(sub.trial_end) > new Date()));
+    return (
+      settings?.accepting_orders &&
+      (sub?.status === "active" || (sub?.status === "trial" && new Date(sub.trial_end) > new Date()))
+    );
   });
   assert(shop, "An active shop with a valid subscription is needed for the upload smoke test.");
   const pdf = await PDFDocument.create();
@@ -30,10 +36,19 @@ async function main() {
     assert.equal(order.documents[0].pageCount, 2);
     console.log("PASS real PDF upload, private storage, and page counting");
     const response = await fetch(`${base}/api/customer/estimate`, {
-      method: "POST", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ shopIdentifier: shop.public_id, accessToken: order.accessToken,
-        configurations: [{ orderId: order.orderId, documentId: order.documents[0].id,
-          ranges: [{ startPage: 1, endPage: 2, colorMode: "black_and_white", paperSize: "a4" }] }] }),
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        shopIdentifier: shop.public_id,
+        accessToken: order.accessToken,
+        configurations: [
+          {
+            orderId: order.orderId,
+            documentId: order.documents[0].id,
+            ranges: [{ startPage: 1, endPage: 2, colorMode: "black_and_white", paperSize: "a4" }],
+          },
+        ],
+      }),
     });
     const estimate = await response.json();
     assert.equal(response.status, 200, estimate.error);
@@ -47,10 +62,15 @@ async function main() {
     console.log("PASS public order tracking");
   } finally {
     if (order) {
-      const { data: documents, error: readError } = await client.from("documents").select("storage_path").eq("order_id", order.orderId);
+      const { data: documents, error: readError } = await client
+        .from("documents")
+        .select("storage_path")
+        .eq("order_id", order.orderId);
       if (readError) throw readError;
       if (documents.length) {
-        const { error: storageError } = await client.storage.from("print-documents").remove(documents.map(d => d.storage_path));
+        const { error: storageError } = await client.storage
+          .from("print-documents")
+          .remove(documents.map((d) => d.storage_path));
         if (storageError) throw storageError;
       }
       const { error: deleteError } = await client.from("orders").delete().eq("id", order.orderId).eq("status", "draft");
@@ -59,4 +79,7 @@ async function main() {
     }
   }
 }
-main().catch(error => { console.error(error.message); process.exitCode = 1; });
+main().catch((error) => {
+  console.error(error.message);
+  process.exitCode = 1;
+});

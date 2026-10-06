@@ -1,14 +1,5 @@
 import Link from "next/link";
-import {
-  CheckCircle2,
-  Clock,
-  CreditCard,
-  FileText,
-  Package,
-  Printer,
-  QrCode,
-  XCircle,
-} from "lucide-react";
+import { CheckCircle2, Clock, CreditCard, FileText, Package, Printer, QrCode, XCircle } from "lucide-react";
 import { createSupabaseServerClient, getCurrentUser } from "@/lib/supabase/server";
 
 export const dynamic = "force-dynamic";
@@ -45,7 +36,8 @@ export default async function MyOrdersPage() {
 
   const { data: orders } = await client
     .from("orders")
-    .select(`
+    .select(
+      `
       id,
       public_id,
       status,
@@ -81,7 +73,8 @@ export default async function MyOrdersPage() {
           original_filename
         )
       )
-    `)
+    `,
+    )
     .eq("customer_id", user.id)
     .order("created_at", { ascending: false })
     .limit(50);
@@ -103,9 +96,7 @@ export default async function MyOrdersPage() {
     <div className="space-y-8">
       {/* Header */}
       <div>
-        <p className="text-xs font-semibold uppercase tracking-wider text-emerald-600">
-          Customer Portal
-        </p>
+        <p className="text-xs font-semibold uppercase tracking-wider text-emerald-600">Customer Portal</p>
         <h1 className="mt-1 text-2xl font-bold text-slate-900">My Print Orders</h1>
         <p className="mt-1 text-sm text-slate-500">
           All your print orders from Printiva shops — payments, status, and documents.
@@ -120,10 +111,7 @@ export default async function MyOrdersPage() {
           { label: "Pending", value: pendingCount, sub: "in progress" },
           { label: "Total spent", value: `₹${totalSpent.toFixed(0)}`, sub: "verified payments" },
         ].map(({ label, value, sub }) => (
-          <div
-            key={label}
-            className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm"
-          >
+          <div key={label} className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
             <p className="text-xs font-medium text-slate-500">{label}</p>
             <p className="mt-1 text-2xl font-bold text-slate-900">{value}</p>
             <p className="text-[11px] text-slate-400">{sub}</p>
@@ -158,7 +146,9 @@ export default async function MyOrdersPage() {
             const anyFailed = jobs.some((j) => j.status === "failed");
             const paymentStatus = (payment as { status?: string } | null)?.status;
             const status = statusMeta(order.status, paymentStatus, anyFailed, order.payment_mode);
-            const docs = jobs.flatMap((j) => Array.isArray(j.documents) ? j.documents : j.documents ? [j.documents] : []);
+            const docs = jobs.flatMap((j) =>
+              Array.isArray(j.documents) ? j.documents : j.documents ? [j.documents] : [],
+            );
 
             return (
               <Link
@@ -193,21 +183,20 @@ export default async function MyOrdersPage() {
                         {shop?.address ? ` · ${shop.address}` : ""}
                       </p>
                       {docs.slice(0, 2).map((doc) => (
-                        <p key={(doc as { id: string }).id} className="mt-0.5 flex items-center gap-1 text-xs text-slate-400">
+                        <p
+                          key={(doc as { id: string }).id}
+                          className="mt-0.5 flex items-center gap-1 text-xs text-slate-400"
+                        >
                           <FileText className="size-3" />
                           {(doc as { original_filename?: string }).original_filename || "Document"}
                         </p>
                       ))}
-                      {docs.length > 2 && (
-                        <p className="text-xs text-slate-400">+{docs.length - 2} more files</p>
-                      )}
+                      {docs.length > 2 && <p className="text-xs text-slate-400">+{docs.length - 2} more files</p>}
                     </div>
                   </div>
 
                   <div className="text-right">
-                    <p className="text-lg font-bold text-slate-900">
-                      ₹{Number(order.total_amount).toFixed(2)}
-                    </p>
+                    <p className="text-lg font-bold text-slate-900">₹{Number(order.total_amount).toFixed(2)}</p>
                     <p className="text-xs text-slate-500">
                       {order.total_pages} pages
                       {order.color_pages ? ` · ${order.color_pages} color` : ""}
@@ -255,9 +244,7 @@ export default async function MyOrdersPage() {
             <QrCode className="size-8 text-emerald-600 shrink-0" />
             <div>
               <p className="font-semibold text-emerald-900">Need to print something new?</p>
-              <p className="text-sm text-emerald-700">
-                Scan a QR code at any Printiva shop to start a new order.
-              </p>
+              <p className="text-sm text-emerald-700">Scan a QR code at any Printiva shop to start a new order.</p>
             </div>
           </div>
           <Link

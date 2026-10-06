@@ -33,7 +33,16 @@ function status(value: string) {
       : "warning";
   return <Badge tone={tone}>{value.replaceAll("_", " ")}</Badge>;
 }
-const tabs = ["Shops", "Jobs", "Orders", "Payments", "Subscriptions", "Devices", "Payment events", "Maintenance"] as const;
+const tabs = [
+  "Shops",
+  "Jobs",
+  "Orders",
+  "Payments",
+  "Subscriptions",
+  "Devices",
+  "Payment events",
+  "Maintenance",
+] as const;
 
 function Records({ headers, rows }: { headers: string[]; rows: ReactNode[][] }) {
   const [page, setPage] = useState(0);
@@ -180,13 +189,9 @@ export function AdminDashboard({ data }: { data: AdminData }) {
 
   const targetShopObj = targetShopId !== "all" ? data.shops.find((s) => s.id === targetShopId) : null;
   const targetOrdersCount =
-    targetShopId === "all"
-      ? data.orders.length
-      : data.orders.filter((o) => o.shop_id === targetShopId).length;
+    targetShopId === "all" ? data.orders.length : data.orders.filter((o) => o.shop_id === targetShopId).length;
   const targetJobsCount =
-    targetShopId === "all"
-      ? data.jobs.length
-      : data.jobs.filter((j) => j.shop_id === targetShopId).length;
+    targetShopId === "all" ? data.jobs.length : data.jobs.filter((j) => j.shop_id === targetShopId).length;
 
   return (
     <div className="space-y-6">
@@ -266,11 +271,7 @@ export function AdminDashboard({ data }: { data: AdminData }) {
             <p className="mt-1 text-xs text-muted">Joined {date(selected.created_at)} IST</p>
           </div>
           <div className="flex flex-wrap items-center gap-3">
-            <Button
-              variant="danger"
-              size="sm"
-              onClick={() => openClearModal(selected.id)}
-            >
+            <Button variant="danger" size="sm" onClick={() => openClearModal(selected.id)}>
               <Trash2 className="size-3.5" />
               Clear this shop&apos;s data
             </Button>
@@ -429,11 +430,7 @@ export function AdminDashboard({ data }: { data: AdminData }) {
                 ))}
               </select>
             </label>
-            <Button
-              variant="danger"
-              size="sm"
-              onClick={() => openClearModal(shopId || "all")}
-            >
+            <Button variant="danger" size="sm" onClick={() => openClearModal(shopId || "all")}>
               <Trash2 className="size-3.5" />
               Clear {shopId ? `${shopName(shopId)} jobs` : "all platform jobs"}
             </Button>
@@ -458,11 +455,7 @@ export function AdminDashboard({ data }: { data: AdminData }) {
       {tab === "Orders" && (
         <div className="space-y-4">
           <div className="flex justify-end">
-            <Button
-              variant="danger"
-              size="sm"
-              onClick={() => openClearModal(shopId || "all")}
-            >
+            <Button variant="danger" size="sm" onClick={() => openClearModal(shopId || "all")}>
               <Trash2 className="size-3.5" />
               Clear {shopId ? `${shopName(shopId)} orders` : "all platform orders"}
             </Button>
@@ -584,7 +577,8 @@ export function AdminDashboard({ data }: { data: AdminData }) {
             <div>
               <h2 className="text-lg font-semibold text-brand-950">Shop Analytics & Jobs Data Management</h2>
               <p className="mt-1 text-sm text-muted">
-                Administrators can clear print jobs, token queues, customer orders, uploaded documents, and reset shop analytics back to zero for testing or maintenance.
+                Administrators can clear print jobs, token queues, customer orders, uploaded documents, and reset shop
+                analytics back to zero for testing or maintenance.
               </p>
             </div>
 
@@ -607,10 +601,7 @@ export function AdminDashboard({ data }: { data: AdminData }) {
             </div>
 
             <div className="flex flex-wrap items-center gap-4 pt-2">
-              <Button
-                variant="danger"
-                onClick={() => openClearModal(shopId || "all")}
-              >
+              <Button variant="danger" onClick={() => openClearModal(shopId || "all")}>
                 <Trash2 className="size-4" />
                 Launch Data Cleaner
               </Button>
@@ -636,14 +627,13 @@ export function AdminDashboard({ data }: { data: AdminData }) {
             <AlertTriangle className="mt-0.5 size-5 shrink-0 text-red-600" />
             <div className="text-xs leading-relaxed">
               <strong className="font-semibold block text-sm text-red-950">Warning: Permanent Deletion</strong>
-              This action permanently wipes all jobs, customer orders, queue tokens, uploaded documents, and associated analytics for the target selection. This operation cannot be undone.
+              This action permanently wipes all jobs, customer orders, queue tokens, uploaded documents, and associated
+              analytics for the target selection. This operation cannot be undone.
             </div>
           </div>
 
           <div className="space-y-2">
-            <label className="block text-xs font-semibold text-muted">
-              Target Scope
-            </label>
+            <label className="block text-xs font-semibold text-muted">Target Scope</label>
             <select
               className="w-full rounded-lg border border-line bg-white px-3 py-2 text-sm"
               value={targetShopId}
@@ -670,7 +660,8 @@ export function AdminDashboard({ data }: { data: AdminData }) {
               </span>
             </p>
             <p className="mt-1">
-              Current records found: <strong>{targetOrdersCount}</strong> orders · <strong>{targetJobsCount}</strong> print jobs
+              Current records found: <strong>{targetOrdersCount}</strong> orders · <strong>{targetJobsCount}</strong>{" "}
+              print jobs
             </p>
           </div>
 
@@ -681,7 +672,8 @@ export function AdminDashboard({ data }: { data: AdminData }) {
                 <p className="font-semibold">{clearResult.message}</p>
                 {clearResult.deleted && (
                   <p className="mt-1 text-muted">
-                    Deleted {clearResult.deleted.orders} orders, {clearResult.deleted.jobs} jobs, {clearResult.deleted.documents} documents, and {clearResult.deleted.payments} payment records.
+                    Deleted {clearResult.deleted.orders} orders, {clearResult.deleted.jobs} jobs,{" "}
+                    {clearResult.deleted.documents} documents, and {clearResult.deleted.payments} payment records.
                   </p>
                 )}
               </div>

@@ -1,19 +1,27 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
-  claim: vi.fn(), download: vi.fn(), submit: vi.fn(), failure: vi.fn(), print: vi.fn(),
+  claim: vi.fn(),
+  download: vi.fn(),
+  submit: vi.fn(),
+  failure: vi.fn(),
+  print: vi.fn(),
 }));
 vi.mock("./config", () => ({
   loadConfig: () => ({ serverUrl: "http://localhost:3000", agentToken: "test", selectedPrinter: null }),
-  isConfigPaired: () => true, saveConfig: vi.fn(), clearConfig: vi.fn(),
+  isConfigPaired: () => true,
+  saveConfig: vi.fn(),
+  clearConfig: vi.fn(),
 }));
 vi.mock("./logger", () => ({ logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn() } }));
-vi.mock("./client", () => ({ AgentApiClient: class {
-  claimNextJob = mocks.claim;
-  downloadDocument = mocks.download;
-  reportSubmit = mocks.submit;
-  reportFailure = mocks.failure;
-} }));
+vi.mock("./client", () => ({
+  AgentApiClient: class {
+    claimNextJob = mocks.claim;
+    downloadDocument = mocks.download;
+    reportSubmit = mocks.submit;
+    reportFailure = mocks.failure;
+  },
+}));
 vi.mock("./printer-discovery", () => ({
   discoverWindowsPrinters: async () => [{ name: "Test physical printer", status: "online" }],
   findDefaultPrinter: () => ({ name: "Test physical printer" }),
@@ -33,7 +41,9 @@ describe("automatic dispatch safety", () => {
   beforeEach(() => {
     vi.resetAllMocks();
     mocks.claim.mockResolvedValue({
-      id: "job-123456", orderId: "order-123456", defaultPrinter: null,
+      id: "job-123456",
+      orderId: "order-123456",
+      defaultPrinter: null,
       document: { id: "document-123456", originalFilename: "test.pdf", pageCount: 2 },
       pagesConfig: [{ startPage: 1, endPage: 2, colorMode: "black_and_white", paperSize: "a4" }],
     });
@@ -46,7 +56,9 @@ describe("automatic dispatch safety", () => {
   it("persists dispatch before sending the customer's settings to the printer", async () => {
     await processJob();
     expect(mocks.submit.mock.invocationCallOrder[0]).toBeLessThan(mocks.print.mock.invocationCallOrder[0]);
-    expect(mocks.print.mock.calls[0][3]).toEqual([{ startPage: 1, endPage: 2, colorMode: "black_and_white", paperSize: "a4" }]);
+    expect(mocks.print.mock.calls[0][3]).toEqual([
+      { startPage: 1, endPage: 2, colorMode: "black_and_white", paperSize: "a4" },
+    ]);
     expect(mocks.failure).not.toHaveBeenCalled();
   });
 

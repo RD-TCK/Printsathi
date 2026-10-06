@@ -51,10 +51,7 @@ export function Logo({ size = 36, className = "", ...props }: LogoProps) {
         />
 
         {/* Upper loop of the "P" with aerodynamic print fold */}
-        <path
-          d="M38 14H58C71.2548 14 82 24.7452 82 38C82 51.2548 71.2548 62 58 62H38V14Z"
-          fill="url(#printiva-loop)"
-        />
+        <path d="M38 14H58C71.2548 14 82 24.7452 82 38C82 51.2548 71.2548 62 58 62H38V14Z" fill="url(#printiva-loop)" />
 
         {/* Inner cutout of the "P" - transparent negative space */}
         <path

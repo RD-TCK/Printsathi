@@ -3,7 +3,7 @@ import type { SupabaseClient, User } from "@supabase/supabase-js";
 export async function ensureShopForUser(
   client: SupabaseClient,
   user: User,
-  explicitShop?: { shopName?: string; shopSlug?: string; shopPhone?: string | null }
+  explicitShop?: { shopName?: string; shopSlug?: string; shopPhone?: string | null },
 ): Promise<string | null> {
   const metadata = user.user_metadata ?? {};
   const shopName = (explicitShop?.shopName || metadata.shop_name || "My Print Shop").trim();

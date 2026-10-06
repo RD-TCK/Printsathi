@@ -53,7 +53,9 @@ export default async function PricingPage({
             <div className="flex items-center justify-between">
               <div>
                 <div className="flex items-center gap-2">
-                  <h2 className="font-semibold text-brand-950">{editRule ? "Edit pricing rule" : "Add custom pricing rule"}</h2>
+                  <h2 className="font-semibold text-brand-950">
+                    {editRule ? "Edit pricing rule" : "Add custom pricing rule"}
+                  </h2>
                   {editRule ? <Badge tone="warning">Editing</Badge> : null}
                 </div>
                 <p className="mt-1 text-sm text-muted">
@@ -177,7 +179,10 @@ export default async function PricingPage({
                 headers={["Mode", "Sides", "Paper", "Page range", "Price", "State", "Action"]}
                 rows={rules.map((rule) => [
                   formatStatus(rule.color_mode),
-                  <Badge key="sides" tone={(rule.side_mode ?? "single_sided") === "double_sided" ? "success" : "neutral"}>
+                  <Badge
+                    key="sides"
+                    tone={(rule.side_mode ?? "single_sided") === "double_sided" ? "success" : "neutral"}
+                  >
                     {(rule.side_mode ?? "single_sided") === "double_sided" ? "Both Sides" : "Single Side"}
                   </Badge>,
                   formatStatus(rule.paper_size),
@@ -200,9 +205,15 @@ export default async function PricingPage({
                           Deactivate
                         </button>
                       </form>
-                      <ConfirmActionForm action={deletePricingRule} confirmation="Permanently delete this pricing rule?">
+                      <ConfirmActionForm
+                        action={deletePricingRule}
+                        confirmation="Permanently delete this pricing rule?"
+                      >
                         <input type="hidden" name="id" value={rule.id} />
-                        <button className="inline-flex items-center gap-1 text-xs font-semibold text-red-600 hover:underline" type="submit">
+                        <button
+                          className="inline-flex items-center gap-1 text-xs font-semibold text-red-600 hover:underline"
+                          type="submit"
+                        >
                           <Trash2 className="size-3" />
                           Delete
                         </button>
@@ -211,9 +222,15 @@ export default async function PricingPage({
                   ) : (
                     <div className="flex items-center gap-2" key="action">
                       <span className="text-xs text-muted">Archived</span>
-                      <ConfirmActionForm action={deletePricingRule} confirmation="Permanently delete this pricing rule?">
+                      <ConfirmActionForm
+                        action={deletePricingRule}
+                        confirmation="Permanently delete this pricing rule?"
+                      >
                         <input type="hidden" name="id" value={rule.id} />
-                        <button className="inline-flex items-center gap-1 text-xs font-semibold text-red-600 hover:underline" type="submit">
+                        <button
+                          className="inline-flex items-center gap-1 text-xs font-semibold text-red-600 hover:underline"
+                          type="submit"
+                        >
                           <Trash2 className="size-3" />
                           Delete
                         </button>
@@ -227,7 +244,8 @@ export default async function PricingPage({
             <Card className="p-8">
               <h2 className="font-semibold text-brand-950">No pricing rules yet</h2>
               <p className="mt-2 text-sm leading-6 text-muted">
-                Add your first customer-facing rule above (for example: 1-5 pages @ ₹5 Single Sided, 1-5 pages @ ₹3 Both Sides).
+                Add your first customer-facing rule above (for example: 1-5 pages @ ₹5 Single Sided, 1-5 pages @ ₹3 Both
+                Sides).
               </p>
             </Card>
           )}

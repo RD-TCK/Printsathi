@@ -7,6 +7,7 @@ This document provides a comprehensive overview of the Printiva codebase structu
 ## 🏗️ Architecture Overview
 
 Printiva is a full-stack automated printing management system consisting of:
+
 1. **Next.js Web Application** (`src/app`, `src/components`, `src/lib`): Customer ordering portal, shop owner management dashboard, admin analytics, payment processing (Razorpay), document conversion (LibreOffice/Sharp), and Supabase backend integration.
 2. **Electron & Node Desktop Agent** (`src/agent`): Native Windows desktop app and daemon that discovers local physical printers, polls print jobs from Supabase, dispatches print tasks via SumatraPDF/`pdf-to-printer`, and maintains real-time status heartbeats.
 3. **Database & Backend Infrastructure** (`supabase/`): Supabase database schema, RLS security policies, document storage buckets, and SQL migrations.
@@ -17,6 +18,7 @@ Printiva is a full-stack automated printing management system consisting of:
 ## 📁 File Directory & Editing Guide
 
 ### 1. Web Application (`src/app/`)
+
 - **Location:** `src/app/`
 - **File Types:** Next.js App Router pages (`page.tsx`, `layout.tsx`), Server Actions (`actions/`), API Routes (`api/`).
 - **How to Edit:**
@@ -27,6 +29,7 @@ Printiva is a full-stack automated printing management system consisting of:
   - **Global Styles:** Edit `src/app/globals.css`.
 
 ### 2. UI Components (`src/components/`)
+
 - **Location:** `src/components/`
 - **File Types:** React components (`.tsx`).
 - **How to Edit:**
@@ -36,6 +39,7 @@ Printiva is a full-stack automated printing management system consisting of:
   - **Reusable Design System UI:** Edit files in `src/components/ui/`.
 
 ### 3. Business Logic, Pricing & Utilities (`src/lib/`)
+
 - **Location:** `src/lib/`
 - **File Types:** TypeScript logic files (`.ts`) and unit tests (`.test.ts`).
 - **How to Edit:**
@@ -46,6 +50,7 @@ Printiva is a full-stack automated printing management system consisting of:
   - **Printer Availability Logic:** Edit `src/lib/printer-availability.ts`.
 
 ### 4. Electron Desktop App & Print Daemon (`src/agent/`)
+
 - **Location:** `src/agent/`
 - **File Types:** TypeScript agent scripts, Electron main process, printer hardware interfaces (`.ts`), unit tests (`.test.ts`).
 - **How to Edit:**
@@ -58,12 +63,14 @@ Printiva is a full-stack automated printing management system consisting of:
   - **Agent Config & Types:** Edit `src/agent/config.ts` and `src/agent/types.ts`.
 
 ### 5. Database Schema & Migrations (`supabase/`)
+
 - **Location:** `supabase/`
 - **File Types:** SQL migration scripts (`supabase/migrations/*.sql`) and Supabase CLI configuration (`config.toml`).
 - **How to Edit:**
   - Add new database tables, RLS policies, or stored procedures by creating a new `.sql` file in `supabase/migrations/`.
 
 ### 6. Build, Test & Installer Scripts (`scripts/`)
+
 - **Location:** `scripts/`
 - **File Types:** Node.js CommonJS scripts (`.cjs`) and PowerShell scripts (`.ps1`).
 - **Key Files:**
@@ -76,27 +83,28 @@ Printiva is a full-stack automated printing management system consisting of:
 ## ⚡ Running & Developing the Application
 
 ### Dependencies
+
 All project dependencies (including `electron`, `electron-builder`, `next`, `react`, `pdf-to-printer`, `@supabase/supabase-js`, `razorpay`, `tailwindcss`) are installed in `node_modules`.
 
 ### Standard NPM Commands
 
-| Task | Command | Description |
-| :--- | :--- | :--- |
-| **Install Dependencies** | `npm install` *(or `npm.cmd install` on PowerShell if scripts are restricted)* | Installs all required Web & Electron packages. |
-| **Run Web Server Only** | `npm run dev:web` | Starts Next.js development server at `http://localhost:3000`. |
-| **Run Electron App Only** | `npm run dev:desktop` | Compiles agent TS files and launches the Electron desktop app. |
-| **Run Web + Electron Concurrently** | `npm run dev` | Runs both Next.js web app and Electron app side-by-side. |
-| **Run Agent CLI (No GUI)** | `npm run dev:agent` | Runs background print daemon directly in console. |
-| **Build Web Application** | `npm run build` | Builds production Next.js application. |
-| **Build Desktop Standalone (.exe)** | `npm run build:desktop` | Builds Electron Windows installer (`PrintivaAgent.exe`) via `electron-builder`. |
-| **Run Unit Tests** | `npm test` | Runs tests using Vitest. |
-| **Check Types & Linting** | `npm run typecheck && npm run lint` | Validates TypeScript types and ESLint standards. |
+| Task                                | Command                                                                        | Description                                                                     |
+| :---------------------------------- | :----------------------------------------------------------------------------- | :------------------------------------------------------------------------------ |
+| **Install Dependencies**            | `npm install` _(or `npm.cmd install` on PowerShell if scripts are restricted)_ | Installs all required Web & Electron packages.                                  |
+| **Run Web Server Only**             | `npm run dev:web`                                                              | Starts Next.js development server at `http://localhost:3000`.                   |
+| **Run Electron App Only**           | `npm run dev:desktop`                                                          | Compiles agent TS files and launches the Electron desktop app.                  |
+| **Run Web + Electron Concurrently** | `npm run dev`                                                                  | Runs both Next.js web app and Electron app side-by-side.                        |
+| **Run Agent CLI (No GUI)**          | `npm run dev:agent`                                                            | Runs background print daemon directly in console.                               |
+| **Build Web Application**           | `npm run build`                                                                | Builds production Next.js application.                                          |
+| **Build Desktop Standalone (.exe)** | `npm run build:desktop`                                                        | Builds Electron Windows installer (`PrintivaAgent.exe`) via `electron-builder`. |
+| **Run Unit Tests**                  | `npm test`                                                                     | Runs tests using Vitest.                                                        |
+| **Check Types & Linting**           | `npm run typecheck && npm run lint`                                            | Validates TypeScript types and ESLint standards.                                |
 
 ---
 
 ## 💡 Notes on PowerShell Script Execution
 
-If running `npm` commands in Windows PowerShell throws a `PSSecurityException` error (*"running scripts is disabled on this system"*), you can use any of the following remedies:
+If running `npm` commands in Windows PowerShell throws a `PSSecurityException` error (_"running scripts is disabled on this system"_), you can use any of the following remedies:
 
 1. **Enable user script execution (Recommended once per machine):**
    ```powershell

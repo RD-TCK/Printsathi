@@ -7,7 +7,11 @@ vi.mock("./print-executor", () => ({ checkPrintBackend: vi.fn() }));
 vi.mock("node:child_process", () => ({ exec: mocks.exec }));
 import { main } from "./index";
 const originalArgs = process.argv;
-afterEach(() => { process.argv = originalArgs; vi.unstubAllGlobals(); vi.resetAllMocks(); });
+afterEach(() => {
+  process.argv = originalArgs;
+  vi.unstubAllGlobals();
+  vi.resetAllMocks();
+});
 describe("downloaded agent startup", () => {
   it("reopens an existing agent instead of crashing on a second launch", async () => {
     process.argv = ["node", "agent"];

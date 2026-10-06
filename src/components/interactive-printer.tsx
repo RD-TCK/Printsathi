@@ -10,16 +10,13 @@ export function InteractivePrinter() {
   const [isPrinting, setIsPrinting] = useState(false);
   const [paperOut, setPaperOut] = useState(false);
 
-  const handleMouseMove = useCallback(
-    (e: React.MouseEvent<HTMLDivElement>) => {
-      if (!containerRef.current) return;
-      const rect = containerRef.current.getBoundingClientRect();
-      const x = (e.clientX - rect.left) / rect.width - 0.5;
-      const y = (e.clientY - rect.top) / rect.height - 0.5;
-      setRotation({ x: y * -12, y: x * 12 });
-    },
-    [],
-  );
+  const handleMouseMove = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
+    if (!containerRef.current) return;
+    const rect = containerRef.current.getBoundingClientRect();
+    const x = (e.clientX - rect.left) / rect.width - 0.5;
+    const y = (e.clientY - rect.top) / rect.height - 0.5;
+    setRotation({ x: y * -12, y: x * 12 });
+  }, []);
 
   const handlePrint = () => {
     if (isPrinting) return;
@@ -48,8 +45,7 @@ export function InteractivePrinter() {
       <div
         className="absolute inset-0 -z-10 rounded-full transition-all duration-700"
         style={{
-          background:
-            "radial-gradient(ellipse 80% 60% at 50% 60%, rgba(16,185,129,0.15), transparent)",
+          background: "radial-gradient(ellipse 80% 60% at 50% 60%, rgba(16,185,129,0.15), transparent)",
           filter: isHovered ? "blur(60px)" : "blur(80px)",
           transform: isHovered ? "scale(1.1)" : "scale(1)",
         }}
@@ -74,9 +70,7 @@ export function InteractivePrinter() {
               <div className="flex items-center gap-2">
                 <div
                   className={`size-2 rounded-full transition-colors duration-300 ${
-                    isPrinting
-                      ? "bg-emerald-500 animate-pulse"
-                      : "bg-brand-300"
+                    isPrinting ? "bg-emerald-500 animate-pulse" : "bg-brand-300"
                   }`}
                 />
                 <span className="text-[10px] font-medium text-brand-700 tracking-wide uppercase">
@@ -88,10 +82,7 @@ export function InteractivePrinter() {
           </div>
 
           {/* Paper feed slot */}
-          <div
-            className="relative z-10 mx-auto w-[95%] overflow-hidden"
-            style={{ transform: "translateZ(10px)" }}
-          >
+          <div className="relative z-10 mx-auto w-[95%] overflow-hidden" style={{ transform: "translateZ(10px)" }}>
             <div className="h-3 bg-gradient-to-b from-brand-100 to-brand-200/60 border-x border-brand-200 flex items-center justify-center">
               <div className="w-16 h-[2px] rounded-full bg-brand-300/60" />
             </div>
@@ -136,9 +127,7 @@ export function InteractivePrinter() {
                       {isPrinting ? "Active Job" : "Queue"}
                     </p>
                     <p className="mt-1 text-xs font-semibold text-white">
-                      {isPrinting
-                        ? "Report_Final.pdf"
-                        : "3 jobs waiting"}
+                      {isPrinting ? "Report_Final.pdf" : "3 jobs waiting"}
                     </p>
                   </div>
                   <div className="text-right">
@@ -152,9 +141,7 @@ export function InteractivePrinter() {
                             }}
                           />
                         </div>
-                        <span className="text-[10px] text-emerald-400 font-mono">
-                          18/24
-                        </span>
+                        <span className="text-[10px] text-emerald-400 font-mono">18/24</span>
                       </div>
                     ) : (
                       <span className="flex items-center gap-1 text-[10px] text-emerald-400">
@@ -213,9 +200,7 @@ export function InteractivePrinter() {
 
             {/* Paper tray indicator */}
             <div className="border-t border-brand-200/60 bg-brand-50/50 px-5 py-2.5 flex items-center justify-between text-[10px]">
-              <span className="text-brand-500 font-medium uppercase tracking-wider">
-                A4 Paper Tray
-              </span>
+              <span className="text-brand-500 font-medium uppercase tracking-wider">A4 Paper Tray</span>
               <span className="flex items-center gap-1.5 text-brand-600 font-medium">
                 <span className="inline-block w-8 h-1 rounded-full bg-brand-200 overflow-hidden">
                   <span className="block h-full w-[85%] rounded-full bg-brand-400" />

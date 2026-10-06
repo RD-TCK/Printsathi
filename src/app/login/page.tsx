@@ -51,10 +51,7 @@ export default async function LoginPage({
                 required
               />
               <div className="flex justify-end">
-                <Link
-                  href="/forgot-password"
-                  className="text-xs font-semibold text-brand-700 hover:underline"
-                >
+                <Link href="/forgot-password" className="text-xs font-semibold text-brand-700 hover:underline">
                   Forgot password?
                 </Link>
               </div>

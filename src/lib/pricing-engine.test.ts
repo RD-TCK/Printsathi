@@ -3,14 +3,63 @@ import { validateRanges } from "@/lib/customer-print";
 import { calculatePricing, calculatePlatformFee, assertShopCanPrice, type PricingRule } from "@/lib/pricing-engine";
 
 const rules: PricingRule[] = [
-  { color_mode: "black_and_white", paper_size: "a4", side_mode: "single_sided", min_pages: 1, max_pages: 10, price_per_page: 5 },
-  { color_mode: "black_and_white", paper_size: "a4", side_mode: "single_sided", min_pages: 11, max_pages: null, price_per_page: 2 },
-  { color_mode: "black_and_white", paper_size: "a4", side_mode: "double_sided", min_pages: 1, max_pages: 10, price_per_page: 3 },
-  { color_mode: "black_and_white", paper_size: "a4", side_mode: "double_sided", min_pages: 11, max_pages: null, price_per_page: 1.5 },
+  {
+    color_mode: "black_and_white",
+    paper_size: "a4",
+    side_mode: "single_sided",
+    min_pages: 1,
+    max_pages: 10,
+    price_per_page: 5,
+  },
+  {
+    color_mode: "black_and_white",
+    paper_size: "a4",
+    side_mode: "single_sided",
+    min_pages: 11,
+    max_pages: null,
+    price_per_page: 2,
+  },
+  {
+    color_mode: "black_and_white",
+    paper_size: "a4",
+    side_mode: "double_sided",
+    min_pages: 1,
+    max_pages: 10,
+    price_per_page: 3,
+  },
+  {
+    color_mode: "black_and_white",
+    paper_size: "a4",
+    side_mode: "double_sided",
+    min_pages: 11,
+    max_pages: null,
+    price_per_page: 1.5,
+  },
   { color_mode: "color", paper_size: "a4", side_mode: "single_sided", min_pages: 1, max_pages: 10, price_per_page: 10 },
-  { color_mode: "color", paper_size: "a4", side_mode: "single_sided", min_pages: 11, max_pages: null, price_per_page: 8 },
-  { color_mode: "black_and_white", paper_size: "a3", side_mode: "single_sided", min_pages: 1, max_pages: 10, price_per_page: 6 },
-  { color_mode: "black_and_white", paper_size: "a3", side_mode: "single_sided", min_pages: 11, max_pages: null, price_per_page: 3 },
+  {
+    color_mode: "color",
+    paper_size: "a4",
+    side_mode: "single_sided",
+    min_pages: 11,
+    max_pages: null,
+    price_per_page: 8,
+  },
+  {
+    color_mode: "black_and_white",
+    paper_size: "a3",
+    side_mode: "single_sided",
+    min_pages: 1,
+    max_pages: 10,
+    price_per_page: 6,
+  },
+  {
+    color_mode: "black_and_white",
+    paper_size: "a3",
+    side_mode: "single_sided",
+    min_pages: 11,
+    max_pages: null,
+    price_per_page: 3,
+  },
 ];
 
 const range = (
@@ -47,14 +96,22 @@ describe("Printiva pricing engine", () => {
 
   it("calculates multi-copy pricing correctly for whole document (e.g. 4 pages with 2 or 3 copies)", () => {
     // 4 pages with 2 copies = 8 printed pages. In 1-10 tier @ ₹5/page => 8 * 5 = ₹40.
-    const result2Copies = calculatePricing([range(1, 4, "black_and_white", "a4", "single_sided", 2)], rules, "customer_fee");
+    const result2Copies = calculatePricing(
+      [range(1, 4, "black_and_white", "a4", "single_sided", 2)],
+      rules,
+      "customer_fee",
+    );
     expect(result2Copies.totalPages).toBe(8);
     expect(result2Copies.blackAndWhitePages).toBe(8);
     expect(result2Copies.subtotal).toBe(40);
     expect(result2Copies.total).toBe(40);
 
     // 4 pages with 3 copies = 12 printed pages. In 11+ tier @ ₹2/page => 12 * 2 = ₹24.
-    const result3Copies = calculatePricing([range(1, 4, "black_and_white", "a4", "single_sided", 3)], rules, "customer_fee");
+    const result3Copies = calculatePricing(
+      [range(1, 4, "black_and_white", "a4", "single_sided", 3)],
+      rules,
+      "customer_fee",
+    );
     expect(result3Copies.totalPages).toBe(12);
     expect(result3Copies.blackAndWhitePages).toBe(12);
     expect(result3Copies.subtotal).toBe(24);
@@ -63,13 +120,21 @@ describe("Printiva pricing engine", () => {
 
   it("calculates partial page printing with copies (e.g. 4 page PDF, only 2 pages printed)", () => {
     // 4-page PDF, but only pages 1 to 2 printed with 1 copy = 2 pages @ ₹5 = ₹10
-    const resultPartial1 = calculatePricing([range(1, 2, "black_and_white", "a4", "single_sided", 1)], rules, "customer_fee");
+    const resultPartial1 = calculatePricing(
+      [range(1, 2, "black_and_white", "a4", "single_sided", 1)],
+      rules,
+      "customer_fee",
+    );
     expect(resultPartial1.totalPages).toBe(2);
     expect(resultPartial1.subtotal).toBe(10);
     expect(resultPartial1.total).toBe(10);
 
     // 4-page PDF, only pages 1 to 2 printed with 2 copies = 4 pages @ ₹5 = ₹20
-    const resultPartial2 = calculatePricing([range(1, 2, "black_and_white", "a4", "single_sided", 2)], rules, "customer_fee");
+    const resultPartial2 = calculatePricing(
+      [range(1, 2, "black_and_white", "a4", "single_sided", 2)],
+      rules,
+      "customer_fee",
+    );
     expect(resultPartial2.totalPages).toBe(4);
     expect(resultPartial2.subtotal).toBe(20);
     expect(resultPartial2.total).toBe(20);
@@ -87,7 +152,7 @@ describe("Printiva pricing engine", () => {
         range(3, 4, "black_and_white", "a4", "single_sided", 1),
       ],
       rules,
-      "customer_fee"
+      "customer_fee",
     );
     expect(resultMixed.totalPages).toBe(5);
     expect(resultMixed.blackAndWhitePages).toBe(5);
@@ -135,8 +200,22 @@ describe("Printiva pricing engine", () => {
 
   it("correctly calculates pricing for 1-5 pages @ ₹5 and 6+ pages @ ₹2 tier rules", () => {
     const customSlabRules: PricingRule[] = [
-      { color_mode: "black_and_white", paper_size: "a4", side_mode: "single_sided", min_pages: 1, max_pages: 5, price_per_page: 5 },
-      { color_mode: "black_and_white", paper_size: "a4", side_mode: "single_sided", min_pages: 6, max_pages: null, price_per_page: 2 },
+      {
+        color_mode: "black_and_white",
+        paper_size: "a4",
+        side_mode: "single_sided",
+        min_pages: 1,
+        max_pages: 5,
+        price_per_page: 5,
+      },
+      {
+        color_mode: "black_and_white",
+        paper_size: "a4",
+        side_mode: "single_sided",
+        min_pages: 6,
+        max_pages: null,
+        price_per_page: 2,
+      },
     ];
 
     // 1 page: 1 * 5 = ₹5
@@ -171,7 +250,11 @@ describe("Printiva pricing engine", () => {
   });
 
   it("prices mixed color and black-and-white ranges", () => {
-    const result = calculatePricing([range(1, 3, "color"), range(4, 10), range(11, 15, "color")], rules, "shop_subscription");
+    const result = calculatePricing(
+      [range(1, 3, "color"), range(4, 10), range(11, 15, "color")],
+      rules,
+      "shop_subscription",
+    );
     expect(result.colorPages).toBe(8);
     expect(result.blackAndWhitePages).toBe(7);
     expect(result.subtotal).toBe(115);
@@ -205,6 +288,8 @@ describe("Printiva pricing engine", () => {
     expect(() => assertShopCanPrice({ isActive: false, acceptingOrders: true, subscriptionStatus: "active" })).toThrow(
       "not active",
     );
-    expect(() => assertShopCanPrice({ isActive: true, acceptingOrders: true, subscriptionStatus: "expired" })).not.toThrow();
+    expect(() =>
+      assertShopCanPrice({ isActive: true, acceptingOrders: true, subscriptionStatus: "expired" }),
+    ).not.toThrow();
   });
 });

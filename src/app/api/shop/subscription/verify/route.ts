@@ -34,16 +34,15 @@ export async function POST(request: Request) {
 
   const razorpayConfig = getPlatformRazorpayClient();
   if (!razorpayConfig) {
-    return NextResponse.json(
-      { error: "Razorpay payment gateway is not configured on the server." },
-      { status: 503 },
-    );
+    return NextResponse.json({ error: "Razorpay payment gateway is not configured on the server." }, { status: 503 });
   }
 
   // 1. Verify Razorpay cryptographic HMAC SHA-256 signature
   const signatureValid = verifyPaymentSignature({
-    orderId: razorpayOrderId, paymentId: razorpayPaymentId,
-    signature: razorpaySignature, keySecret: razorpayConfig.keySecret,
+    orderId: razorpayOrderId,
+    paymentId: razorpayPaymentId,
+    signature: razorpaySignature,
+    keySecret: razorpayConfig.keySecret,
   });
 
   if (!signatureValid) {
@@ -54,10 +53,15 @@ export async function POST(request: Request) {
   if (!adminClient) return NextResponse.json({ error: "Database client is unavailable." }, { status: 503 });
   try {
     const periodEnd = await activateSubscriptionPayment(adminClient, razorpayPaymentId, {
-      shopId: context.shop.id, plan, orderId: razorpayOrderId,
+      shopId: context.shop.id,
+      plan,
+      orderId: razorpayOrderId,
     });
     return NextResponse.json({ success: true, periodEnd, message: "Subscription activated successfully.", plan });
   } catch (error) {
-    return NextResponse.json({ error: error instanceof Error ? error.message : "Could not activate subscription." }, { status: 409 });
+    return NextResponse.json(
+      { error: error instanceof Error ? error.message : "Could not activate subscription." },
+      { status: 409 },
+    );
   }
 }

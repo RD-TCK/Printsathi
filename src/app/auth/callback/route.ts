@@ -13,16 +13,12 @@ export async function GET(request: Request) {
   // If Supabase returned an error in query parameters (e.g., otp_expired)
   const errorDescription = searchParams.get("error_description");
   if (errorDescription) {
-    return NextResponse.redirect(
-      `${origin}/login?error=${encodeURIComponent(errorDescription)}`
-    );
+    return NextResponse.redirect(`${origin}/login?error=${encodeURIComponent(errorDescription)}`);
   }
 
   const supabase = await createSupabaseServerClient();
   if (!supabase) {
-    return NextResponse.redirect(
-      `${origin}/login?error=Authentication+service+not+configured.`
-    );
+    return NextResponse.redirect(`${origin}/login?error=Authentication+service+not+configured.`);
   }
 
   let sessionSuccess = false;
@@ -56,6 +52,6 @@ export async function GET(request: Request) {
   }
 
   return NextResponse.redirect(
-    `${origin}/login?error=Invalid+or+expired+authentication+link.+Please+sign+in+directly.`
+    `${origin}/login?error=Invalid+or+expired+authentication+link.+Please+sign+in+directly.`,
   );
 }

@@ -3,14 +3,7 @@ import { MetricCard, ComingSoon } from "@/components/shop-page";
 import { Alert } from "@/components/ui/alert";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import {
-  TrendingUp,
-  Layers,
-  Trash2,
-  Coins,
-  IndianRupee,
-  Clock,
-} from "lucide-react";
+import { TrendingUp, Layers, Trash2, Coins, IndianRupee, Clock } from "lucide-react";
 
 export const dynamic = "force-dynamic";
 
@@ -330,14 +323,11 @@ export default async function ShopAnalyticsPage() {
     <div className="space-y-8">
       <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
         <div>
-          <p className="text-sm font-semibold uppercase tracking-[0.18em] text-brand-600">
-            Performance &amp; Insights
-          </p>
-          <h1 className="mt-2 text-3xl font-semibold tracking-tight text-brand-950">
-            Shop Analytics &amp; Revenue
-          </h1>
+          <p className="text-sm font-semibold uppercase tracking-[0.18em] text-brand-600">Performance &amp; Insights</p>
+          <h1 className="mt-2 text-3xl font-semibold tracking-tight text-brand-950">Shop Analytics &amp; Revenue</h1>
           <p className="mt-2 max-w-2xl text-sm leading-6 text-muted">
-            Live calculated revenue, daily &amp; weekly trends, and volume for your print station in Indian Standard Time (IST).
+            Live calculated revenue, daily &amp; weekly trends, and volume for your print station in Indian Standard
+            Time (IST).
           </p>
         </div>
         <div className="flex items-center gap-2">
@@ -379,9 +369,7 @@ export default async function ShopAnalyticsPage() {
               {/* Today's Revenue */}
               <Card className="p-5 border-emerald-200 bg-gradient-to-br from-emerald-50/60 to-white shadow-xs">
                 <div className="flex items-start justify-between gap-3">
-                  <p className="text-xs font-bold uppercase tracking-wider text-emerald-900">
-                    Today&apos;s Revenue
-                  </p>
+                  <p className="text-xs font-bold uppercase tracking-wider text-emerald-900">Today&apos;s Revenue</p>
                   <span className="flex size-7 items-center justify-center rounded-full bg-emerald-600 text-white shadow-xs">
                     <IndianRupee className="size-4" />
                   </span>
@@ -414,9 +402,7 @@ export default async function ShopAnalyticsPage() {
               {/* Today's Discarded Misprints */}
               <Card className="p-5 border-rose-200 bg-gradient-to-br from-rose-50/50 to-white shadow-xs">
                 <div className="flex items-start justify-between gap-3">
-                  <p className="text-xs font-bold uppercase tracking-wider text-rose-900">
-                    Discarded Misprints
-                  </p>
+                  <p className="text-xs font-bold uppercase tracking-wider text-rose-900">Discarded Misprints</p>
                   <span className="flex size-7 items-center justify-center rounded-full bg-rose-100 text-rose-700">
                     <Trash2 className="size-3.5" />
                   </span>
@@ -449,12 +435,8 @@ export default async function ShopAnalyticsPage() {
 
                 <div className="flex flex-wrap items-center gap-4">
                   <div className="text-right">
-                    <p className="text-[11px] font-bold uppercase tracking-wider text-muted">
-                      7-Day Total Revenue
-                    </p>
-                    <p className="text-2xl font-black text-brand-950 font-mono">
-                      ₹{weeklyRevenue.toFixed(2)}
-                    </p>
+                    <p className="text-[11px] font-bold uppercase tracking-wider text-muted">7-Day Total Revenue</p>
+                    <p className="text-2xl font-black text-brand-950 font-mono">₹{weeklyRevenue.toFixed(2)}</p>
                   </div>
                   <div className="border-l border-line pl-4 text-right">
                     <p className="text-[11px] font-bold uppercase tracking-wider text-muted">
@@ -494,16 +476,12 @@ export default async function ShopAnalyticsPage() {
                           >
                             {day.shortDay}
                           </span>
-                          <span className="text-[11px] font-medium text-muted font-mono">
-                            {day.dayLabel}
-                          </span>
+                          <span className="text-[11px] font-medium text-muted font-mono">{day.dayLabel}</span>
                         </div>
 
                         {/* Revenue Amount */}
                         <div className="mt-3">
-                          <p className="text-xl font-black text-brand-950 font-mono">
-                            ₹{day.revenue.toFixed(0)}
-                          </p>
+                          <p className="text-xl font-black text-brand-950 font-mono">₹{day.revenue.toFixed(0)}</p>
                           <p className="mt-0.5 text-[11px] text-muted font-medium">
                             {day.ordersCount} {day.ordersCount === 1 ? "order" : "orders"}
                           </p>

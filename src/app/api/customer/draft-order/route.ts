@@ -43,7 +43,7 @@ export async function GET(request: Request) {
   if (order.status !== "draft") {
     return NextResponse.json(
       { error: "Order has already been submitted or completed.", status: order.status },
-      { status: 409 }
+      { status: 409 },
     );
   }
 

@@ -37,13 +37,15 @@ export function validateRanges(ranges: Array<PrintRange | Record<string, unknown
 
   const sorted = [...normalized].sort((a, b) => a.startPage - b.startPage);
   for (let index = 0; index < sorted.length - 1; index += 1) {
-    if (sorted[index].endPage >= sorted[index + 1].startPage)
-      return "Page ranges must not overlap.";
+    if (sorted[index].endPage >= sorted[index + 1].startPage) return "Page ranges must not overlap.";
   }
   return null;
 }
 
-export function countModes(ranges: Array<PrintRange | Record<string, unknown>>): { color: number; black_and_white: number } {
+export function countModes(ranges: Array<PrintRange | Record<string, unknown>>): {
+  color: number;
+  black_and_white: number;
+} {
   return ranges.reduce<{ color: number; black_and_white: number }>(
     (result, range) => {
       const copies = Math.max(1, Number(range.copies) || 1);
@@ -57,5 +59,3 @@ export function countModes(ranges: Array<PrintRange | Record<string, unknown>>):
     { color: 0, black_and_white: 0 },
   );
 }
-
-

@@ -61,7 +61,11 @@ export async function POST(request: Request) {
       .select("accepting_orders, billing_mode, razorpay_key_id, razorpay_key_secret, razorpay_webhook_secret")
       .eq("shop_id", shop.id)
       .maybeSingle(),
-    adminClient.from("subscriptions").select("status, trial_end, current_period_end").eq("shop_id", shop.id).maybeSingle(),
+    adminClient
+      .from("subscriptions")
+      .select("status, trial_end, current_period_end")
+      .eq("shop_id", shop.id)
+      .maybeSingle(),
   ]);
 
   const billingMode = effectiveBillingMode(settings?.billing_mode, subscription);
@@ -114,14 +118,30 @@ export async function POST(request: Request) {
   }
 
   if (paymentMode === "mock") {
-    const { data: payment, error } = await adminClient.from("payments")
-      .select("id, provider, status, provider_payment_id, metadata").eq("order_id", order.id).maybeSingle();
+    const { data: payment, error } = await adminClient
+      .from("payments")
+      .select("id, provider, status, provider_payment_id, metadata")
+      .eq("order_id", order.id)
+      .maybeSingle();
     if (error) return NextResponse.json({ error: "Could not check the existing payment." }, { status: 500 });
     if (payment && payment.status === "verified") {
-      try { await releasePaidOrder(adminClient, order.id); }
-      catch { return NextResponse.json({ error: "Test payment recorded. Retry to release the print queue." }, { status: 503 }); }
-      return NextResponse.json({ success: true, mock: true, verified: true, publicOrderId: order.public_id,
-        paymentId: payment.provider_payment_id, amountRupees: Number(order.total_amount), currency: order.currency });
+      try {
+        await releasePaidOrder(adminClient, order.id);
+      } catch {
+        return NextResponse.json(
+          { error: "Test payment recorded. Retry to release the print queue." },
+          { status: 503 },
+        );
+      }
+      return NextResponse.json({
+        success: true,
+        mock: true,
+        verified: true,
+        publicOrderId: order.public_id,
+        paymentId: payment.provider_payment_id,
+        amountRupees: Number(order.total_amount),
+        currency: order.currency,
+      });
     }
   }
 
@@ -175,12 +195,22 @@ export async function POST(request: Request) {
   }));
 
   const [inventory, agents] = await Promise.all([
-    adminClient.from("printers").select("id,name,driver_name,desktop_agent_id,status,is_online,last_seen_at,capabilities").eq("shop_id", shop.id),
-    adminClient.from("desktop_agents").select("id,last_heartbeat_at,is_revoked").eq("shop_id", shop.id).eq("is_revoked", false),
+    adminClient
+      .from("printers")
+      .select("id,name,driver_name,desktop_agent_id,status,is_online,last_seen_at,capabilities")
+      .eq("shop_id", shop.id),
+    adminClient
+      .from("desktop_agents")
+      .select("id,last_heartbeat_at,is_revoked")
+      .eq("shop_id", shop.id)
+      .eq("is_revoked", false),
   ]);
   const online = availablePrinters(inventory.data || [], agents.data || []);
-  if (ranges.some(range => !online.some(printer => supportsPrint(printer, range.colorMode, range.paperSize)))) {
-    return NextResponse.json({ error: "The required printer is offline. Reconnect it before payment." }, { status: 409 });
+  if (ranges.some((range) => !online.some((printer) => supportsPrint(printer, range.colorMode, range.paperSize)))) {
+    return NextResponse.json(
+      { error: "The required printer is offline. Reconnect it before payment." },
+      { status: 409 },
+    );
   }
   let authoritativePricing;
   try {
@@ -216,36 +246,75 @@ export async function POST(request: Request) {
 
   if (paymentMode === "mock") {
     const paymentId = `mock_payment_${order.id}`;
-    const { error } = await adminClient.from("payments").upsert({
-      id: order.id, order_id: order.id, customer_id: order.customer_id,
-      provider: "mock", provider_order_id: `mock_order_${order.id}`, provider_payment_id: paymentId,
-      status: "verified", amount: authoritativeTotal, currency: "INR", verified_at: new Date().toISOString(),
-      payment_method: "mock", idempotency_key: `mock_${order.id}`,
-      metadata: { source: "printsaathi-test-checkout-v1", money_collected: false },
-    }, { onConflict: "id" });
-    if (error) return NextResponse.json({ error: "Could not record test payment. Retry; no money was charged." }, { status: 409 });
-    await adminClient.from("payment_transactions").insert({ payment_id: order.id, order_id: order.id,
-      provider: "mock", provider_payment_id: paymentId, event_type: "mock_payment_verified", status: "verified",
-      amount: authoritativeTotal, currency: "INR", raw_payload: { money_collected: false } });
-    try { await releasePaidOrder(adminClient, order.id); }
-    catch { return NextResponse.json({ error: "Test payment recorded. Retry to release the print queue." }, { status: 503 }); }
-    return NextResponse.json({ success: true, mock: true, verified: true, publicOrderId: order.public_id,
-      paymentId, amountRupees: authoritativeTotal, currency: "INR" });
+    const { error } = await adminClient.from("payments").upsert(
+      {
+        id: order.id,
+        order_id: order.id,
+        customer_id: order.customer_id,
+        provider: "mock",
+        provider_order_id: `mock_order_${order.id}`,
+        provider_payment_id: paymentId,
+        status: "verified",
+        amount: authoritativeTotal,
+        currency: "INR",
+        verified_at: new Date().toISOString(),
+        payment_method: "mock",
+        idempotency_key: `mock_${order.id}`,
+        metadata: { source: "printsaathi-test-checkout-v1", money_collected: false },
+      },
+      { onConflict: "id" },
+    );
+    if (error)
+      return NextResponse.json(
+        { error: "Could not record test payment. Retry; no money was charged." },
+        { status: 409 },
+      );
+    await adminClient
+      .from("payment_transactions")
+      .insert({
+        payment_id: order.id,
+        order_id: order.id,
+        provider: "mock",
+        provider_payment_id: paymentId,
+        event_type: "mock_payment_verified",
+        status: "verified",
+        amount: authoritativeTotal,
+        currency: "INR",
+        raw_payload: { money_collected: false },
+      });
+    try {
+      await releasePaidOrder(adminClient, order.id);
+    } catch {
+      return NextResponse.json({ error: "Test payment recorded. Retry to release the print queue." }, { status: 503 });
+    }
+    return NextResponse.json({
+      success: true,
+      mock: true,
+      verified: true,
+      publicOrderId: order.public_id,
+      paymentId,
+      amountRupees: authoritativeTotal,
+      currency: "INR",
+    });
   }
 
-  const shopCredentials = (settings?.razorpay_key_id && settings?.razorpay_key_secret)
-    ? {
-        keyId: settings.razorpay_key_id.trim(),
-        keySecret: settings.razorpay_key_secret.trim(),
-        webhookSecret: settings.razorpay_webhook_secret?.trim() || undefined,
-        isTestMode: settings.razorpay_key_id.startsWith("rzp_test_"),
-      }
-    : null;
+  const shopCredentials =
+    settings?.razorpay_key_id && settings?.razorpay_key_secret
+      ? {
+          keyId: settings.razorpay_key_id.trim(),
+          keySecret: settings.razorpay_key_secret.trim(),
+          webhookSecret: settings.razorpay_webhook_secret?.trim() || undefined,
+          isTestMode: settings.razorpay_key_id.startsWith("rzp_test_"),
+        }
+      : null;
 
   const razorpayConfig = getRazorpayClient(shopCredentials);
   if (!razorpayConfig) {
     return NextResponse.json(
-      { error: "Online payments are not configured for this shop. The shop owner must add their Razorpay keys in settings, or you may choose Pay at Counter." },
+      {
+        error:
+          "Online payments are not configured for this shop. The shop owner must add their Razorpay keys in settings, or you may choose Pay at Counter.",
+      },
       { status: 503 },
     );
   }
@@ -267,7 +336,7 @@ export async function POST(request: Request) {
 
     // If there is an active created/pending payment with the exact same amount and provider_order_id, reuse it
     if (
-      (["created", "pending", "failed"].includes(existingPayment.status)) &&
+      ["created", "pending", "failed"].includes(existingPayment.status) &&
       existingPayment.provider_order_id &&
       Number(existingPayment.amount) === authoritativeTotal
     ) {

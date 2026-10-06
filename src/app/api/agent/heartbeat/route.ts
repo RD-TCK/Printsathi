@@ -58,9 +58,11 @@ export async function POST(request: Request) {
   if (agentError) return NextResponse.json({ error: "Could not save agent heartbeat." }, { status: 500 });
 
   // A complete inventory must retire printers that disappeared, including an empty inventory.
-  const { error: offlineError } = await adminClient.from("printers")
+  const { error: offlineError } = await adminClient
+    .from("printers")
     .update({ status: "offline", is_online: false })
-    .eq("shop_id", auth.shop.id).eq("desktop_agent_id", auth.agent.id);
+    .eq("shop_id", auth.shop.id)
+    .eq("desktop_agent_id", auth.agent.id);
   if (offlineError) return NextResponse.json({ error: "Could not reconcile printer inventory." }, { status: 500 });
   // 2. Upsert Discovered Printers
   if (parsed.data.printers && parsed.data.printers.length > 0) {
@@ -95,7 +97,8 @@ export async function POST(request: Request) {
             last_seen_at: now,
           })
           .eq("id", existing.id);
-        if (printerError) return NextResponse.json({ error: "Could not update the detected printer." }, { status: 500 });
+        if (printerError)
+          return NextResponse.json({ error: "Could not update the detected printer." }, { status: 500 });
       } else {
         const { error: printerError } = await adminClient.from("printers").insert({
           shop_id: auth.shop.id,
@@ -109,7 +112,8 @@ export async function POST(request: Request) {
           is_default: Boolean(p.isDefault),
           last_seen_at: now,
         });
-        if (printerError) return NextResponse.json({ error: "Could not register the detected printer." }, { status: 500 });
+        if (printerError)
+          return NextResponse.json({ error: "Could not register the detected printer." }, { status: 500 });
       }
     }
   }

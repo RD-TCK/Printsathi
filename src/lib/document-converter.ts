@@ -196,7 +196,9 @@ export async function convertAnyFileToPdf(file: File): Promise<ConvertedFileResu
     };
   }
 
-  throw new Error("This format requires server-side conversion. Upload the original file through the document upload form.");
+  throw new Error(
+    "This format requires server-side conversion. Upload the original file through the document upload form.",
+  );
 }
 
 /**
@@ -222,7 +224,10 @@ async function convertImageToPngBytes(file: File): Promise<Uint8Array> {
             reject(new Error("Could not convert image to blob."));
             return;
           }
-          blob.arrayBuffer().then((buf) => resolve(new Uint8Array(buf))).catch(reject);
+          blob
+            .arrayBuffer()
+            .then((buf) => resolve(new Uint8Array(buf)))
+            .catch(reject);
         }, "image/png");
       };
       img.onerror = () => reject(new Error("Failed to load image into canvas."));

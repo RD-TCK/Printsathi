@@ -159,13 +159,11 @@ function createTray() {
       {
         label: "Shop Dashboard (Web)",
         click: () =>
-          void shell.openExternal(
-            `${agentDaemon.getStatus().serverUrl || "https://printiva.co.in"}/shop/dashboard`
-          ),
+          void shell.openExternal(`${agentDaemon.getStatus().serverUrl || "https://printiva.co.in"}/shop/dashboard`),
       },
       { type: "separator" },
       { label: "Quit", click: () => quitDesktopAgent() },
-    ])
+    ]),
   );
   tray.on("double-click", () => mainWindow?.show());
 }

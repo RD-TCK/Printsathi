@@ -72,8 +72,10 @@ export default async function PrinterPage({ searchParams }: PrinterPageProps) {
   ]);
 
   const activeAgents: AgentRecord[] = agents ?? [];
-  const available = new Set(availablePrinters(printers || [], activeAgents).map(p => p.id));
-  const printerList: PrinterRecord[] = (printers || []).filter(isPhysical).map(p => ({ ...p, is_online: available.has(p.id), status: available.has(p.id) ? p.status : "offline" }));
+  const available = new Set(availablePrinters(printers || [], activeAgents).map((p) => p.id));
+  const printerList: PrinterRecord[] = (printers || [])
+    .filter(isPhysical)
+    .map((p) => ({ ...p, is_online: available.has(p.id), status: available.has(p.id) ? p.status : "offline" }));
 
   return (
     <div className="space-y-8">
@@ -139,7 +141,12 @@ export default async function PrinterPage({ searchParams }: PrinterPageProps) {
           </div>
           <h2 className="mt-5 text-xl font-semibold text-brand-950">Windows Desktop Agent (Optional)</h2>
           <p className="mt-2 max-w-xl text-sm leading-6 text-muted">
-            Install and run the Windows agent on the computer connected to your printer for automatic printing. Generate a pairing code below, then monitor paid jobs in <Link href="/shop/jobs" className="font-semibold text-brand-700 underline">Jobs</Link>. Keep the agent running so customers’ documents print without opening a browser print dialog.
+            Install and run the Windows agent on the computer connected to your printer for automatic printing. Generate
+            a pairing code below, then monitor paid jobs in{" "}
+            <Link href="/shop/jobs" className="font-semibold text-brand-700 underline">
+              Jobs
+            </Link>
+            . Keep the agent running so customers’ documents print without opening a browser print dialog.
           </p>
           {canManage ? (
             <form action={generateAgentPairingCode} className="mt-6">
@@ -245,12 +252,14 @@ export default async function PrinterPage({ searchParams }: PrinterPageProps) {
               <div>
                 <h2 className="text-lg font-semibold text-brand-950">Discovered Windows Printers</h2>
                 <p className="text-sm text-muted">
-                  Printers reported live by your Windows Agent. Printiva <b>automatically switches</b> between color
-                  and B&amp;W printers based on customer orders without requiring manual selection.
+                  Printers reported live by your Windows Agent. Printiva <b>automatically switches</b> between color and
+                  B&amp;W printers based on customer orders without requiring manual selection.
                 </p>
               </div>
               <div className="flex items-center gap-2">
-                <Badge tone="success" className="flex items-center gap-1.5"><span className="size-1.5 rounded-full bg-emerald-500 animate-pulse" /> 2s Live Refresh</Badge>
+                <Badge tone="success" className="flex items-center gap-1.5">
+                  <span className="size-1.5 rounded-full bg-emerald-500 animate-pulse" /> 2s Live Refresh
+                </Badge>
                 <Badge tone="neutral">Auto-Routing Active</Badge>
               </div>
             </div>

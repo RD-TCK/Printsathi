@@ -79,7 +79,7 @@ export async function POST(request: Request) {
       .eq("order_id", orderId)
       .eq("shop_id", shopId);
     const alreadyQueued = existingJobs?.some(
-      (j) => j.duplex_step === "even" && ["queued", "printing", "print_submitted"].includes(j.status)
+      (j) => j.duplex_step === "even" && ["queued", "printing", "print_submitted"].includes(j.status),
     );
     if (alreadyQueued) {
       return NextResponse.json({
@@ -169,8 +169,8 @@ export async function POST(request: Request) {
   const stepMessage = isOddStep
     ? `Token #${order.token_number || order.public_id}: Odd pages (Front Side) printed! Flip sheets and reload in tray for back side.`
     : isEvenStep
-    ? `Token #${order.token_number || order.public_id}: Even pages (Back Side) printed! Job complete.`
-    : `Token #${order.token_number || order.public_id} approved for printing.`;
+      ? `Token #${order.token_number || order.public_id}: Even pages (Back Side) printed! Job complete.`
+      : `Token #${order.token_number || order.public_id} approved for printing.`;
 
   return NextResponse.json({
     success: true,

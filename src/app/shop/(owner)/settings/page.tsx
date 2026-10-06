@@ -29,7 +29,9 @@ export default async function ShopSettingsPage({
   let settings: ShopSettingsRow | null = null;
   const initialSettings = await context.client
     .from("shop_settings")
-    .select("accepting_orders, payment_mode, allow_double_sided, razorpay_key_id, razorpay_key_secret, razorpay_webhook_secret")
+    .select(
+      "accepting_orders, payment_mode, allow_double_sided, razorpay_key_id, razorpay_key_secret, razorpay_webhook_secret",
+    )
     .eq("shop_id", context.shop.id)
     .maybeSingle();
 
@@ -90,7 +92,7 @@ export default async function ShopSettingsPage({
                 id="acceptingOrders"
                 name="acceptingOrders"
                 label="Accepting orders"
-                defaultValue={settings?.accepting_orders ?? true ? "true" : "false"}
+                defaultValue={(settings?.accepting_orders ?? true) ? "true" : "false"}
               >
                 <option value="true">Yes</option>
                 <option value="false">No</option>
@@ -98,11 +100,10 @@ export default async function ShopSettingsPage({
             </div>
 
             <div className="pt-3 border-t border-line">
-              <label className="text-sm font-semibold text-brand-950 block mb-1">
-                Payment Collection Mode
-              </label>
+              <label className="text-sm font-semibold text-brand-950 block mb-1">Payment Collection Mode</label>
               <p className="text-xs text-muted mb-3">
-                Choose how customers can pay: cash/UPI at the counter with a sequential token, online via Razorpay, or both.
+                Choose how customers can pay: cash/UPI at the counter with a sequential token, online via Razorpay, or
+                both.
               </p>
               <Select
                 id="paymentMode"
@@ -121,13 +122,14 @@ export default async function ShopSettingsPage({
                 Both Sides (Double-Sided) Printing Option
               </label>
               <p className="text-xs text-muted mb-3">
-                Choose whether to offer the 2-sided (duplex) printing option to customers on the upload page. If disabled, all orders are single-sided.
+                Choose whether to offer the 2-sided (duplex) printing option to customers on the upload page. If
+                disabled, all orders are single-sided.
               </p>
               <Select
                 id="allowDoubleSided"
                 name="allowDoubleSided"
                 label="Double-Sided Printing"
-                defaultValue={settings?.allow_double_sided ?? true ? "true" : "false"}
+                defaultValue={(settings?.allow_double_sided ?? true) ? "true" : "false"}
               >
                 <option value="true">Enabled (Show 1-Sided &amp; 2-Sided options to customer)</option>
                 <option value="false">Disabled (Single-Sided only, hide 2-Sided option)</option>
@@ -143,7 +145,8 @@ export default async function ShopSettingsPage({
               <div>
                 <h2 className="font-semibold text-brand-950 text-lg">Direct Customer Payment Gateway (Razorpay)</h2>
                 <p className="mt-1 text-sm text-muted">
-                  Connect your own Razorpay account so customer print payments are credited directly into your bank account.
+                  Connect your own Razorpay account so customer print payments are credited directly into your bank
+                  account.
                 </p>
               </div>
               <Badge tone={isRazorpayConfigured ? "success" : "warning"}>
@@ -153,13 +156,17 @@ export default async function ShopSettingsPage({
           </CardHeader>
           <CardContent className="space-y-5">
             <div className="rounded-xl bg-slate-50 border border-slate-200 p-4 text-xs text-slate-700 leading-relaxed space-y-2">
-              <p className="font-semibold text-slate-900">
-                💡 How Direct Payments Work:
-              </p>
+              <p className="font-semibold text-slate-900">💡 How Direct Payments Work:</p>
               <ul className="list-disc list-inside space-y-1 text-slate-600">
-                <li>When a customer pays online for a print order, funds go straight into <strong>your</strong> Razorpay account.</li>
+                <li>
+                  When a customer pays online for a print order, funds go straight into <strong>your</strong> Razorpay
+                  account.
+                </li>
                 <li>PrintSaathi never touches or holds your customer print earnings.</li>
-                <li>Your separate shop subscription plan fee (billed to the platform) is managed under the Subscription tab.</li>
+                <li>
+                  Your separate shop subscription plan fee (billed to the platform) is managed under the Subscription
+                  tab.
+                </li>
               </ul>
             </div>
 

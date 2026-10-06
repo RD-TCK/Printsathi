@@ -46,7 +46,10 @@ export async function createPricingRule(formData: FormData) {
 
   if (existing) {
     if (existing.is_active) {
-      result(`An active pricing rule already starts at page ${parsed.data.minPages} for ${parsed.data.sideMode === "double_sided" ? "double-sided" : "single-sided"}. Please edit or delete the existing rule.`, true);
+      result(
+        `An active pricing rule already starts at page ${parsed.data.minPages} for ${parsed.data.sideMode === "double_sided" ? "double-sided" : "single-sided"}. Please edit or delete the existing rule.`,
+        true,
+      );
     } else {
       // Inactive rule exists: update and reactivate to avoid PostgreSQL unique constraint collision
       const { error } = await context.client
@@ -115,7 +118,11 @@ export async function updatePricingRule(formData: FormData) {
   if (!context || !canManageShop(context)) result("You do not have permission to manage pricing.", true);
   const id = z.string().uuid().safeParse(formData.get("id"));
   const parsed = pricingSchema.safeParse(Object.fromEntries(formData.entries()));
-  if (!id.success || !parsed.success || (parsed.data.maxPages !== null && parsed.data.minPages > parsed.data.maxPages)) {
+  if (
+    !id.success ||
+    !parsed.success ||
+    (parsed.data.maxPages !== null && parsed.data.minPages > parsed.data.maxPages)
+  ) {
     result("Enter a valid page range and price.", true);
   }
 
@@ -234,18 +241,12 @@ export async function updateShopSettings(formData: FormData) {
 
   let settingsError = null;
   if (existingSettings) {
-    let { error } = await context.client
-      .from("shop_settings")
-      .update(settingsPayload)
-      .eq("shop_id", context.shop.id);
+    let { error } = await context.client.from("shop_settings").update(settingsPayload).eq("shop_id", context.shop.id);
 
     if (error && (error.message?.includes("allow_double_sided") || error.details?.includes("allow_double_sided"))) {
       const fallbackPayload = { ...settingsPayload };
       delete (fallbackPayload as Record<string, unknown>).allow_double_sided;
-      const res = await context.client
-        .from("shop_settings")
-        .update(fallbackPayload)
-        .eq("shop_id", context.shop.id);
+      const res = await context.client.from("shop_settings").update(fallbackPayload).eq("shop_id", context.shop.id);
       error = res.error;
     }
     settingsError = error;
@@ -253,48 +254,40 @@ export async function updateShopSettings(formData: FormData) {
     // Upsert using admin client to ensure missing settings row is created
     const admin = createSupabaseAdminClient();
     if (admin) {
-      let { error } = await admin
-        .from("shop_settings")
-        .upsert(
-          {
-            shop_id: context.shop.id,
-            ...settingsPayload,
-          },
-          { onConflict: "shop_id" }
-        );
+      let { error } = await admin.from("shop_settings").upsert(
+        {
+          shop_id: context.shop.id,
+          ...settingsPayload,
+        },
+        { onConflict: "shop_id" },
+      );
 
       if (error && (error.message?.includes("allow_double_sided") || error.details?.includes("allow_double_sided"))) {
         const fallbackPayload = { ...settingsPayload };
         delete (fallbackPayload as Record<string, unknown>).allow_double_sided;
-        const res = await admin
-          .from("shop_settings")
-          .upsert(
-            {
-              shop_id: context.shop.id,
-              ...fallbackPayload,
-            },
-            { onConflict: "shop_id" }
-          );
+        const res = await admin.from("shop_settings").upsert(
+          {
+            shop_id: context.shop.id,
+            ...fallbackPayload,
+          },
+          { onConflict: "shop_id" },
+        );
         error = res.error;
       }
       settingsError = error;
     } else {
-      let { error } = await context.client
-        .from("shop_settings")
-        .insert({
-          shop_id: context.shop.id,
-          ...settingsPayload,
-        });
+      let { error } = await context.client.from("shop_settings").insert({
+        shop_id: context.shop.id,
+        ...settingsPayload,
+      });
 
       if (error && (error.message?.includes("allow_double_sided") || error.details?.includes("allow_double_sided"))) {
         const fallbackPayload = { ...settingsPayload };
         delete (fallbackPayload as Record<string, unknown>).allow_double_sided;
-        const res = await context.client
-          .from("shop_settings")
-          .insert({
-            shop_id: context.shop.id,
-            ...fallbackPayload,
-          });
+        const res = await context.client.from("shop_settings").insert({
+          shop_id: context.shop.id,
+          ...fallbackPayload,
+        });
         error = res.error;
       }
       settingsError = error;
@@ -355,13 +348,17 @@ export async function setDefaultPrinter(formData: FormData) {
     .update({ is_default: true })
     .eq("id", printerId.data)
     .eq("shop_id", context.shop.id)
-    .select("id").maybeSingle();
+    .select("id")
+    .maybeSingle();
 
   if (error || !updated) {
     redirect("/shop/printer?error=Could+not+update+default+printer");
   }
-  const { error: clearError } = await admin.from("printers").update({ is_default: false })
-    .eq("shop_id", context.shop.id).neq("id", updated.id);
+  const { error: clearError } = await admin
+    .from("printers")
+    .update({ is_default: false })
+    .eq("shop_id", context.shop.id)
+    .neq("id", updated.id);
   if (clearError) redirect("/shop/printer?error=Could+not+clear+the+previous+default+printer");
 
   revalidatePath("/shop/printer");
@@ -390,7 +387,8 @@ export async function revokeAgent(formData: FormData) {
     })
     .eq("id", agentId.data)
     .eq("shop_id", context.shop.id)
-    .select("id").maybeSingle();
+    .select("id")
+    .maybeSingle();
 
   if (error || !revoked) {
     redirect("/shop/printer?error=Could+not+revoke+agent");
@@ -412,9 +410,13 @@ export async function updateShopBillingMode(formData: FormData) {
   }
 
   if (mode.data === "shop_subscription") {
-    const { data: subscription } = await context.client.from("subscriptions")
-      .select("status, trial_end, current_period_end").eq("shop_id", context.shop.id).maybeSingle();
-    if (!hasSubscriptionAccess(subscription)) redirect("/shop/subscription?error=Choose+a+plan+and+pay+to+activate+subscription+billing");
+    const { data: subscription } = await context.client
+      .from("subscriptions")
+      .select("status, trial_end, current_period_end")
+      .eq("shop_id", context.shop.id)
+      .maybeSingle();
+    if (!hasSubscriptionAccess(subscription))
+      redirect("/shop/subscription?error=Choose+a+plan+and+pay+to+activate+subscription+billing");
   }
 
   const { error } = await context.client
@@ -438,15 +440,13 @@ export async function toggleAcceptingOrders(accepting: boolean): Promise<{ succe
 
   const admin = createSupabaseAdminClient();
   if (admin) {
-    const { error } = await admin
-      .from("shop_settings")
-      .upsert(
-        {
-          shop_id: context.shop.id,
-          accepting_orders: accepting,
-        },
-        { onConflict: "shop_id" }
-      );
+    const { error } = await admin.from("shop_settings").upsert(
+      {
+        shop_id: context.shop.id,
+        accepting_orders: accepting,
+      },
+      { onConflict: "shop_id" },
+    );
     if (error) return { success: false, error: error.message };
   } else {
     const { error } = await context.client
@@ -524,5 +524,3 @@ export async function discardPrintJobAction(formData: FormData): Promise<void> {
   revalidatePath("/shop/dashboard");
   redirect("/shop/jobs?success=Print+job+discarded.+Excluded+from+revenue.");
 }
-
-

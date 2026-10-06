@@ -1,15 +1,5 @@
 import Link from "next/link";
-import {
-  ArrowRight,
-  Check,
-  ChevronDown,
-  FileStack,
-  Printer,
-  QrCode,
-  ShieldCheck,
-  Workflow,
-  Zap,
-} from "lucide-react";
+import { ArrowRight, Check, ChevronDown, FileStack, Printer, QrCode, ShieldCheck, Workflow, Zap } from "lucide-react";
 import type { ReactNode } from "react";
 import { Button } from "@/components/ui/button";
 import { Logo } from "@/components/ui/logo";
@@ -27,20 +17,10 @@ export function SectionHeading({
   align?: "left" | "center";
 }) {
   return (
-    <div
-      className={
-        align === "center" ? "mx-auto max-w-2xl text-center" : "max-w-2xl"
-      }
-    >
-      <p className="text-xs font-semibold uppercase tracking-[0.2em] text-brand-600">
-        {eyebrow}
-      </p>
-      <h2 className="mt-3 text-3xl font-semibold tracking-tight text-brand-950 sm:text-4xl">
-        {title}
-      </h2>
-      <p className="mt-4 text-base leading-7 text-muted sm:text-lg">
-        {description}
-      </p>
+    <div className={align === "center" ? "mx-auto max-w-2xl text-center" : "max-w-2xl"}>
+      <p className="text-xs font-semibold uppercase tracking-[0.2em] text-brand-600">{eyebrow}</p>
+      <h2 className="mt-3 text-3xl font-semibold tracking-tight text-brand-950 sm:text-4xl">{title}</h2>
+      <p className="mt-4 text-base leading-7 text-muted sm:text-lg">{description}</p>
     </div>
   );
 }
@@ -53,10 +33,7 @@ export function MarketingFooter() {
 
       <div className="mx-auto grid max-w-7xl gap-12 px-6 py-16 lg:grid-cols-[1.4fr_1fr_1fr_1fr] lg:px-8">
         <div>
-          <Link
-            href="/"
-            className="group inline-flex items-center gap-3"
-          >
+          <Link href="/" className="group inline-flex items-center gap-3">
             <div className="relative flex items-center justify-center transition-transform group-hover:scale-105">
               <Logo size={38} className="shrink-0" />
             </div>
@@ -66,8 +43,8 @@ export function MarketingFooter() {
             </span>
           </Link>
           <p className="mt-4 max-w-sm text-sm leading-6 text-white/50">
-            Connecting customers with local print shops through QR ordering,
-            automated payments, and native Windows printing.
+            Connecting customers with local print shops through QR ordering, automated payments, and native Windows
+            printing.
           </p>
           <div className="mt-6 flex items-center gap-3">
             <span className="inline-flex items-center gap-1.5 rounded-full border border-emerald-500/20 bg-emerald-950/80 px-3 py-1 text-xs font-medium text-emerald-400/80">
@@ -78,90 +55,51 @@ export function MarketingFooter() {
         </div>
 
         <div>
-          <h2 className="text-xs font-semibold uppercase tracking-[0.16em] text-emerald-400/80">
-            Product
-          </h2>
+          <h2 className="text-xs font-semibold uppercase tracking-[0.16em] text-emerald-400/80">Product</h2>
           <div className="mt-4 space-y-3 text-sm text-white/50">
-            <Link
-              className="block transition-colors hover:text-white"
-              href="/features"
-            >
+            <Link className="block transition-colors hover:text-white" href="/features">
               Features & Specs
             </Link>
-            <Link
-              className="block transition-colors hover:text-white"
-              href="/how-it-works"
-            >
+            <Link className="block transition-colors hover:text-white" href="/how-it-works">
               How It Works
             </Link>
-            <Link
-              className="block transition-colors hover:text-white"
-              href="/pricing"
-            >
+            <Link className="block transition-colors hover:text-white" href="/pricing">
               Pricing
             </Link>
-            <Link
-              className="block transition-colors hover:text-white"
-              href="/download"
-            >
+            <Link className="block transition-colors hover:text-white" href="/download">
               Windows Desktop Agent
             </Link>
           </div>
         </div>
 
         <div>
-          <h2 className="text-xs font-semibold uppercase tracking-[0.16em] text-emerald-400/80">
-            For Shops
-          </h2>
+          <h2 className="text-xs font-semibold uppercase tracking-[0.16em] text-emerald-400/80">For Shops</h2>
           <div className="mt-4 space-y-3 text-sm text-white/50">
-            <Link
-              className="block transition-colors hover:text-white"
-              href="/register"
-            >
+            <Link className="block transition-colors hover:text-white" href="/register">
               ₹100 for 7 Days Trial
             </Link>
-            <Link
-              className="block transition-colors hover:text-white"
-              href="/login"
-            >
+            <Link className="block transition-colors hover:text-white" href="/login">
               Shop Owner Login
             </Link>
-            <Link
-              className="block transition-colors hover:text-white"
-              href="/shop/printer"
-            >
+            <Link className="block transition-colors hover:text-white" href="/shop/printer">
               Printer Pairing
             </Link>
-            <Link
-              className="block transition-colors hover:text-white"
-              href="/download"
-            >
+            <Link className="block transition-colors hover:text-white" href="/download">
               Installation Guide
             </Link>
           </div>
         </div>
 
         <div>
-          <h2 className="text-xs font-semibold uppercase tracking-[0.16em] text-emerald-400/80">
-            Customers
-          </h2>
+          <h2 className="text-xs font-semibold uppercase tracking-[0.16em] text-emerald-400/80">Customers</h2>
           <div className="mt-4 space-y-3 text-sm text-white/50">
-            <Link
-              className="block transition-colors hover:text-white"
-              href="/shops"
-            >
+            <Link className="block transition-colors hover:text-white" href="/shops">
               Find a Print Shop
             </Link>
-            <Link
-              className="block transition-colors hover:text-white"
-              href="/track"
-            >
+            <Link className="block transition-colors hover:text-white" href="/track">
               Track Order
             </Link>
-            <Link
-              className="block transition-colors hover:text-white"
-              href="/customer"
-            >
+            <Link className="block transition-colors hover:text-white" href="/customer">
               Order History
             </Link>
           </div>
@@ -249,9 +187,7 @@ export function FeatureGrid({ limit }: { limit?: number }) {
             </span>
           </div>
 
-          <h3 className="mt-5 text-lg font-semibold tracking-tight text-brand-950">
-            {title}
-          </h3>
+          <h3 className="mt-5 text-lg font-semibold tracking-tight text-brand-950">{title}</h3>
           <p className="mt-2 text-sm leading-6 text-muted">{body}</p>
         </div>
       ))}
@@ -270,18 +206,13 @@ export function TrialCallout() {
 
         <div className="relative z-10 flex flex-col gap-8 lg:flex-row lg:items-center lg:justify-between">
           <div className="max-w-2xl">
-            <p className="text-xs font-semibold uppercase tracking-[0.2em] text-emerald-400">
-              For print shop owners
-            </p>
+            <p className="text-xs font-semibold uppercase tracking-[0.2em] text-emerald-400">For print shop owners</p>
             <h2 className="mt-4 text-3xl font-semibold tracking-tight sm:text-4xl text-white">
-              End counter chaos in{" "}
-              <span className="font-display italic text-emerald-400">
-                under 5 minutes.
-              </span>
+              End counter chaos in <span className="font-display italic text-emerald-400">under 5 minutes.</span>
             </h2>
             <p className="mt-4 text-base leading-7 text-white/60 sm:text-lg">
-              Start with our ₹100 for 7 days trial. Install the agent, print your
-              QR sticker, and watch customer queues flow hands-free.
+              Start with our ₹100 for 7 days trial. Install the agent, print your QR sticker, and watch customer queues
+              flow hands-free.
             </p>
           </div>
 
@@ -337,17 +268,12 @@ export function FaqList() {
   return (
     <div className="divide-y divide-line rounded-2xl border border-line bg-white">
       {items.map(([question, answer]) => (
-        <details
-          key={question}
-          className="group p-6 transition-colors hover:bg-brand-50/30"
-        >
+        <details key={question} className="group p-6 transition-colors hover:bg-brand-50/30">
           <summary className="flex cursor-pointer list-none items-center justify-between gap-4 text-base font-semibold text-brand-950 sm:text-lg">
             <span>{question}</span>
             <ChevronDown className="size-5 shrink-0 text-brand-400 transition-transform duration-300 group-open:rotate-180" />
           </summary>
-          <p className="mt-3 max-w-3xl text-sm leading-7 text-muted sm:text-base">
-            {answer}
-          </p>
+          <p className="mt-3 max-w-3xl text-sm leading-7 text-muted sm:text-base">{answer}</p>
         </details>
       ))}
     </div>
@@ -398,9 +324,7 @@ export function Steps() {
               <Icon className="size-5" />
             </div>
           </div>
-          <h3 className="mt-5 text-lg font-semibold text-brand-950">
-            {title}
-          </h3>
+          <h3 className="mt-5 text-lg font-semibold text-brand-950">{title}</h3>
           <p className="mt-2 text-sm leading-6 text-muted">{desc}</p>
           {idx < steps.length - 1 ? (
             <div className="hidden lg:block absolute -right-3 top-1/2 -translate-y-1/2 z-10">

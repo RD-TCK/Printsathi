@@ -34,16 +34,12 @@ export function BillingModeToggle({ currentMode }: BillingModeToggleProps) {
               <Sparkles className="size-5 text-brand-600" />
               <h2 className="text-xl font-bold text-brand-950">Platform Fee &amp; Billing Model</h2>
             </div>
-            <p className="mt-1 text-sm text-muted">
-              Choose how platform fees are handled for your shop.
-            </p>
+            <p className="mt-1 text-sm text-muted">Choose how platform fees are handled for your shop.</p>
           </div>
           {isPending ? (
             <Badge tone="warning">Saving changes...</Badge>
           ) : (
-            <Badge tone="success">
-              {currentMode === "customer_fee" ? "Customer Fee Active" : "Shop Plan Active"}
-            </Badge>
+            <Badge tone="success">{currentMode === "customer_fee" ? "Customer Fee Active" : "Shop Plan Active"}</Badge>
           )}
         </div>
       </CardHeader>
@@ -135,7 +131,8 @@ export function BillingModeToggle({ currentMode }: BillingModeToggleProps) {
               </div>
 
               <p className="mt-3 text-xs leading-relaxed text-slate-600">
-                The shop owner pays a monthly subscription. Customers are charged <b>₹0.00 platform fee</b> and only pay your print page rates.
+                The shop owner pays a monthly subscription. Customers are charged <b>₹0.00 platform fee</b> and only pay
+                your print page rates.
               </p>
 
               <div className="mt-3 rounded-xl bg-white/80 p-3 text-xs border border-indigo-100 text-slate-700">

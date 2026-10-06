@@ -12,13 +12,7 @@ type DiscardJobButtonProps = {
   amount?: number;
 };
 
-export function DiscardJobButton({
-  jobId,
-  orderId,
-  status,
-  failureReason,
-  amount,
-}: DiscardJobButtonProps) {
+export function DiscardJobButton({ jobId, orderId, status, failureReason, amount }: DiscardJobButtonProps) {
   const [isOpen, setIsOpen] = useState(false);
   const [reason, setReason] = useState("Customer rejected misprint / defective print");
   const [isPending, startTransition] = useTransition();
@@ -26,8 +20,7 @@ export function DiscardJobButton({
   const router = useRouter();
 
   const isDiscarded =
-    status === "failed" &&
-    Boolean(failureReason && /discard|reject|misprint|defective/i.test(failureReason));
+    status === "failed" && Boolean(failureReason && /discard|reject|misprint|defective/i.test(failureReason));
 
   if (isDiscarded) {
     return (
@@ -104,12 +97,17 @@ export function DiscardJobButton({
 
             <div className="mt-4 rounded-2xl bg-amber-50 border border-amber-200 p-3.5 text-xs text-amber-950">
               <p className="font-bold">
-                ⚠️ This will mark the print as discarded and <u>exclude</u> {amount != null ? `₹${amount.toFixed(2)}` : "the amount"} from today&apos;s and weekly shop revenue calculation.
+                ⚠️ This will mark the print as discarded and <u>exclude</u>{" "}
+                {amount != null ? `₹${amount.toFixed(2)}` : "the amount"} from today&apos;s and weekly shop revenue
+                calculation.
               </p>
             </div>
 
             <div className="mt-4 space-y-2">
-              <label htmlFor="discard-reason" className="block text-xs font-black uppercase tracking-wider text-slate-700">
+              <label
+                htmlFor="discard-reason"
+                className="block text-xs font-black uppercase tracking-wider text-slate-700"
+              >
                 Reason for Discard
               </label>
               <select
@@ -121,15 +119,9 @@ export function DiscardJobButton({
                 <option value="Customer rejected misprint / defective print">
                   Customer rejected misprint / defective print
                 </option>
-                <option value="Printer paper jam / ink smudge">
-                  Printer paper jam / ink smudge
-                </option>
-                <option value="Wrong side printed / double sided error">
-                  Wrong side printed / double sided error
-                </option>
-                <option value="Customer cancelled before taking prints">
-                  Customer cancelled before taking prints
-                </option>
+                <option value="Printer paper jam / ink smudge">Printer paper jam / ink smudge</option>
+                <option value="Wrong side printed / double sided error">Wrong side printed / double sided error</option>
+                <option value="Customer cancelled before taking prints">Customer cancelled before taking prints</option>
                 <option value="Other / Misprint">Other / Misprint</option>
               </select>
             </div>

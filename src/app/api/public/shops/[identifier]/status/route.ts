@@ -11,5 +11,7 @@ export async function GET(_request: Request, { params }: { params: Promise<{ ide
       { shop, paymentsReady: Boolean(shop.has_custom_razorpay || getRazorpayServerEnv()) },
       { headers: { "Cache-Control": "no-store" } },
     );
-  } catch { return NextResponse.json({ error: "Could not refresh connection status" }, { status: 503 }); }
+  } catch {
+    return NextResponse.json({ error: "Could not refresh connection status" }, { status: 503 });
+  }
 }

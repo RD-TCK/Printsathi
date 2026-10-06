@@ -65,7 +65,11 @@ export default async function ShopDashboardPage() {
     .filter((page) => successfulJobIds.has(page.print_job_id))
     .reduce((sum, page) => sum + page.end_page - page.start_page + 1, 0);
   const agentConnected = agent.data?.status === "online" && isHeartbeatFresh(agent.data?.last_heartbeat_at);
-  const printerReady = agentConnected && isHeartbeatFresh(printer.data?.last_seen_at, 30000) && ["online", "printing"].includes(printer.data?.status ?? "") && !/onenote|pdf|xps|fax/i.test(printer.data?.name || "");
+  const printerReady =
+    agentConnected &&
+    isHeartbeatFresh(printer.data?.last_seen_at, 30000) &&
+    ["online", "printing"].includes(printer.data?.status ?? "") &&
+    !/onenote|pdf|xps|fax/i.test(printer.data?.name || "");
   const subscriptionValid = hasSubscriptionAccess(subscription.data);
   const warningDays = subscriptionWarningDays(subscription.data);
   const periodEnd = subscriptionEnd(subscription.data);
@@ -88,8 +92,11 @@ export default async function ShopDashboardPage() {
 
       {warningDays !== null ? (
         <Alert tone="warning" className="py-3 text-sm">
-          Your subscription ends in {warningDays} {warningDays === 1 ? "day" : "days"}. Renew now to maintain uninterrupted printing. {" "}
-          <Link href="/shop/subscription" className="font-semibold underline">Renew subscription</Link>
+          Your subscription ends in {warningDays} {warningDays === 1 ? "day" : "days"}. Renew now to maintain
+          uninterrupted printing.{" "}
+          <Link href="/shop/subscription" className="font-semibold underline">
+            Renew subscription
+          </Link>
         </Alert>
       ) : null}
       {/* Live Counter Print Queue & Pop-up Notifications */}
@@ -98,8 +105,16 @@ export default async function ShopDashboardPage() {
       {/* Auto-Print Station runs live right on the main dashboard */}
       <WebAutoPrintStation shopName={context.shop.name} />
       <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-        <MetricCard label="Successful jobs today" value={jobs.error ? "Unavailable" : String(successfulJobs.length)} detail="Confirmed completed jobs" />
-        <MetricCard label="Pages printed today" value={jobs.error || pages.error ? "Unavailable" : String(totalPages)} detail="From successfully completed jobs" />
+        <MetricCard
+          label="Successful jobs today"
+          value={jobs.error ? "Unavailable" : String(successfulJobs.length)}
+          detail="Confirmed completed jobs"
+        />
+        <MetricCard
+          label="Pages printed today"
+          value={jobs.error || pages.error ? "Unavailable" : String(totalPages)}
+          detail="From successfully completed jobs"
+        />
         <MetricCard
           label="Today's revenue"
           value={jobs.data ? `₹${revenue.toFixed(2)}` : "—"}
@@ -114,11 +129,16 @@ export default async function ShopDashboardPage() {
       </div>
       {!shopOpen ? (
         <Alert tone="warning" title="Shop is not accepting orders">
-          Customers can see this shop, but printing is not available until the shop is active and accepting orders is enabled.
+          Customers can see this shop, but printing is not available until the shop is active and accepting orders is
+          enabled.
         </Alert>
       ) : (
-        <Alert tone={operational ? "success" : "warning"} title={operational ? "Printer connected" : "Connect the Windows agent and printer"}>
-          Automatic printing requires the paired Windows agent, a connected physical printer, and verified payment. Live connection and payment setup appear above.
+        <Alert
+          tone={operational ? "success" : "warning"}
+          title={operational ? "Printer connected" : "Connect the Windows agent and printer"}
+        >
+          Automatic printing requires the paired Windows agent, a connected physical printer, and verified payment. Live
+          connection and payment setup appear above.
         </Alert>
       )}
       <div className="grid gap-6 xl:grid-cols-[1.1fr_.9fr]">
@@ -164,7 +184,8 @@ export default async function ShopDashboardPage() {
           <CardContent>
             <Badge tone="neutral">AUTOMATIC WINDOWS PRINTING</Badge>
             <p className="mt-4 text-sm leading-6 text-muted">
-              Install the printer driver, confirm a Windows test page prints, then pair the agent with the code on the Printer page. Submitted jobs require confirmation after the pages come out.
+              Install the printer driver, confirm a Windows test page prints, then pair the agent with the code on the
+              Printer page. Submitted jobs require confirmation after the pages come out.
             </p>
             <div className="mt-5 flex flex-wrap gap-3">
               <Button asChild variant="primary">

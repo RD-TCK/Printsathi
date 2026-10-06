@@ -4,7 +4,12 @@ const { execFileSync } = require("node:child_process");
 const { createHash } = require("node:crypto");
 const executable = path.resolve(process.argv[2] || "dist/PrintivaAgent.exe");
 const source = fs.readFileSync(path.join(path.dirname(require.resolve("pdf-to-printer")), "SumatraPDF-3.4.6-32.exe"));
-const output = execFileSync(executable, ["--check-print-backend"], { encoding: "utf8", timeout: 30000, windowsHide: true });
+const output = execFileSync(executable, ["--check-print-backend"], {
+  encoding: "utf8",
+  timeout: 30000,
+  windowsHide: true,
+});
 const result = JSON.parse(output.trim().split(/\r?\n/).at(-1));
-if (result.bytes !== source.length || result.sha256 !== createHash("sha256").update(source).digest("hex")) throw new Error("Packaged renderer does not match the installed renderer");
+if (result.bytes !== source.length || result.sha256 !== createHash("sha256").update(source).digest("hex"))
+  throw new Error("Packaged renderer does not match the installed renderer");
 console.log("Packaged print backend verified:", result.bytes, "bytes");

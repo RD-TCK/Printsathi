@@ -39,9 +39,8 @@ export function getRazorpayClient(credentials?: RazorpayCredentials | null): {
       clientCache.set(cacheKey, instance);
     }
 
-    const isTest = credentials.isTestMode !== undefined 
-      ? credentials.isTestMode 
-      : credentials.keyId.startsWith("rzp_test_");
+    const isTest =
+      credentials.isTestMode !== undefined ? credentials.isTestMode : credentials.keyId.startsWith("rzp_test_");
 
     return {
       client: instance,
@@ -213,10 +212,7 @@ export function verifyWebhookSignature(
   }
 }
 
-export async function fetchRazorpayPayment(
-  paymentId: string,
-  credentials?: RazorpayCredentials | null,
-) {
+export async function fetchRazorpayPayment(paymentId: string, credentials?: RazorpayCredentials | null) {
   const razorpay = getRazorpayClient(credentials);
   if (!razorpay) return null;
 
@@ -229,10 +225,7 @@ export async function fetchRazorpayPayment(
   }
 }
 
-export async function fetchRazorpayOrder(
-  orderId: string,
-  credentials?: RazorpayCredentials | null,
-) {
+export async function fetchRazorpayOrder(orderId: string, credentials?: RazorpayCredentials | null) {
   const razorpay = getRazorpayClient(credentials);
   if (!razorpay) return null;
 

@@ -28,10 +28,7 @@ export default async function PublicShopPage({ params, searchParams }: ShopPageP
   const initialOrderId = search.orderId || null;
   const initialAccessToken = search.token || search.accessToken || null;
 
-  const [shopResult, pricing] = await Promise.all([
-    getPublicShop(identifier),
-    getPublicPricing(identifier),
-  ]);
+  const [shopResult, pricing] = await Promise.all([getPublicShop(identifier), getPublicPricing(identifier)]);
   const { shop, configured } = shopResult;
   if (!configured) return <ShopLookupUnavailable />;
   if (!shop) notFound();
@@ -78,7 +75,7 @@ export default async function PublicShopPage({ params, searchParams }: ShopPageP
                     <span>2s Live Sync</span>
                   </span>
                 </div>
-                
+
                 {/* Shop Operating Status */}
                 <div className="flex items-center">
                   <span
@@ -99,7 +96,9 @@ export default async function PublicShopPage({ params, searchParams }: ShopPageP
                       }`}
                     />
                     <span className="sm:hidden">{shop.status === "available" ? "Open" : "Paused"}</span>
-                    <span className="hidden sm:inline">{shop.status === "available" ? "Live & Accepting Orders" : "Orders Paused"}</span>
+                    <span className="hidden sm:inline">
+                      {shop.status === "available" ? "Live & Accepting Orders" : "Orders Paused"}
+                    </span>
                   </span>
                 </div>
               </div>
@@ -110,7 +109,8 @@ export default async function PublicShopPage({ params, searchParams }: ShopPageP
                   {shop.name}
                 </h1>
                 <p className="hidden sm:block mt-1 text-xs sm:text-sm text-emerald-100/90 max-w-xl leading-relaxed">
-                  Upload your documents from mobile or PC, configure page settings &amp; get instant prints without standing in line.
+                  Upload your documents from mobile or PC, configure page settings &amp; get instant prints without
+                  standing in line.
                 </p>
               </div>
 
@@ -123,7 +123,9 @@ export default async function PublicShopPage({ params, searchParams }: ShopPageP
                   </div>
                   <div className="min-w-0 flex-1">
                     <p className="text-[8.5px] sm:text-[11px] font-medium text-emerald-200 truncate">B&amp;W</p>
-                    <p className={`text-[9.5px] sm:text-xs font-bold truncate ${isBwReady ? "text-emerald-300" : "text-amber-300"}`}>
+                    <p
+                      className={`text-[9.5px] sm:text-xs font-bold truncate ${isBwReady ? "text-emerald-300" : "text-amber-300"}`}
+                    >
                       {isBwReady ? "Online" : "Offline"}
                     </p>
                   </div>
@@ -136,7 +138,9 @@ export default async function PublicShopPage({ params, searchParams }: ShopPageP
                   </div>
                   <div className="min-w-0 flex-1">
                     <p className="text-[8.5px] sm:text-[11px] font-medium text-emerald-200 truncate">Color</p>
-                    <p className={`text-[9.5px] sm:text-xs font-bold truncate ${isColorReady ? "text-emerald-300" : "text-amber-300"}`}>
+                    <p
+                      className={`text-[9.5px] sm:text-xs font-bold truncate ${isColorReady ? "text-emerald-300" : "text-amber-300"}`}
+                    >
                       {isColorReady ? "Online" : "Offline"}
                     </p>
                   </div>
@@ -149,9 +153,7 @@ export default async function PublicShopPage({ params, searchParams }: ShopPageP
                   </div>
                   <div className="min-w-0 flex-1">
                     <p className="text-[8.5px] sm:text-[11px] font-medium text-emerald-200 truncate">Pickup</p>
-                    <p className="text-[9.5px] sm:text-xs font-bold text-emerald-300 truncate">
-                      Token
-                    </p>
+                    <p className="text-[9.5px] sm:text-xs font-bold text-emerald-300 truncate">Token</p>
                   </div>
                 </div>
               </div>
@@ -190,7 +192,11 @@ export default async function PublicShopPage({ params, searchParams }: ShopPageP
                       >
                         <span className="font-semibold text-slate-800 text-xs">
                           {rule.color_mode === "color" ? "🎨 Color" : "📄 B&W"} · {rule.paper_size.toUpperCase()}
-                          {rule.side_mode === "double_sided" ? " (Both Sides)" : rule.side_mode === "single_sided" ? " (1 Side)" : ""}{" "}
+                          {rule.side_mode === "double_sided"
+                            ? " (Both Sides)"
+                            : rule.side_mode === "single_sided"
+                              ? " (1 Side)"
+                              : ""}{" "}
                           <span className="text-[11px] font-normal text-slate-500">
                             ({rule.min_pages}–{rule.max_pages ?? "∞"}p)
                           </span>
@@ -226,7 +232,8 @@ export default async function PublicShopPage({ params, searchParams }: ShopPageP
             </div>
             <p className="mt-2.5 text-sm font-bold text-slate-900">Zero-Wait Counter Printing</p>
             <p className="mt-1 text-xs leading-5 text-slate-600">
-              Generate a 1-hour token or pay online to skip the line. Show your token at the counter and collect instantly.
+              Generate a 1-hour token or pay online to skip the line. Show your token at the counter and collect
+              instantly.
             </p>
           </div>
         </div>

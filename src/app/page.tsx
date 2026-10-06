@@ -1,23 +1,7 @@
 import Link from "next/link";
-import {
-  ArrowRight,
-  CheckCircle2,
-  Download,
-  FileStack,
-  Play,
-  Printer,
-  ShieldCheck,
-  Sparkles,
-  Zap,
-} from "lucide-react";
+import { ArrowRight, CheckCircle2, Download, FileStack, Play, Printer, ShieldCheck, Sparkles, Zap } from "lucide-react";
 import { SiteHeader } from "@/components/site-header";
-import {
-  FeatureGrid,
-  FaqList,
-  MarketingFooter,
-  Steps,
-  TrialCallout,
-} from "@/components/marketing-site";
+import { FeatureGrid, FaqList, MarketingFooter, Steps, TrialCallout } from "@/components/marketing-site";
 import { Button } from "@/components/ui/button";
 import { InteractivePrinter } from "@/components/interactive-printer";
 
@@ -27,8 +11,7 @@ export const metadata = {
     "Modern automated printing OS for local print shops. Customers scan, upload, pay — your Windows printer prints hands-free.",
   openGraph: {
     title: "Printiva — Scan. Upload. Pay. Print.",
-    description:
-      "A clearer, faster way for local shops and their customers to print together.",
+    description: "A clearer, faster way for local shops and their customers to print together.",
     type: "website",
   },
 };
@@ -62,18 +45,14 @@ export default function Home() {
 
                 {/* Headline */}
                 <h1 className="reveal reveal-d1 mt-7 text-4xl font-semibold tracking-tight text-brand-950 sm:text-5xl lg:text-[3.5rem] lg:leading-[1.08]">
-                  Your counter printer,{" "}
-                  <br className="hidden sm:block" />
-                  <span className="font-display gradient-text">
-                    on&nbsp;autopilot.
-                  </span>
+                  Your counter printer, <br className="hidden sm:block" />
+                  <span className="font-display gradient-text">on&nbsp;autopilot.</span>
                 </h1>
 
                 {/* Subhead */}
                 <p className="reveal reveal-d2 mt-6 max-w-lg text-base leading-7 text-muted sm:text-lg sm:leading-8">
-                  Customers scan your QR, upload a file, pay via
-                  Razorpay — and it prints on your Windows machine.
-                  No WhatsApp. No Ctrl+P.
+                  Customers scan your QR, upload a file, pay via Razorpay — and it prints on your Windows machine. No
+                  WhatsApp. No Ctrl+P.
                 </p>
 
                 {/* CTA */}
@@ -138,16 +117,12 @@ export default function Home() {
                 { icon: FileStack, stat: "<48MB", label: "Agent footprint" },
               ].map(({ icon: Icon, stat, label }, i) => (
                 <div key={label} className="flex items-center gap-3">
-                  {i > 0 && (
-                    <div className="hidden sm:block h-8 w-px bg-brand-200 -ml-6 mr-0" />
-                  )}
+                  {i > 0 && <div className="hidden sm:block h-8 w-px bg-brand-200 -ml-6 mr-0" />}
                   <div className="flex size-10 items-center justify-center rounded-xl bg-white border border-line text-brand-600 shadow-xs">
                     <Icon className="size-5" />
                   </div>
                   <div>
-                    <p className="text-lg font-semibold text-brand-950">
-                      {stat}
-                    </p>
+                    <p className="text-lg font-semibold text-brand-950">{stat}</p>
                     <p className="text-muted">{label}</p>
                   </div>
                 </div>
@@ -160,17 +135,13 @@ export default function Home() {
         <section className="py-24 lg:py-32 px-6 lg:px-8">
           <div className="mx-auto max-w-7xl">
             <div className="mx-auto max-w-2xl text-center">
-              <p className="text-xs font-semibold uppercase tracking-[0.2em] text-brand-600">
-                The modern solution
-              </p>
+              <p className="text-xs font-semibold uppercase tracking-[0.2em] text-brand-600">The modern solution</p>
               <h2 className="mt-3 text-3xl font-semibold tracking-tight text-brand-950 sm:text-4xl lg:text-5xl lg:leading-[1.1]">
-                Stop drowning in{" "}
-                <span className="font-display gradient-text">WhatsApp</span>{" "}
-                print requests.
+                Stop drowning in <span className="font-display gradient-text">WhatsApp</span> print requests.
               </h2>
               <p className="mt-4 text-base leading-7 text-muted sm:text-lg">
-                Traditional shops waste 60% of counter time downloading files,
-                counting pages, and verifying UPI screenshots.
+                Traditional shops waste 60% of counter time downloading files, counting pages, and verifying UPI
+                screenshots.
               </p>
             </div>
 
@@ -180,9 +151,7 @@ export default function Home() {
                 <div className="inline-flex items-center gap-2 rounded-full bg-red-100/80 px-3 py-1 text-xs font-semibold text-red-700">
                   The old way
                 </div>
-                <h3 className="mt-5 text-2xl font-semibold text-brand-950">
-                  Chaos at the counter
-                </h3>
+                <h3 className="mt-5 text-2xl font-semibold text-brand-950">Chaos at the counter</h3>
                 <ul className="mt-6 space-y-4 text-sm text-brand-900/70">
                   {[
                     "Customer shares docs via WhatsApp, clogging your phone memory.",
@@ -208,9 +177,7 @@ export default function Home() {
                     <Sparkles className="size-3 text-brand-600" />
                     The Printiva way
                   </div>
-                  <h3 className="mt-5 text-2xl font-semibold text-brand-950">
-                    Automated & effortless
-                  </h3>
+                  <h3 className="mt-5 text-2xl font-semibold text-brand-950">Automated & effortless</h3>
                   <ul className="mt-6 space-y-4 text-sm text-brand-900">
                     {[
                       "Customer scans your QR — uploads directly from phone.",
@@ -236,17 +203,12 @@ export default function Home() {
         <section className="py-24 lg:py-32">
           <div className="mx-auto max-w-7xl px-6 lg:px-8">
             <div className="mx-auto max-w-2xl text-center">
-              <p className="text-xs font-semibold uppercase tracking-[0.2em] text-brand-600">
-                Workflow
-              </p>
+              <p className="text-xs font-semibold uppercase tracking-[0.2em] text-brand-600">Workflow</p>
               <h2 className="mt-3 text-3xl font-semibold tracking-tight text-brand-950 sm:text-4xl lg:text-5xl lg:leading-[1.1]">
-                From scan to{" "}
-                <span className="font-display gradient-text">warm paper</span>{" "}
-                in seconds.
+                From scan to <span className="font-display gradient-text">warm paper</span> in seconds.
               </h2>
               <p className="mt-4 text-base leading-7 text-muted sm:text-lg">
-                A streamlined four-step flow so your technicians can focus on
-                finishing work.
+                A streamlined four-step flow so your technicians can focus on finishing work.
               </p>
             </div>
             <div className="mt-16">
@@ -260,17 +222,12 @@ export default function Home() {
         {/* ━━━ FEATURES ━━━ */}
         <section className="mx-auto max-w-7xl px-6 py-24 lg:py-32 lg:px-8">
           <div className="mx-auto max-w-2xl text-center">
-            <p className="text-xs font-semibold uppercase tracking-[0.2em] text-brand-600">
-              Powerful features
-            </p>
+            <p className="text-xs font-semibold uppercase tracking-[0.2em] text-brand-600">Powerful features</p>
             <h2 className="mt-3 text-3xl font-semibold tracking-tight text-brand-950 sm:text-4xl lg:text-5xl lg:leading-[1.1]">
-              Engineered for{" "}
-              <span className="font-display gradient-text">real-world</span>{" "}
-              print shops.
+              Engineered for <span className="font-display gradient-text">real-world</span> print shops.
             </h2>
             <p className="mt-4 text-base leading-7 text-muted sm:text-lg">
-              Every detail tuned for speed, hardware reliability, and zero
-              queue bottlenecks.
+              Every detail tuned for speed, hardware reliability, and zero queue bottlenecks.
             </p>
           </div>
           <div className="mt-16">
@@ -287,19 +244,13 @@ export default function Home() {
           <div className="relative mx-auto max-w-7xl px-6 lg:px-8">
             <div className="grid lg:grid-cols-[1.2fr_0.8fr] gap-12 items-center">
               <div>
-                <p className="text-xs font-semibold uppercase tracking-[0.2em] text-emerald-400">
-                  Hardware native
-                </p>
+                <p className="text-xs font-semibold uppercase tracking-[0.2em] text-emerald-400">Hardware native</p>
                 <h2 className="mt-4 text-3xl font-semibold tracking-tight text-white sm:text-4xl lg:text-5xl lg:leading-[1.1]">
-                  The Windows{" "}
-                  <span className="font-display italic text-emerald-400">
-                    Desktop Agent
-                  </span>
+                  The Windows <span className="font-display italic text-emerald-400">Desktop Agent</span>
                 </h2>
                 <p className="mt-5 text-base leading-7 text-white/55 sm:text-lg">
-                  Browsers can&apos;t control hardware or switch paper drawers.
-                  Printiva uses a lightweight service in your system tray that
-                  bridges directly with the Windows Print Spooler.
+                  Browsers can&apos;t control hardware or switch paper drawers. Printiva uses a lightweight service in
+                  your system tray that bridges directly with the Windows Print Spooler.
                 </p>
                 <div className="mt-8 flex flex-wrap gap-4">
                   <Button asChild variant="primary">
@@ -321,12 +272,8 @@ export default function Home() {
               {/* Spec card */}
               <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-6 space-y-4 backdrop-blur-sm">
                 <div className="flex items-center justify-between border-b border-white/5 pb-3 text-xs">
-                  <span className="font-semibold text-white">
-                    System Compatibility
-                  </span>
-                  <span className="font-medium text-emerald-400">
-                    100% Tested
-                  </span>
+                  <span className="font-semibold text-white">System Compatibility</span>
+                  <span className="font-medium text-emerald-400">100% Tested</span>
                 </div>
                 {[
                   ["OS", "Windows 10 / 11 (64-bit)"],
@@ -334,18 +281,9 @@ export default function Home() {
                   ["Protocols", "USB, Wi-Fi, Ethernet, WSD"],
                   ["Response", "2-Second Poll Interval"],
                 ].map(([label, value]) => (
-                  <div
-                    key={label}
-                    className="flex justify-between py-1 text-xs font-mono"
-                  >
+                  <div key={label} className="flex justify-between py-1 text-xs font-mono">
                     <span className="text-white/35">{label}</span>
-                    <span
-                      className={`font-medium ${
-                        label === "Response"
-                          ? "text-emerald-400"
-                          : "text-white/75"
-                      }`}
-                    >
+                    <span className={`font-medium ${label === "Response" ? "text-emerald-400" : "text-white/75"}`}>
                       {value}
                     </span>
                   </div>
@@ -358,9 +296,7 @@ export default function Home() {
         {/* ━━━ FAQ ━━━ */}
         <section className="mx-auto max-w-4xl px-6 py-24 lg:py-32 lg:px-8">
           <div className="mx-auto max-w-2xl text-center">
-            <p className="text-xs font-semibold uppercase tracking-[0.2em] text-brand-600">
-              Common questions
-            </p>
+            <p className="text-xs font-semibold uppercase tracking-[0.2em] text-brand-600">Common questions</p>
             <h2 className="mt-3 text-3xl font-semibold tracking-tight text-brand-950 sm:text-4xl">
               Everything you need to know.
             </h2>

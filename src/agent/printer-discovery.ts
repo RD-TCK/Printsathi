@@ -114,7 +114,10 @@ if ($configs) {
         let status: DiscoveredPrinter["status"] = "online";
         if (isOffline) {
           status = "offline";
-        } else if (Number(item.PrinterStatus) === 6 || [4, 6, 7, 8, 9, 10, 11].includes(Number(item.DetectedErrorState))) {
+        } else if (
+          Number(item.PrinterStatus) === 6 ||
+          [4, 6, 7, 8, 9, 10, 11].includes(Number(item.DetectedErrorState))
+        ) {
           status = "error";
         } else if (Number(item.PrinterStatus) === 4) {
           status = "printing";
@@ -207,7 +210,10 @@ if ($configs) {
           capabilities: {
             colorSupport,
             duplexSupport: Boolean(duplexSupport),
-            paperSizes: Array.isArray(item.PrinterPaperNames) && item.PrinterPaperNames.length ? item.PrinterPaperNames : ["A4", "Letter"],
+            paperSizes:
+              Array.isArray(item.PrinterPaperNames) && item.PrinterPaperNames.length
+                ? item.PrinterPaperNames
+                : ["A4", "Letter"],
           },
         };
       });
@@ -270,8 +276,8 @@ export function findBestPrinterForJob(
     Array.isArray(options.busyPrinters)
       ? options.busyPrinters.map((s) => s.toLowerCase())
       : options.busyPrinters
-      ? Array.from(options.busyPrinters).map((s) => s.toLowerCase())
-      : [],
+        ? Array.from(options.busyPrinters).map((s) => s.toLowerCase())
+        : [],
   );
 
   // If a specific printer is required (e.g. Duplex Step 2 even pages must print on the exact same printer)
@@ -289,17 +295,13 @@ export function findBestPrinterForJob(
   // Filter for physical, online printers that are NOT currently busy or reserved
   const onlinePrinters = printers.filter(
     (p) =>
-      isPhysicalPrinter(p) &&
-      (p.status === "online" || p.status === "printing") &&
-      !busySet.has(p.name.toLowerCase()),
+      isPhysicalPrinter(p) && (p.status === "online" || p.status === "printing") && !busySet.has(p.name.toLowerCase()),
   );
 
   const compatiblePrinters = onlinePrinters.filter(
     (p) =>
       !options.paperSize ||
-      p.capabilities?.paperSizes?.some((size) =>
-        size.toLowerCase().includes(options.paperSize!.toLowerCase()),
-      ),
+      p.capabilities?.paperSizes?.some((size) => size.toLowerCase().includes(options.paperSize!.toLowerCase())),
   );
 
   if (compatiblePrinters.length === 0) {
@@ -308,9 +310,7 @@ export function findBestPrinterForJob(
 
   // If user requested a preferred printer and it matches strict color mode, use it
   if (options.preferredName) {
-    const matched = compatiblePrinters.find(
-      (p) => p.name.toLowerCase() === options.preferredName!.toLowerCase(),
-    );
+    const matched = compatiblePrinters.find((p) => p.name.toLowerCase() === options.preferredName!.toLowerCase());
     if (matched) {
       const satisfiesDuplex = !options.requiresDuplex || matched.capabilities?.duplexSupport === true;
       if (satisfiesDuplex) {

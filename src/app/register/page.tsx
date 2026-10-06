@@ -16,7 +16,9 @@ export default async function RegisterPage({ searchParams }: { searchParams: Pro
             </span>
           </div>
           <h1 className="mt-2 text-2xl font-bold text-brand-950">Create your shop account</h1>
-          <p className="mt-1 text-sm text-muted">Set up your shop QR, connect your printer, and accept instant print orders.</p>
+          <p className="mt-1 text-sm text-muted">
+            Set up your shop QR, connect your printer, and accept instant print orders.
+          </p>
         </CardHeader>
         <CardContent>
           {params.error ? (

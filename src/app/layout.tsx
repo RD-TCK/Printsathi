@@ -23,10 +23,7 @@ export const metadata: Metadata = {
   },
   description: "A simpler way to print at your trusted local shop.",
   icons: {
-    icon: [
-      { url: "/icon.svg", type: "image/svg+xml" },
-      { url: "/favicon.ico" },
-    ],
+    icon: [{ url: "/icon.svg", type: "image/svg+xml" }, { url: "/favicon.ico" }],
     apple: "/icon.png",
   },
 };

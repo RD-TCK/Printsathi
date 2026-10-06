@@ -15,11 +15,7 @@ interface RazorpayOptions {
   name: string;
   description: string;
   order_id: string;
-  handler: (response: {
-    razorpay_payment_id: string;
-    razorpay_order_id: string;
-    razorpay_signature: string;
-  }) => void;
+  handler: (response: { razorpay_payment_id: string; razorpay_order_id: string; razorpay_signature: string }) => void;
   prefill?: {
     name?: string;
     email?: string;
@@ -63,21 +59,34 @@ export function SubscriptionCheckout({ shopName, shopId }: { shopName: string; s
   const [successMsg, setSuccessMsg] = useState<string | null>(null);
   const storageKey = `subscription-payment-${shopId}`;
   const [paymentId, setPaymentId] = useState(() => {
-    try { return localStorage.getItem(`subscription-payment-${shopId}`) || ""; } catch { return ""; }
+    try {
+      return localStorage.getItem(`subscription-payment-${shopId}`) || "";
+    } catch {
+      return "";
+    }
   });
   const [recovering, setRecovering] = useState(false);
 
-
   function rememberPayment(id: string) {
     setPaymentId(id);
-    try { localStorage.setItem(storageKey, id); } catch { /* Keep the ID in memory. */ }
+    try {
+      localStorage.setItem(storageKey, id);
+    } catch {
+      /* Keep the ID in memory. */
+    }
   }
 
   function showActivation(periodEnd: string) {
-    setSuccessMsg(`Subscription activated. New expiry date: ${new Date(periodEnd).toLocaleDateString("en-IN", { day: "numeric", month: "long", year: "numeric" })}.`);
+    setSuccessMsg(
+      `Subscription activated. New expiry date: ${new Date(periodEnd).toLocaleDateString("en-IN", { day: "numeric", month: "long", year: "numeric" })}.`,
+    );
     setErrorMsg(null);
     setPaymentId("");
-    try { localStorage.removeItem(storageKey); } catch { /* Storage may be disabled. */ }
+    try {
+      localStorage.removeItem(storageKey);
+    } catch {
+      /* Storage may be disabled. */
+    }
     router.refresh();
   }
 
@@ -87,17 +96,20 @@ export function SubscriptionCheckout({ shopName, shopId }: { shopName: string; s
     setSuccessMsg(null);
     try {
       const response = await fetch("/api/shop/subscription/recover", {
-        method: "POST", headers: { "Content-Type": "application/json" },
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ paymentId: paymentId.trim() }),
       });
       const data = await response.json();
-      if (!response.ok || !data.success || !data.periodEnd) throw new Error(data.error || "Could not activate this payment.");
+      if (!response.ok || !data.success || !data.periodEnd)
+        throw new Error(data.error || "Could not activate this payment.");
       showActivation(data.periodEnd);
     } catch (error) {
       setErrorMsg(error instanceof Error ? error.message : "Could not retry activation.");
-    } finally { setRecovering(false); }
+    } finally {
+      setRecovering(false);
+    }
   }
-
 
   const handleSubscribe = async (plan: "monthly" | "yearly") => {
     setErrorMsg(null);
@@ -126,7 +138,8 @@ export function SubscriptionCheckout({ shopName, shopId }: { shopName: string; s
         amount: data.amount,
         currency: data.currency || "INR",
         name: `Printiva - ${shopName}`,
-        description: data.planDescription || (plan === "monthly" ? "Shop Monthly Subscription" : "Shop Yearly Subscription"),
+        description:
+          data.planDescription || (plan === "monthly" ? "Shop Monthly Subscription" : "Shop Yearly Subscription"),
         order_id: data.razorpayOrderId,
         theme: { color: "#2563eb" },
         handler: async (response) => {
@@ -191,16 +204,29 @@ export function SubscriptionCheckout({ shopName, shopId }: { shopName: string; s
 
       <div className="max-w-4xl rounded-lg border border-line p-4 text-sm">
         <p className="font-semibold">Already paid?</p>
-        <p className="mt-1 text-muted">Retry activation with your Razorpay payment ID. This updates your expiry without charging again.</p>
+        <p className="mt-1 text-muted">
+          Retry activation with your Razorpay payment ID. This updates your expiry without charging again.
+        </p>
         <div className="mt-3 flex flex-wrap gap-2">
-          <input aria-label="Razorpay payment ID" placeholder="pay_..." value={paymentId}
-            onChange={(event) => setPaymentId(event.target.value)} className="rounded-md border border-line px-3 py-2" />
-          <Button variant="secondary" disabled={!paymentId.trim() || recovering || loadingPlan !== null} onClick={recoverPayment}>
+          <input
+            aria-label="Razorpay payment ID"
+            placeholder="pay_..."
+            value={paymentId}
+            onChange={(event) => setPaymentId(event.target.value)}
+            className="rounded-md border border-line px-3 py-2"
+          />
+          <Button
+            variant="secondary"
+            disabled={!paymentId.trim() || recovering || loadingPlan !== null}
+            onClick={recoverPayment}
+          >
             {recovering ? "Verifying payment..." : "Retry activation"}
           </Button>
         </div>
       </div>
-      <p className="text-sm text-muted">Pay securely with Razorpay. Plans renew when you pay again; no automatic debit.</p>
+      <p className="text-sm text-muted">
+        Pay securely with Razorpay. Plans renew when you pay again; no automatic debit.
+      </p>
       <div className="grid gap-6 md:grid-cols-2 max-w-4xl">
         {/* Monthly Plan Card */}
         <Card className="relative flex flex-col justify-between border-line shadow-sm hover:shadow-md transition-shadow">
@@ -220,7 +246,9 @@ export function SubscriptionCheckout({ shopName, shopId }: { shopName: string; s
             <ul className="space-y-3 text-sm text-brand-950">
               <li className="flex items-center gap-2.5">
                 <Check className="size-4 text-emerald-600 shrink-0" />
-                <span><strong>₹0 Platform Fee</strong> on all customer print jobs</span>
+                <span>
+                  <strong>₹0 Platform Fee</strong> on all customer print jobs
+                </span>
               </li>
               <li className="flex items-center gap-2.5">
                 <Check className="size-4 text-emerald-600 shrink-0" />
@@ -290,7 +318,9 @@ export function SubscriptionCheckout({ shopName, shopId }: { shopName: string; s
             <ul className="space-y-3 text-sm text-brand-950">
               <li className="flex items-center gap-2.5">
                 <Check className="size-4 text-emerald-600 shrink-0" />
-                <span><strong>₹0 Platform Fee</strong> for a full year</span>
+                <span>
+                  <strong>₹0 Platform Fee</strong> for a full year
+                </span>
               </li>
               <li className="flex items-center gap-2.5">
                 <Check className="size-4 text-emerald-600 shrink-0" />
@@ -306,7 +336,9 @@ export function SubscriptionCheckout({ shopName, shopId }: { shopName: string; s
               </li>
               <li className="flex items-center gap-2.5">
                 <Check className="size-4 text-emerald-600 shrink-0" />
-                <span><strong>Priority WhatsApp & Phone Support</strong></span>
+                <span>
+                  <strong>Priority WhatsApp & Phone Support</strong>
+                </span>
               </li>
             </ul>
 

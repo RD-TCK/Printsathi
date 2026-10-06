@@ -24,7 +24,8 @@ export async function GET(request: Request) {
 
   const { data: order } = await client
     .from("orders")
-    .select(`
+    .select(
+      `
       id,
       public_id,
       status,
@@ -43,7 +44,8 @@ export async function GET(request: Request) {
         total_pages,
         documents ( original_filename )
       )
-    `)
+    `,
+    )
     .eq(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id) ? "id" : "public_id", id)
     .maybeSingle();
 

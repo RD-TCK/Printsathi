@@ -85,7 +85,16 @@ describe("PDF print submission", () => {
     const multiCopyJob = {
       id: "job-multi-copy",
       totalPages: 4,
-      pagesConfig: [{ startPage: 1, endPage: 2, colorMode: "black_and_white", paperSize: "a4", sideMode: "single_sided", copies: 2 }],
+      pagesConfig: [
+        {
+          startPage: 1,
+          endPage: 2,
+          colorMode: "black_and_white",
+          paperSize: "a4",
+          sideMode: "single_sided",
+          copies: 2,
+        },
+      ],
     } as ClaimedJob;
 
     const result = await prepareAndPrintDocument(source, multiCopyJob, printerName);
@@ -124,7 +133,9 @@ describe("PDF print submission", () => {
       id: "job-duplex-odd",
       totalPages: 4,
       duplexStep: "odd",
-      pagesConfig: [{ startPage: 1, endPage: 4, colorMode: "black_and_white", paperSize: "a4", sideMode: "double_sided" }],
+      pagesConfig: [
+        { startPage: 1, endPage: 4, colorMode: "black_and_white", paperSize: "a4", sideMode: "double_sided" },
+      ],
     } as ClaimedJob;
 
     let oddPagesCount = 0;
@@ -194,7 +205,16 @@ describe("PDF print submission", () => {
       id: "job-odd-copies",
       totalPages: 4,
       duplexStep: "odd",
-      pagesConfig: [{ startPage: 1, endPage: 4, colorMode: "black_and_white", paperSize: "a4", sideMode: "double_sided", copies: 2 }],
+      pagesConfig: [
+        {
+          startPage: 1,
+          endPage: 4,
+          colorMode: "black_and_white",
+          paperSize: "a4",
+          sideMode: "double_sided",
+          copies: 2,
+        },
+      ],
     } as ClaimedJob;
 
     let oddPdfPages = 0;
@@ -216,7 +236,16 @@ describe("PDF print submission", () => {
       id: "job-even-copies",
       totalPages: 4,
       duplexStep: "even",
-      pagesConfig: [{ startPage: 1, endPage: 4, colorMode: "black_and_white", paperSize: "a4", sideMode: "double_sided", copies: 2 }],
+      pagesConfig: [
+        {
+          startPage: 1,
+          endPage: 4,
+          colorMode: "black_and_white",
+          paperSize: "a4",
+          sideMode: "double_sided",
+          copies: 2,
+        },
+      ],
     } as ClaimedJob;
 
     let evenPdfPages = 0;
@@ -254,7 +283,16 @@ describe("PDF print submission", () => {
     const hardwareDuplexJob = {
       id: "job-hw-duplex",
       totalPages: 3,
-      pagesConfig: [{ startPage: 1, endPage: 3, colorMode: "black_and_white", paperSize: "a4", sideMode: "double_sided", copies: 2 }],
+      pagesConfig: [
+        {
+          startPage: 1,
+          endPage: 3,
+          colorMode: "black_and_white",
+          paperSize: "a4",
+          sideMode: "double_sided",
+          copies: 2,
+        },
+      ],
     } as ClaimedJob;
 
     let submittedSettings = "";

@@ -5,7 +5,11 @@ import { Printer, ExternalLink } from "lucide-react";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 
-type LiveStatus = { agentConnected: boolean; paymentsReady: boolean; printers: Array<{ id: string; name: string; online: boolean; color: boolean }> };
+type LiveStatus = {
+  agentConnected: boolean;
+  paymentsReady: boolean;
+  printers: Array<{ id: string; name: string; online: boolean; color: boolean }>;
+};
 export function WebAutoPrintStation({ shopName }: { shopName: string }) {
   const [status, setStatus] = useState<LiveStatus | null>(null);
   const [error, setError] = useState("");
@@ -24,7 +28,9 @@ export function WebAutoPrintStation({ shopName }: { shopName: string }) {
       }
     };
     void refresh();
-    const timer = setInterval(() => { void refresh(); }, 2000);
+    const timer = setInterval(() => {
+      void refresh();
+    }, 2000);
     const onVisibilityChange = () => {
       if (document.visibilityState === "visible") void refresh();
     };
@@ -34,15 +40,55 @@ export function WebAutoPrintStation({ shopName }: { shopName: string }) {
       document.removeEventListener("visibilitychange", onVisibilityChange);
     };
   }, []);
-  const ready = status?.agentConnected && status.printers.some(p => p.online);
-  return <Card className="border-brand-200 bg-gradient-to-br from-white to-emerald-50/50">
-    <CardHeader><div className="flex items-center justify-between gap-3"><h2 className="font-semibold">Automatic printing — {shopName}</h2><Badge tone={ready ? "success" : "warning"}>{ready ? "Printer connected" : "Waiting for printer"}</Badge></div><p className="mt-2 text-sm text-muted">The Windows agent picks up paid jobs automatically. Connection status refreshes every 2 seconds.</p></CardHeader>
-    <CardContent><div className="grid gap-3 sm:grid-cols-3">
-      <div className="rounded-xl border border-line bg-white p-4"><p className="text-xs text-muted">Windows agent</p><p className="mt-1 font-semibold">{status?.agentConnected ? "Connected" : "Disconnected / checking"}</p><Link className="text-sm text-brand-700 underline" href="/shop/printer">Pair agent</Link></div>
-      <div className="rounded-xl border border-line bg-white p-4"><p className="text-xs text-muted">Physical printers</p><p className="mt-1 font-semibold">{status?.printers.filter(p => p.online).length || 0} connected</p>{status?.printers.map(p => <p key={p.id} className="mt-1 text-xs">{p.name}: {p.online ? "Connected" : "Offline"}</p>)}</div>
-      <div className="rounded-xl border border-line bg-white p-4"><p className="text-xs text-muted">Payments</p><p className="mt-1 font-semibold">{status?.paymentsReady ? "Razorpay configured" : "Razorpay keys required"}</p><p className="mt-1 text-xs text-muted">Only verified, captured payments release print jobs.</p></div>
-    </div>{error && <p role="alert" className="mt-3 text-sm text-red-700">{error}</p>}<p className="mt-4 text-xs text-muted">Submitted means Windows accepted the job. Confirm completion in Jobs after checking the printed pages.</p></CardContent>
-  </Card>;
+  const ready = status?.agentConnected && status.printers.some((p) => p.online);
+  return (
+    <Card className="border-brand-200 bg-gradient-to-br from-white to-emerald-50/50">
+      <CardHeader>
+        <div className="flex items-center justify-between gap-3">
+          <h2 className="font-semibold">Automatic printing — {shopName}</h2>
+          <Badge tone={ready ? "success" : "warning"}>{ready ? "Printer connected" : "Waiting for printer"}</Badge>
+        </div>
+        <p className="mt-2 text-sm text-muted">
+          The Windows agent picks up paid jobs automatically. Connection status refreshes every 2 seconds.
+        </p>
+      </CardHeader>
+      <CardContent>
+        <div className="grid gap-3 sm:grid-cols-3">
+          <div className="rounded-xl border border-line bg-white p-4">
+            <p className="text-xs text-muted">Windows agent</p>
+            <p className="mt-1 font-semibold">{status?.agentConnected ? "Connected" : "Disconnected / checking"}</p>
+            <Link className="text-sm text-brand-700 underline" href="/shop/printer">
+              Pair agent
+            </Link>
+          </div>
+          <div className="rounded-xl border border-line bg-white p-4">
+            <p className="text-xs text-muted">Physical printers</p>
+            <p className="mt-1 font-semibold">{status?.printers.filter((p) => p.online).length || 0} connected</p>
+            {status?.printers.map((p) => (
+              <p key={p.id} className="mt-1 text-xs">
+                {p.name}: {p.online ? "Connected" : "Offline"}
+              </p>
+            ))}
+          </div>
+          <div className="rounded-xl border border-line bg-white p-4">
+            <p className="text-xs text-muted">Payments</p>
+            <p className="mt-1 font-semibold">
+              {status?.paymentsReady ? "Razorpay configured" : "Razorpay keys required"}
+            </p>
+            <p className="mt-1 text-xs text-muted">Only verified, captured payments release print jobs.</p>
+          </div>
+        </div>
+        {error && (
+          <p role="alert" className="mt-3 text-sm text-red-700">
+            {error}
+          </p>
+        )}
+        <p className="mt-4 text-xs text-muted">
+          Submitted means Windows accepted the job. Confirm completion in Jobs after checking the printed pages.
+        </p>
+      </CardContent>
+    </Card>
+  );
 }
 
 export function WebPrintButton({
@@ -113,4 +159,3 @@ export function WebPrintButton({
     </div>
   );
 }
-

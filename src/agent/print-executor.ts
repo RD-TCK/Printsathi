@@ -74,7 +74,11 @@ export async function prepareAndPrintDocument(
         `Printer "${targetPrinterName}" is unavailable, offline, or virtual. Check its Windows print queue.`,
       );
     }
-    if (activeConfigs?.some(config => config.colorMode !== activeConfigs[0].colorMode || config.paperSize !== activeConfigs[0].paperSize)) {
+    if (
+      activeConfigs?.some(
+        (config) => config.colorMode !== activeConfigs[0].colorMode || config.paperSize !== activeConfigs[0].paperSize,
+      )
+    ) {
       throw new Error("Mixed paper/color settings must be submitted as separate print groups.");
     }
     const sourcePdf = await PDFDocument.load(fs.readFileSync(sourcePdfPath));
@@ -116,10 +120,10 @@ export async function prepareAndPrintDocument(
         isHardwareDuplex
           ? "Hardware Duplex (Single Pass)"
           : isManualDuplexOdd
-          ? "Manual Duplex (Step 1: Odd Pages)"
-          : isManualDuplexEven
-          ? "Manual Duplex (Step 2: Even Pages)"
-          : "Single-Sided"
+            ? "Manual Duplex (Step 1: Odd Pages)"
+            : isManualDuplexEven
+              ? "Manual Duplex (Step 2: Even Pages)"
+              : "Single-Sided"
       }`,
     );
 
@@ -261,10 +265,10 @@ export async function prepareAndPrintDocument(
           duplexModeUsed: isHardwareDuplex
             ? "hardware"
             : isManualDuplexOdd
-            ? "manual_odd"
-            : isManualDuplexEven
-            ? "manual_even"
-            : "simplex",
+              ? "manual_odd"
+              : isManualDuplexEven
+                ? "manual_even"
+                : "simplex",
         };
       }
 
@@ -302,7 +306,9 @@ export async function prepareAndPrintDocument(
     }
     const executable = rendererPath();
     if ((process as NodeJS.Process & { pkg?: unknown }).pkg) extractedRenderer = executable;
-    logger.info(`Rendering PDF and submitting to Windows printer "${targetPrinterName}" with settings: ${settings.join(",")}`);
+    logger.info(
+      `Rendering PDF and submitting to Windows printer "${targetPrinterName}" with settings: ${settings.join(",")}`,
+    );
     await execFileAsync(
       executable,
       ["-print-to", targetPrinterName, "-silent", "-print-settings", settings.join(","), finalPdfPath],
@@ -317,10 +323,10 @@ export async function prepareAndPrintDocument(
       duplexModeUsed: isHardwareDuplex
         ? "hardware"
         : isManualDuplexOdd
-        ? "manual_odd"
-        : isManualDuplexEven
-        ? "manual_even"
-        : "simplex",
+          ? "manual_odd"
+          : isManualDuplexEven
+            ? "manual_even"
+            : "simplex",
     };
   } catch (error) {
     const errorMsg = error instanceof Error ? error.message : "Print execution error";

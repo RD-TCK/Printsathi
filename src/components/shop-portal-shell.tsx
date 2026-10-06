@@ -73,7 +73,9 @@ export function ShopPortalShell({
         <div className="border-b border-line px-5 py-5">
           <p className="truncate text-sm font-semibold text-brand-950">{shopName}</p>
           <div className="mt-2 flex items-center gap-2">
-            <Link href="/shop/printer" className="text-xs text-brand-700 underline">Printer &amp; agent settings</Link>
+            <Link href="/shop/printer" className="text-xs text-brand-700 underline">
+              Printer &amp; agent settings
+            </Link>
           </div>
         </div>
         <nav className="flex-1 space-y-1 overflow-y-auto p-4">
@@ -84,7 +86,10 @@ export function ShopPortalShell({
               prefetch={true}
               onClick={() => setOpen(false)}
               aria-current={pathname === href ? "page" : undefined}
-              className={cn("flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium hover:bg-brand-50", pathname === href ? "bg-brand-50 text-brand-800" : "text-muted")}
+              className={cn(
+                "flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium hover:bg-brand-50",
+                pathname === href ? "bg-brand-50 text-brand-800" : "text-muted",
+              )}
             >
               <Icon className="size-4" />
               {label}

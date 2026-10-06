@@ -10,15 +10,15 @@ async function createTestDocxBuffer(xmlBody: string): Promise<Uint8Array> {
   const zip = new JSZip();
   zip.file(
     "[Content_Types].xml",
-    '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/word/document.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/></Types>'
+    '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/word/document.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/></Types>',
   );
   zip.file(
     "_rels/.rels",
-    '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="word/document.xml"/></Relationships>'
+    '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="word/document.xml"/></Relationships>',
   );
   zip.file(
     "word/document.xml",
-    `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:body>${xmlBody}</w:body></w:document>`
+    `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:body>${xmlBody}</w:body></w:document>`,
   );
   const buffer = await zip.generateAsync({ type: "uint8array" });
   return buffer;
@@ -35,7 +35,9 @@ describe("server document normalization", () => {
   });
 
   it("embeds image content in a printable A4 PDF", async () => {
-    const png = await sharp({ create: { width: 80, height: 120, channels: 3, background: "red" } }).png().toBuffer();
+    const png = await sharp({ create: { width: 80, height: 120, channels: 3, background: "red" } })
+      .png()
+      .toBuffer();
     const result = await normalizeDocument(new File([new Uint8Array(png)], "photo.png"));
     expect(result.pageCount).toBe(1);
     const pdf = await PDFDocument.load(result.bytes);
@@ -85,6 +87,6 @@ describe("server document normalization", () => {
       const result = await normalizeDocument(new File([rtf], "original.rtf"));
       expect(result.pageCount).toBe(2);
     },
-    60000
+    60000,
   );
 });

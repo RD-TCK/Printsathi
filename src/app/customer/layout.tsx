@@ -11,11 +11,7 @@ export default async function CustomerLayout({ children }: { children: ReactNode
   if (!user || !client) redirect("/login");
 
   // Fetch profile - block shop owners from entering customer portal
-  const { data: profile } = await client
-    .from("profiles")
-    .select("id, role, full_name")
-    .eq("id", user.id)
-    .maybeSingle();
+  const { data: profile } = await client.from("profiles").select("id, role, full_name").eq("id", user.id).maybeSingle();
 
   // Shop staff/owners go to their own portal at /shop
   if (profile?.role === "shop_owner" || profile?.role === "shop_staff" || profile?.role === "admin") {

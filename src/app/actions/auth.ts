@@ -13,7 +13,11 @@ const credentialsSchema = z.object({
 
 const registrationSchema = credentialsSchema.extend({
   fullName: z.string().trim().min(1, "Please enter your name.").max(120, "Name cannot exceed 120 characters."),
-  shopName: z.string().trim().min(2, "Shop name must be at least 2 characters.").max(160, "Shop name cannot exceed 160 characters."),
+  shopName: z
+    .string()
+    .trim()
+    .min(2, "Shop name must be at least 2 characters.")
+    .max(160, "Shop name cannot exceed 160 characters."),
   shopSlug: z
     .string()
     .trim()
@@ -72,11 +76,21 @@ export async function signIn(formData: FormData) {
   }
 
   const { data: profile } = await client.from("profiles").select("role").eq("id", user.id).maybeSingle();
-  const { data: membership } = await client.from("shop_members").select("shop_id").eq("user_id", user.id).limit(1).maybeSingle();
+  const { data: membership } = await client
+    .from("shop_members")
+    .select("shop_id")
+    .eq("user_id", user.id)
+    .limit(1)
+    .maybeSingle();
 
   if (profile?.role === "admin") {
     redirect("/admin");
-  } else if (profile?.role === "shop_owner" || profile?.role === "shop_staff" || membership || user.user_metadata?.shop_name) {
+  } else if (
+    profile?.role === "shop_owner" ||
+    profile?.role === "shop_staff" ||
+    membership ||
+    user.user_metadata?.shop_name
+  ) {
     redirect("/shop");
   } else {
     redirect("/customer");
@@ -132,7 +146,9 @@ export async function signUpShopOwner(formData: FormData) {
 
   // If email confirmation is required by Supabase:
   if (!data.session) {
-    redirect("/login?message=Account+created+successfully!+Please+check+your+email+to+confirm+your+account+before+signing+in.");
+    redirect(
+      "/login?message=Account+created+successfully!+Please+check+your+email+to+confirm+your+account+before+signing+in.",
+    );
   }
 
   // If session is immediately active, ensure shop is created with collision fallback

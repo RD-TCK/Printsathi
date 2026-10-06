@@ -41,20 +41,18 @@ import { type PrintRange, validateRanges } from "@/lib/customer-print";
 import { calculatePricing, type PricingRule } from "@/lib/pricing-engine";
 import type { LayoutTemplate } from "@/components/multi-image-page-modal";
 
-const ImageCropperModal = dynamic(
-  () => import("@/components/image-cropper-modal").then((m) => m.ImageCropperModal),
-  { ssr: false }
-);
+const ImageCropperModal = dynamic(() => import("@/components/image-cropper-modal").then((m) => m.ImageCropperModal), {
+  ssr: false,
+});
 
 const MultiImagePageModal = dynamic(
   () => import("@/components/multi-image-page-modal").then((m) => m.MultiImagePageModal),
-  { ssr: false }
+  { ssr: false },
 );
 
-const PrintPreviewStep = dynamic(
-  () => import("@/components/print-preview-step").then((m) => m.PrintPreviewStep),
-  { ssr: false }
-);
+const PrintPreviewStep = dynamic(() => import("@/components/print-preview-step").then((m) => m.PrintPreviewStep), {
+  ssr: false,
+});
 
 import { Alert } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
@@ -176,8 +174,6 @@ export type Estimate = {
   blackAndWhitePages: number;
 };
 
-
-
 async function safeFetchJson<T = unknown>(
   response: Response,
 ): Promise<{ ok: boolean; status: number; data?: T; error?: string }> {
@@ -187,7 +183,9 @@ async function safeFetchJson<T = unknown>(
       return {
         ok: response.ok,
         status: response.status,
-        error: response.ok ? undefined : `Server returned an empty response (HTTP ${response.status}). Please try again.`,
+        error: response.ok
+          ? undefined
+          : `Server returned an empty response (HTTP ${response.status}). Please try again.`,
       };
     }
     try {
@@ -320,7 +318,7 @@ async function optimizeImageForUpload(file: File): Promise<File> {
 function uploadWithProgress<T>(
   url: string,
   formData: FormData,
-  onProgress: (percent: number) => void
+  onProgress: (percent: number) => void,
 ): Promise<{ ok: boolean; status: number; data?: T; error?: string; failedFilename?: string }> {
   return new Promise((resolve) => {
     const xhr = new XMLHttpRequest();
@@ -360,7 +358,11 @@ function uploadWithProgress<T>(
     };
 
     xhr.onerror = () => {
-      resolve({ ok: false, status: 0, error: "Network error during upload. Please check your connection and try again." });
+      resolve({
+        ok: false,
+        status: 0,
+        error: "Network error during upload. Please check your connection and try again.",
+      });
     };
 
     xhr.ontimeout = () => {
@@ -386,24 +388,39 @@ export function CustomerPrintFlow({
       side_mode: r.side_mode ?? "single_sided",
       price_per_page: Number(r.price_per_page),
       is_active: true,
-    }))
+    })),
   );
 
   useEffect(() => {
     const controller = new AbortController();
     const refresh = async () => {
       try {
-        const response = await fetch(`/api/public/shops/${encodeURIComponent(identifier)}/status`, { cache: "no-store", signal: controller.signal });
+        const response = await fetch(`/api/public/shops/${encodeURIComponent(identifier)}/status`, {
+          cache: "no-store",
+          signal: controller.signal,
+        });
         if (!response.ok) throw new Error("Status unavailable");
         const data = await response.json();
         if (!controller.signal.aborted) setShop(data.shop);
       } catch {
-        if (!controller.signal.aborted) setShop(previous => ({ ...previous, printer_status: "offline", bw_printer_status: "offline", color_printer_status: "offline", online_printers: [] }));
+        if (!controller.signal.aborted)
+          setShop((previous) => ({
+            ...previous,
+            printer_status: "offline",
+            bw_printer_status: "offline",
+            color_printer_status: "offline",
+            online_printers: [],
+          }));
       }
     };
     void refresh();
-    const timer = setInterval(() => { void refresh(); }, 2000);
-    return () => { controller.abort(); clearInterval(timer); };
+    const timer = setInterval(() => {
+      void refresh();
+    }, 2000);
+    return () => {
+      controller.abort();
+      clearInterval(timer);
+    };
   }, [identifier]);
 
   // Step 0: Upload, Step 1: Configure & Crop, Step 2: Print Preview & Review, Step 3: Payment Online, Step 4: Counter Token
@@ -430,7 +447,11 @@ export function CustomerPrintFlow({
       if (!Array.isArray(parsed)) return [];
       const cutoff = nowSnapshot - 48 * 60 * 60 * 1000;
       return parsed.filter(
-        (t) => t && typeof t.tokenNumber === "number" && t.publicOrderId && new Date(t.createdAt || t.expiresAt).getTime() > cutoff
+        (t) =>
+          t &&
+          typeof t.tokenNumber === "number" &&
+          t.publicOrderId &&
+          new Date(t.createdAt || t.expiresAt).getTime() > cutoff,
       );
     } catch {
       return [];
@@ -457,7 +478,7 @@ export function CustomerPrintFlow({
         pageCount: token.totalPages,
         sizeBytes: 0,
         ranges: [],
-      }))
+      })),
     );
     setStep(4);
     setError(null);
@@ -465,7 +486,7 @@ export function CustomerPrintFlow({
 
   // Selected payment mode ("counter" or "online")
   const [selectedMode, setSelectedMode] = useState<"counter" | "online">(() =>
-    initialShop.payment_mode === "counter" ? "counter" : "online"
+    initialShop.payment_mode === "counter" ? "counter" : "online",
   );
 
   // Image Cropper State
@@ -475,7 +496,9 @@ export function CustomerPrintFlow({
   // Multi-Image Sheet State (Multiple Photos on 1 Page)
   const [multiImageModalOpen, setMultiImageModalOpen] = useState(false);
   const [multiImageInitialPreset, setMultiImageInitialPreset] = useState<LayoutTemplate>("grid-2-vert");
-  const [multiImageInitialImages, setMultiImageInitialImages] = useState<{ dataUrl: string; filename: string; documentId?: string }[]>([]);
+  const [multiImageInitialImages, setMultiImageInitialImages] = useState<
+    { dataUrl: string; filename: string; documentId?: string }[]
+  >([]);
 
   const existingDocImages = useMemo(() => {
     return documents
@@ -483,7 +506,11 @@ export function CustomerPrintFlow({
       .filter((d) => d.previewUrl || d.isImage || /\.(png|jpg|jpeg|webp|gif|bmp)$/i.test(d.filename))
       .map((d) => ({
         documentId: d.id,
-        dataUrl: d.previewUrl || (orderId && accessToken ? `/api/customer/document-preview?documentId=${d.id}&orderId=${orderId}&token=${accessToken}` : ""),
+        dataUrl:
+          d.previewUrl ||
+          (orderId && accessToken
+            ? `/api/customer/document-preview?documentId=${d.id}&orderId=${orderId}&token=${accessToken}`
+            : ""),
         filename: d.filename,
       }))
       .filter((x) => Boolean(x.dataUrl));
@@ -498,7 +525,7 @@ export function CustomerPrintFlow({
       (d) =>
         !d.isCombinedSheet &&
         !d.filename.startsWith("multi-photo-sheet-") &&
-        (d.previewUrl || d.isImage || /\.(png|jpg|jpeg|webp|gif|bmp)$/i.test(d.filename))
+        (d.previewUrl || d.isImage || /\.(png|jpg|jpeg|webp|gif|bmp)$/i.test(d.filename)),
     );
 
     if (typeof initialDocIndex === "number" && documents[initialDocIndex]) {
@@ -508,10 +535,7 @@ export function CustomerPrintFlow({
       // Order pool starting from activeDoc, followed by all remaining uncombined photos, then any prior uncombined photos
       let orderedRawDocs = rawImageDocs;
       if (activeRawIndex !== -1) {
-        orderedRawDocs = [
-          ...rawImageDocs.slice(activeRawIndex),
-          ...rawImageDocs.slice(0, activeRawIndex),
-        ];
+        orderedRawDocs = [...rawImageDocs.slice(activeRawIndex), ...rawImageDocs.slice(0, activeRawIndex)];
       }
 
       const reordered = orderedRawDocs
@@ -534,9 +558,7 @@ export function CustomerPrintFlow({
   };
 
   const activeTokenForShop = useMemo(() => {
-    return savedTokens.find(
-      (t) => t.shopIdentifier === identifier && new Date(t.expiresAt).getTime() > nowSnapshot
-    );
+    return savedTokens.find((t) => t.shopIdentifier === identifier && new Date(t.expiresAt).getTime() > nowSnapshot);
   }, [savedTokens, identifier, nowSnapshot]);
 
   const current = documents[activeDocument];
@@ -588,7 +610,7 @@ export function CustomerPrintFlow({
                 side_mode: r.side_mode ?? "single_sided",
                 price_per_page: Number(r.price_per_page),
                 is_active: true,
-              }))
+              })),
             );
           }
         }
@@ -637,7 +659,7 @@ export function CustomerPrintFlow({
         setUploadStatus("Connecting to your WhatsApp order draft...");
         const response = await fetch(
           `/api/customer/draft-order?orderId=${encodeURIComponent(initialOrderId!)}&accessToken=${encodeURIComponent(initialAccessToken!)}`,
-          { cache: "no-store" }
+          { cache: "no-store" },
         );
         if (!response.ok) {
           const errData = await response.json().catch(() => ({}));
@@ -648,31 +670,33 @@ export function CustomerPrintFlow({
 
         loadedDraftOrderIdRef.current = initialOrderId;
 
-        const docs: CustomerDocument[] = (data.documents || []).map((d: { id: string; filename: string; pageCount: number; sizeBytes?: number }) => {
-          const isImg = Boolean(d.filename.match(/\.(jpg|jpeg|png|webp|gif|bmp)$/i));
-          const previewUrl = isImg
-            ? `/api/customer/document-preview?documentId=${d.id}&orderId=${data.orderId}&token=${data.accessToken}`
-            : undefined;
+        const docs: CustomerDocument[] = (data.documents || []).map(
+          (d: { id: string; filename: string; pageCount: number; sizeBytes?: number }) => {
+            const isImg = Boolean(d.filename.match(/\.(jpg|jpeg|png|webp|gif|bmp)$/i));
+            const previewUrl = isImg
+              ? `/api/customer/document-preview?documentId=${d.id}&orderId=${data.orderId}&token=${data.accessToken}`
+              : undefined;
 
-          return {
-            id: d.id,
-            filename: d.filename,
-            pageCount: d.pageCount,
-            sizeBytes: d.sizeBytes || 0,
-            isImage: isImg,
-            previewUrl,
-            ranges: [
-              {
-                startPage: 1,
-                endPage: d.pageCount,
-                colorMode: "black_and_white",
-                paperSize: "a4",
-                sideMode: "single_sided",
-                copies: 1,
-              },
-            ],
-          };
-        });
+            return {
+              id: d.id,
+              filename: d.filename,
+              pageCount: d.pageCount,
+              sizeBytes: d.sizeBytes || 0,
+              isImage: isImg,
+              previewUrl,
+              ranges: [
+                {
+                  startPage: 1,
+                  endPage: d.pageCount,
+                  colorMode: "black_and_white",
+                  paperSize: "a4",
+                  sideMode: "single_sided",
+                  copies: 1,
+                },
+              ],
+            };
+          },
+        );
 
         setOrderId(data.orderId);
         setAccessToken(data.accessToken);
@@ -683,7 +707,11 @@ export function CustomerPrintFlow({
 
         if (pricingRules.length > 0) {
           try {
-            const instant = calculatePricing(docs.flatMap((d) => d.ranges), pricingRules, "customer_fee");
+            const instant = calculatePricing(
+              docs.flatMap((d) => d.ranges),
+              pricingRules,
+              "customer_fee",
+            );
             setEstimate({
               total: instant.total,
               subtotal: instant.subtotal,
@@ -738,8 +766,28 @@ export function CustomerPrintFlow({
       return;
     }
     const allowedExtensions = new Set([
-      ".pdf", ".jpg", ".jpeg", ".png", ".webp", ".gif", ".bmp", ".tif", ".tiff",
-      ".doc", ".docx", ".odt", ".rtf", ".ppt", ".pptx", ".odp", ".xls", ".xlsx", ".ods", ".txt", ".csv", ".md"
+      ".pdf",
+      ".jpg",
+      ".jpeg",
+      ".png",
+      ".webp",
+      ".gif",
+      ".bmp",
+      ".tif",
+      ".tiff",
+      ".doc",
+      ".docx",
+      ".odt",
+      ".rtf",
+      ".ppt",
+      ".pptx",
+      ".odp",
+      ".xls",
+      ".xlsx",
+      ".ods",
+      ".txt",
+      ".csv",
+      ".md",
     ]);
 
     for (const f of files) {
@@ -762,7 +810,7 @@ export function CustomerPrintFlow({
       setUploadStatus(
         files.some((f) => f.type.startsWith("image/") || /\.(png|jpg|jpeg|webp|bmp|tif|tiff)$/i.test(f.name))
           ? "Optimizing & preparing images..."
-          : "Preparing documents for upload..."
+          : "Preparing documents for upload...",
       );
       const processedFiles = await Promise.all(files.map((file) => optimizeImageForUpload(file)));
 
@@ -775,7 +823,11 @@ export function CustomerPrintFlow({
         }
       }
 
-      setUploadStatus(processedFiles.length > 1 ? `Uploading ${processedFiles.length} documents (0%)...` : "Uploading document (0%)...");
+      setUploadStatus(
+        processedFiles.length > 1
+          ? `Uploading ${processedFiles.length} documents (0%)...`
+          : "Uploading document (0%)...",
+      );
       const form = new FormData();
       form.append("shopIdentifier", identifier);
       if (isAppending && orderId && accessToken) {
@@ -795,7 +847,11 @@ export function CustomerPrintFlow({
         if (percent >= 99) {
           setUploadStatus("Processing documents & analyzing pages...");
         } else {
-          setUploadStatus(processedFiles.length > 1 ? `Uploading ${processedFiles.length} documents (${percent}%)...` : `Uploading document (${percent}%)...`);
+          setUploadStatus(
+            processedFiles.length > 1
+              ? `Uploading ${processedFiles.length} documents (${percent}%)...`
+              : `Uploading document (${percent}%)...`,
+          );
         }
       });
 
@@ -809,7 +865,9 @@ export function CustomerPrintFlow({
 
       const newDocs: CustomerDocument[] = result.documents.map((document: CustomerDocument, index: number) => {
         const matchingFile = processedFiles[index];
-        const isImg = matchingFile ? Boolean(matchingFile.type.startsWith("image/")) : Boolean(document.filename.match(/\.(jpg|jpeg|png|webp|gif|bmp)$/i));
+        const isImg = matchingFile
+          ? Boolean(matchingFile.type.startsWith("image/"))
+          : Boolean(document.filename.match(/\.(jpg|jpeg|png|webp|gif|bmp)$/i));
         const previewUrl = matchingFile && isImg ? URL.createObjectURL(matchingFile) : undefined;
 
         return {
@@ -837,7 +895,11 @@ export function CustomerPrintFlow({
       // Calculate instant price snapshot locally with 0ms delay
       if (pricingRules.length > 0) {
         try {
-          const instant = calculatePricing(mergedDocs.flatMap((d) => d.ranges), pricingRules, "customer_fee");
+          const instant = calculatePricing(
+            mergedDocs.flatMap((d) => d.ranges),
+            pricingRules,
+            "customer_fee",
+          );
           setEstimate({
             total: instant.total,
             subtotal: instant.subtotal,
@@ -888,7 +950,7 @@ export function CustomerPrintFlow({
         if (rangeIndex !== index) return range;
         if (field === "sideMode") {
           const allowDoubleSided = shop.allow_double_sided !== false;
-          const sideValue = (!allowDoubleSided || document.pageCount <= 1) ? "single_sided" : value;
+          const sideValue = !allowDoubleSided || document.pageCount <= 1 ? "single_sided" : value;
           return { ...range, sideMode: sideValue as "single_sided" | "double_sided" };
         }
         if (field === "startPage" || field === "endPage" || field === "copies") {
@@ -914,7 +976,8 @@ export function CustomerPrintFlow({
     const defaultMode = lastRange?.colorMode ?? "black_and_white";
     const defaultSize = lastRange?.paperSize ?? "a4";
     const allowDoubleSided = shop.allow_double_sided !== false;
-    const defaultSide = (!allowDoubleSided || current.pageCount <= 1) ? "single_sided" : (lastRange?.sideMode ?? "single_sided");
+    const defaultSide =
+      !allowDoubleSided || current.pageCount <= 1 ? "single_sided" : (lastRange?.sideMode ?? "single_sided");
     const defaultCopies = lastRange?.copies ?? 1;
     updateDocument((document) => ({
       ...document,
@@ -978,8 +1041,8 @@ export function CustomerPrintFlow({
               previewUrl: croppedDataUrl,
               croppedImageUrl: croppedDataUrl,
             }
-          : doc
-      )
+          : doc,
+      ),
     );
 
     // Re-upload cropped image in background to update normalized print PDF on server
@@ -1001,7 +1064,7 @@ export function CustomerPrintFlow({
           await fetch("/api/customer/upload", {
             method: "POST",
             body: form,
-          })
+          }),
         );
 
         if (uploadRes.ok && uploadRes.data && uploadRes.data.documents.length > 0) {
@@ -1014,8 +1077,8 @@ export function CustomerPrintFlow({
                     id: updatedServerDoc.id,
                     sizeBytes: updatedServerDoc.sizeBytes,
                   }
-                : doc
-            )
+                : doc,
+            ),
           );
         }
       } catch {
@@ -1029,7 +1092,7 @@ export function CustomerPrintFlow({
     blob: Blob,
     dataUrl: string,
     filename: string,
-    usedDocInfo: { usedDocumentIds: string[]; usedFilenames: string[]; usedDataUrls: string[] }
+    usedDocInfo: { usedDocumentIds: string[]; usedFilenames: string[]; usedDataUrls: string[] },
   ) {
     const file = new File([blob], filename, { type: "image/jpeg" });
 
@@ -1100,11 +1163,7 @@ export function CustomerPrintFlow({
       let nextDocs: CustomerDocument[];
       if (firstConsumedIndex !== -1) {
         const insertAt = Math.min(firstConsumedIndex, remainingDocs.length);
-        nextDocs = [
-          ...remainingDocs.slice(0, insertAt),
-          combinedCustomerDoc,
-          ...remainingDocs.slice(insertAt),
-        ];
+        nextDocs = [...remainingDocs.slice(0, insertAt), combinedCustomerDoc, ...remainingDocs.slice(insertAt)];
       } else {
         nextDocs = [...remainingDocs, combinedCustomerDoc];
       }
@@ -1120,7 +1179,7 @@ export function CustomerPrintFlow({
           idx > combinedIndex &&
           !d.isCombinedSheet &&
           !d.filename.startsWith("multi-photo-sheet-") &&
-          (d.previewUrl || d.isImage || /\.(png|jpg|jpeg|webp|gif|bmp)$/i.test(d.filename))
+          (d.previewUrl || d.isImage || /\.(png|jpg|jpeg|webp|gif|bmp)$/i.test(d.filename)),
       );
 
       // If there are subsequent uncombined images, automatically focus on the next uncombined image
@@ -1140,7 +1199,11 @@ export function CustomerPrintFlow({
       // Instant price snapshot
       if (pricingRules.length > 0) {
         try {
-          const instant = calculatePricing(nextDocs.flatMap((d) => d.ranges), pricingRules, "customer_fee");
+          const instant = calculatePricing(
+            nextDocs.flatMap((d) => d.ranges),
+            pricingRules,
+            "customer_fee",
+          );
           setEstimate({
             total: instant.total,
             subtotal: instant.subtotal,
@@ -1323,7 +1386,9 @@ export function CustomerPrintFlow({
               <p className="text-[11px] text-emerald-700 flex items-center gap-1">
                 <Clock3 className="size-3 shrink-0" />
                 <span>
-                  Expires in {Math.max(1, Math.round((new Date(activeTokenForShop.expiresAt).getTime() - nowSnapshot) / 60000))}m · ₹{activeTokenForShop.totalAmount.toFixed(2)}
+                  Expires in{" "}
+                  {Math.max(1, Math.round((new Date(activeTokenForShop.expiresAt).getTime() - nowSnapshot) / 60000))}m ·
+                  ₹{activeTokenForShop.totalAmount.toFixed(2)}
                 </span>
               </p>
             </div>
@@ -1407,7 +1472,6 @@ export function CustomerPrintFlow({
             accessToken={accessToken}
             onProceedToPay={handleProceedToPay}
             onProceedToCounterToken={handleProceedToCounterToken}
-
           />
         </>
       ) : null}
@@ -1530,8 +1594,8 @@ function StepIndicator({ step }: { step: number }) {
                 isCurrent
                   ? "bg-emerald-600 text-white shadow-md shadow-emerald-900/20 ring-1 ring-emerald-500"
                   : isCompleted
-                  ? "bg-emerald-50 text-emerald-800 border border-emerald-200"
-                  : "bg-slate-50 text-slate-400 border border-slate-200/60"
+                    ? "bg-emerald-50 text-emerald-800 border border-emerald-200"
+                    : "bg-slate-50 text-slate-400 border border-slate-200/60",
               )}
               key={item.full}
             >
@@ -1541,7 +1605,7 @@ function StepIndicator({ step }: { step: number }) {
                 <span
                   className={cn(
                     "flex size-4 sm:size-5 shrink-0 items-center justify-center rounded-full text-[9px] sm:text-[11px] font-black transition-colors",
-                    isCurrent ? "bg-white/20 text-white" : "bg-slate-200 text-slate-600"
+                    isCurrent ? "bg-white/20 text-white" : "bg-slate-200 text-slate-600",
                   )}
                 >
                   {index + 1}
@@ -1586,7 +1650,10 @@ function UploadStep({
     if (!newFiles.length) return;
     setSelectedFiles((current) => {
       const existing = new Set(current.map((file) => `${file.name}:${file.size}:${file.lastModified}`));
-      return [...current, ...newFiles.filter((file) => !existing.has(`${file.name}:${file.size}:${file.lastModified}`))].slice(0, 10);
+      return [
+        ...current,
+        ...newFiles.filter((file) => !existing.has(`${file.name}:${file.size}:${file.lastModified}`)),
+      ].slice(0, 10);
     });
   };
 
@@ -1666,8 +1733,8 @@ function UploadStep({
             isDragging
               ? "border-emerald-600 bg-emerald-50 ring-4 ring-emerald-500/20 scale-[1.01]"
               : selectedFiles.length > 0
-              ? "border-slate-300 bg-slate-50/50 hover:border-emerald-600 hover:bg-emerald-50/30"
-              : "border-emerald-400 bg-emerald-50/40 hover:border-emerald-600 hover:bg-emerald-50/70 shadow-xs"
+                ? "border-slate-300 bg-slate-50/50 hover:border-emerald-600 hover:bg-emerald-50/30"
+                : "border-emerald-400 bg-emerald-50/40 hover:border-emerald-600 hover:bg-emerald-50/70 shadow-xs",
           )}
         >
           {/* Solid Emerald Icon */}
@@ -1679,11 +1746,12 @@ function UploadStep({
             {isDragging
               ? "Drop documents here to upload!"
               : selectedFiles.length > 0
-              ? "Add more files or configure below"
-              : "Tap to Choose Document or Take Photo"}
+                ? "Add more files or configure below"
+                : "Tap to Choose Document or Take Photo"}
           </p>
           <p className="mt-1 text-xs text-slate-500 max-w-md leading-relaxed">
-            Drag &amp; drop files here or use the buttons below. Supports PDF, Photos (JPG/PNG), Word documents up to 25MB.
+            Drag &amp; drop files here or use the buttons below. Supports PDF, Photos (JPG/PNG), Word documents up to
+            25MB.
           </p>
 
           {/* Direct Action Buttons Inside Zone */}
@@ -1738,7 +1806,7 @@ function UploadStep({
                       "flex flex-col gap-1 rounded-xl border p-3 text-xs transition",
                       fileError
                         ? "border-rose-300 bg-rose-50/80 ring-2 ring-rose-400/20"
-                        : "border-slate-200 bg-slate-50/70 hover:bg-white hover:border-slate-300 hover:shadow-xs"
+                        : "border-slate-200 bg-slate-50/70 hover:bg-white hover:border-slate-300 hover:shadow-xs",
                     )}
                   >
                     <div className="flex items-center justify-between">
@@ -1749,15 +1817,20 @@ function UploadStep({
                             fileError
                               ? "bg-rose-200 text-rose-800"
                               : isPdf
-                              ? "bg-rose-100 text-rose-700"
-                              : isImg
-                              ? "bg-emerald-100 text-emerald-800"
-                              : "bg-blue-100 text-blue-700"
+                                ? "bg-rose-100 text-rose-700"
+                                : isImg
+                                  ? "bg-emerald-100 text-emerald-800"
+                                  : "bg-blue-100 text-blue-700",
                           )}
                         >
                           {ext.replace(".", "") || "DOC"}
                         </span>
-                        <span className={cn("truncate font-semibold", fileError ? "text-rose-900 line-through decoration-rose-400" : "text-slate-800")}>
+                        <span
+                          className={cn(
+                            "truncate font-semibold",
+                            fileError ? "text-rose-900 line-through decoration-rose-400" : "text-slate-800",
+                          )}
+                        >
                           {file.name}
                         </span>
                         <span className="text-[11px] text-slate-400 shrink-0">
@@ -1794,7 +1867,8 @@ function UploadStep({
               <div className="flex items-start gap-2.5 rounded-xl bg-blue-50/80 p-3 text-xs text-blue-900 border border-blue-200/70">
                 <Info className="size-4 text-blue-600 shrink-0 mt-0.5" />
                 <span>
-                  <strong>Layout tip:</strong> Word documents are automatically prepared for printing. For 100% exact fonts and margins as seen on your screen, uploading as <strong>PDF</strong> is recommended.
+                  <strong>Layout tip:</strong> Word documents are automatically prepared for printing. For 100% exact
+                  fonts and margins as seen on your screen, uploading as <strong>PDF</strong> is recommended.
                 </span>
               </div>
             )}
@@ -1846,7 +1920,8 @@ function UploadStep({
                 <>
                   <Sparkles className="size-5 text-emerald-200" />
                   <span>
-                    Continue with {selectedFiles.length} File{selectedFiles.length === 1 ? "" : "s"} (Configure &amp; Print)
+                    Continue with {selectedFiles.length} File{selectedFiles.length === 1 ? "" : "s"} (Configure &amp;
+                    Print)
                   </span>
                   <ArrowRight className="size-5" />
                 </>
@@ -1965,11 +2040,17 @@ function ConfigureDocPreviewSection({
     (orderId && accessToken
       ? `/api/customer/document-preview?documentId=${doc.id}&orderId=${orderId}&token=${accessToken}`
       : "");
-  const isImageDoc = doc.isImage || Boolean(doc.filename.match(/\.(png|jpg|jpeg|webp|gif|bmp)$/i)) || Boolean(doc.previewUrl);
+  const isImageDoc =
+    doc.isImage || Boolean(doc.filename.match(/\.(png|jpg|jpeg|webp|gif|bmp)$/i)) || Boolean(doc.previewUrl);
   const totalCopies = doc.ranges.reduce((s, r) => s + (Number(r.copies) || 1), 0);
 
   return (
-    <div className={cn("space-y-2.5", !isFocusedView && "rounded-2xl border border-slate-200/90 bg-slate-50/50 p-3 sm:p-4")}>
+    <div
+      className={cn(
+        "space-y-2.5",
+        !isFocusedView && "rounded-2xl border border-slate-200/90 bg-slate-50/50 p-3 sm:p-4",
+      )}
+    >
       <div className="flex items-center justify-between gap-2">
         <div className="flex items-center gap-2 min-w-0">
           <div className="flex size-7 sm:size-8 shrink-0 items-center justify-center rounded-lg bg-white border border-slate-200 shadow-2xs text-emerald-600">
@@ -1987,7 +2068,8 @@ function ConfigureDocPreviewSection({
               </h4>
             </div>
             <p className="text-[10px] sm:text-[11px] text-slate-500">
-              {doc.pageCount}p · {includedPagesMap.size} selected · {totalCopies} {totalCopies === 1 ? "copy" : "copies"}
+              {doc.pageCount}p · {includedPagesMap.size} selected · {totalCopies}{" "}
+              {totalCopies === 1 ? "copy" : "copies"}
             </p>
           </div>
         </div>
@@ -2059,7 +2141,7 @@ function ConfigureDocPreviewSection({
                     : "w-[calc(50%-5px)] min-w-[125px] max-w-[155px] sm:w-[145px]",
                   isIncluded
                     ? "border-emerald-500 bg-white shadow-xs ring-1 ring-emerald-500/20"
-                    : "border-slate-200 bg-slate-50/80 opacity-60"
+                    : "border-slate-200 bg-slate-50/80 opacity-60",
                 )}
               >
                 {/* Sheet Header Badge */}
@@ -2069,7 +2151,7 @@ function ConfigureDocPreviewSection({
                       "rounded-md px-1.5 py-0.5 text-[9px] font-black shrink-0",
                       isIncluded
                         ? "bg-emerald-100 text-emerald-900 border border-emerald-200"
-                        : "bg-slate-200 text-slate-600"
+                        : "bg-slate-200 text-slate-600",
                     )}
                   >
                     P. {pageNum}
@@ -2081,15 +2163,13 @@ function ConfigureDocPreviewSection({
                         "rounded-md px-1.5 py-0.5 text-[8.5px] font-bold truncate",
                         isColor
                           ? "bg-emerald-50 text-emerald-800 border border-emerald-200/80"
-                          : "bg-slate-100 text-slate-700 border border-slate-200/60"
+                          : "bg-slate-100 text-slate-700 border border-slate-200/60",
                       )}
                     >
                       {isColor ? "🎨 Color" : "📄 B&W"}
                     </span>
                   ) : (
-                    <span className="text-[8.5px] font-bold text-slate-400">
-                      Skipped
-                    </span>
+                    <span className="text-[8.5px] font-bold text-slate-400">Skipped</span>
                   )}
                 </div>
 
@@ -2097,7 +2177,7 @@ function ConfigureDocPreviewSection({
                 <div
                   className={cn(
                     "my-1.5 flex aspect-[1/1.25] w-full items-center justify-center rounded-lg bg-white border shadow-inner p-1 text-center overflow-hidden transition-all group-hover:border-emerald-500",
-                    isIncluded && !isColor ? "border-slate-300 bg-slate-50" : "border-slate-200/90"
+                    isIncluded && !isColor ? "border-slate-300 bg-slate-50" : "border-slate-200/90",
                   )}
                 >
                   {docPreviewUrl && (totalPagesInDoc === 1 || isImageDoc) ? (
@@ -2107,19 +2187,28 @@ function ConfigureDocPreviewSection({
                       alt={`Page ${pageNum} preview`}
                       className={cn(
                         "max-h-full max-w-full object-contain rounded-xs transition-all",
-                        isIncluded && !isColor && "grayscale contrast-105 brightness-95"
+                        isIncluded && !isColor && "grayscale contrast-105 brightness-95",
                       )}
-                      style={isIncluded && !isColor ? { filter: "grayscale(100%) contrast(1.1) brightness(0.96)" } : undefined}
+                      style={
+                        isIncluded && !isColor
+                          ? { filter: "grayscale(100%) contrast(1.1) brightness(0.96)" }
+                          : undefined
+                      }
                     />
                   ) : (
                     <div className="space-y-0.5 text-slate-400">
                       <FileText
                         className={cn(
                           "size-5 mx-auto transition-colors",
-                          isIncluded ? (isColor ? "text-emerald-600" : "text-slate-600") : "text-slate-300"
+                          isIncluded ? (isColor ? "text-emerald-600" : "text-slate-600") : "text-slate-300",
                         )}
                       />
-                      <span className={cn("block text-[9px] font-bold", isIncluded ? (isColor ? "text-emerald-900" : "text-slate-700") : "text-slate-600")}>
+                      <span
+                        className={cn(
+                          "block text-[9px] font-bold",
+                          isIncluded ? (isColor ? "text-emerald-900" : "text-slate-700") : "text-slate-600",
+                        )}
+                      >
                         Page #{pageNum}
                       </span>
                       {isIncluded && (
@@ -2133,9 +2222,7 @@ function ConfigureDocPreviewSection({
 
                 {/* Sheet Footer Details */}
                 <div className="flex items-center justify-between border-t border-slate-100 pt-1 text-[8.5px] sm:text-[9px]">
-                  <span className="font-semibold text-slate-500 truncate">
-                    {isDuplex ? "📑 2-Side" : "📄 1-Side"}
-                  </span>
+                  <span className="font-semibold text-slate-500 truncate">{isDuplex ? "📑 2-Side" : "📄 1-Side"}</span>
                   {isIncluded ? (
                     <span className="font-extrabold text-emerald-700 flex items-center gap-0.5 shrink-0">
                       <CheckCircle2 className="size-2.5" /> Ready
@@ -2222,9 +2309,7 @@ function ConfigureAndCropStep({
   }, 0);
 
   const displayTotalAmount =
-    estimate && estimate.total > 0
-      ? estimate.total.toFixed(2)
-      : (fallbackTotalPages * 5).toFixed(2);
+    estimate && estimate.total > 0 ? estimate.total.toFixed(2) : (fallbackTotalPages * 5).toFixed(2);
 
   const requestsColorMode = documents.some((doc) => doc.ranges.some((r) => r.colorMode === "color"));
   const colorPrinterUnavailable = requestsColorMode && shop.color_printer_status !== "ready";
@@ -2232,11 +2317,14 @@ function ConfigureAndCropStep({
     (d) =>
       !d.isCombinedSheet &&
       !d.filename.startsWith("multi-photo-sheet-") &&
-      (d.isImage || Boolean(d.previewUrl) || Boolean(d.filename.match(/\.(png|jpg|jpeg|webp|gif|bmp)$/i)))
+      (d.isImage || Boolean(d.previewUrl) || Boolean(d.filename.match(/\.(png|jpg|jpeg|webp|gif|bmp)$/i))),
   );
   const hasMultipleImages = uncombinedImageDocuments.length >= 2;
   const hasAnyImages = uncombinedImageDocuments.length >= 1;
-  const isImageDoc = current.isImage || Boolean(current.filename.match(/\.(png|jpg|jpeg|webp|gif|bmp)$/i)) || Boolean(current.previewUrl);
+  const isImageDoc =
+    current.isImage ||
+    Boolean(current.filename.match(/\.(png|jpg|jpeg|webp|gif|bmp)$/i)) ||
+    Boolean(current.previewUrl);
   const isCurrentCombinedSheet = Boolean(current.isCombinedSheet || current.filename.startsWith("multi-photo-sheet-"));
 
   const closeFullscreenPreview = useCallback(() => {
@@ -2264,12 +2352,10 @@ function ConfigureAndCropStep({
       if (e.key === "Escape") {
         closeFullscreenPreview();
       } else if (e.key === "ArrowLeft") {
-        setFullscreenTarget((prev) =>
-          prev && prev.pageNum > 1 ? { ...prev, pageNum: prev.pageNum - 1 } : prev
-        );
+        setFullscreenTarget((prev) => (prev && prev.pageNum > 1 ? { ...prev, pageNum: prev.pageNum - 1 } : prev));
       } else if (e.key === "ArrowRight") {
         setFullscreenTarget((prev) =>
-          prev && prev.pageNum < totalPages ? { ...prev, pageNum: prev.pageNum + 1 } : prev
+          prev && prev.pageNum < totalPages ? { ...prev, pageNum: prev.pageNum + 1 } : prev,
         );
       }
     };
@@ -2297,7 +2383,8 @@ function ConfigureAndCropStep({
       {/* Offline Warnings */}
       {colorPrinterUnavailable ? (
         <Alert tone="warning" title="Color Printer Currently Offline">
-          The shop&apos;s Color Printer is offline. Please change your document print mode to &quot;Black &amp; White&quot; to print immediately.
+          The shop&apos;s Color Printer is offline. Please change your document print mode to &quot;Black &amp;
+          White&quot; to print immediately.
         </Alert>
       ) : null}
 
@@ -2307,9 +2394,7 @@ function ConfigureAndCropStep({
         {documents.length > 1 && (
           <div className="mb-3.5 pb-2.5 border-b border-slate-100">
             <div className="flex items-center justify-between gap-2 mb-2">
-              <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">
-                Preview Filter:
-              </span>
+              <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">Preview Filter:</span>
               <span className="text-[11px] text-slate-400 font-medium">
                 {previewDocView === "all" ? `Showing all ${documents.length} files` : `Showing 1 file`}
               </span>
@@ -2322,7 +2407,7 @@ function ConfigureAndCropStep({
                   "flex items-center gap-1.5 shrink-0 rounded-xl border px-3 py-1.5 text-left text-xs transition-all cursor-pointer select-none",
                   previewDocView === "all"
                     ? "border-emerald-600 bg-emerald-50 font-bold text-emerald-950 shadow-xs ring-1 ring-emerald-500/20"
-                    : "border-slate-200 bg-white text-slate-600 hover:bg-slate-50"
+                    : "border-slate-200 bg-white text-slate-600 hover:bg-slate-50",
                 )}
               >
                 <Layers className="size-3.5 text-emerald-600 shrink-0" />
@@ -2344,7 +2429,7 @@ function ConfigureAndCropStep({
                     "flex items-center gap-1.5 shrink-0 rounded-xl border px-3 py-1.5 text-left text-xs transition-all cursor-pointer select-none",
                     previewDocView === idx
                       ? "border-emerald-600 bg-emerald-50 font-bold text-emerald-950 shadow-xs ring-1 ring-emerald-500/20"
-                      : "border-slate-200 bg-white text-slate-600 hover:bg-slate-50"
+                      : "border-slate-200 bg-white text-slate-600 hover:bg-slate-50",
                   )}
                 >
                   <FileText className="size-3.5 text-emerald-600 shrink-0" />
@@ -2393,9 +2478,7 @@ function ConfigureAndCropStep({
       <Card className="p-4 sm:p-7 border-slate-200/80 bg-white shadow-lg shadow-slate-900/5 rounded-2xl sm:rounded-3xl">
         <div className="flex flex-wrap items-center justify-between gap-2.5">
           <div>
-            <h2 className="text-lg sm:text-xl font-black tracking-tight text-slate-900">
-              Configure Print Settings
-            </h2>
+            <h2 className="text-lg sm:text-xl font-black tracking-tight text-slate-900">Configure Print Settings</h2>
             <p className="text-[11px] sm:text-xs text-slate-500">
               Set page ranges, copies, color options, and paper format.
             </p>
@@ -2442,10 +2525,12 @@ function ConfigureAndCropStep({
                 "flex items-center gap-2 shrink-0 rounded-xl border px-3.5 py-2 text-left text-xs transition-all cursor-pointer select-none",
                 index === activeDocument
                   ? "border-emerald-600 bg-emerald-50 font-bold text-emerald-950 shadow-xs ring-1 ring-emerald-500/30"
-                  : "border-slate-200 bg-white text-slate-600 hover:bg-slate-50"
+                  : "border-slate-200 bg-white text-slate-600 hover:bg-slate-50",
               )}
             >
-              <FileText className={cn("size-3.5 shrink-0", index === activeDocument ? "text-emerald-600" : "text-slate-400")} />
+              <FileText
+                className={cn("size-3.5 shrink-0", index === activeDocument ? "text-emerald-600" : "text-slate-400")}
+              />
               <span className="max-w-28 sm:max-w-36 truncate">{document.filename}</span>
               <span className="rounded-md bg-white/90 px-1.5 py-0.5 text-[10px] font-bold text-slate-600 border border-slate-200/60">
                 {document.pageCount}p
@@ -2503,9 +2588,7 @@ function ConfigureAndCropStep({
                     2 Slots
                   </span>
                 </div>
-                <p className="text-[10px] text-slate-500 mt-1 line-clamp-1">
-                  Top &amp; Bottom (Front &amp; Back)
-                </p>
+                <p className="text-[10px] text-slate-500 mt-1 line-clamp-1">Top &amp; Bottom (Front &amp; Back)</p>
               </button>
 
               {/* Preset 2: 2 Photos Side-by-Side */}
@@ -2515,16 +2598,12 @@ function ConfigureAndCropStep({
                 className="flex flex-col items-start rounded-xl border border-emerald-200/90 bg-white p-2.5 text-left transition hover:border-emerald-500 hover:shadow-xs hover:bg-emerald-50/60 active:scale-95 cursor-pointer group"
               >
                 <div className="flex items-center justify-between w-full">
-                  <span className="text-xs font-bold text-slate-900 group-hover:text-emerald-900">
-                    2 Side-by-Side
-                  </span>
+                  <span className="text-xs font-bold text-slate-900 group-hover:text-emerald-900">2 Side-by-Side</span>
                   <span className="rounded-md bg-emerald-100 text-emerald-800 text-[9px] font-black px-1.5 py-0.2">
                     2 Slots
                   </span>
                 </div>
-                <p className="text-[10px] text-slate-500 mt-1 line-clamp-1">
-                  Left &amp; Right columns
-                </p>
+                <p className="text-[10px] text-slate-500 mt-1 line-clamp-1">Left &amp; Right columns</p>
               </button>
 
               {/* Preset 3: 4 Photos Grid (2x2) */}
@@ -2534,9 +2613,7 @@ function ConfigureAndCropStep({
                 className="flex flex-col items-start rounded-xl border border-emerald-200/90 bg-white p-2.5 text-left transition hover:border-emerald-500 hover:shadow-xs hover:bg-emerald-50/60 active:scale-95 cursor-pointer group"
               >
                 <div className="flex items-center justify-between w-full">
-                  <span className="text-xs font-bold text-slate-900 group-hover:text-emerald-900">
-                    4 Photos (2×2)
-                  </span>
+                  <span className="text-xs font-bold text-slate-900 group-hover:text-emerald-900">4 Photos (2×2)</span>
                   <span className="rounded-md bg-emerald-100 text-emerald-800 text-[9px] font-black px-1.5 py-0.2">
                     4 Slots
                   </span>
@@ -2553,16 +2630,12 @@ function ConfigureAndCropStep({
                 className="flex flex-col items-start rounded-xl border border-emerald-200/90 bg-white p-2.5 text-left transition hover:border-emerald-500 hover:shadow-xs hover:bg-emerald-50/60 active:scale-95 cursor-pointer group"
               >
                 <div className="flex items-center justify-between w-full">
-                  <span className="text-xs font-bold text-slate-900 group-hover:text-emerald-900">
-                    6 Photos (2×3)
-                  </span>
+                  <span className="text-xs font-bold text-slate-900 group-hover:text-emerald-900">6 Photos (2×3)</span>
                   <span className="rounded-md bg-emerald-100 text-emerald-800 text-[9px] font-black px-1.5 py-0.2">
                     6 Slots
                   </span>
                 </div>
-                <p className="text-[10px] text-slate-500 mt-1 line-clamp-1">
-                  2 columns × 3 rows
-                </p>
+                <p className="text-[10px] text-slate-500 mt-1 line-clamp-1">2 columns × 3 rows</p>
               </button>
 
               {/* Preset 5: 8 Photos Grid (2x4) */}
@@ -2572,16 +2645,12 @@ function ConfigureAndCropStep({
                 className="flex flex-col items-start rounded-xl border border-emerald-200/90 bg-white p-2.5 text-left transition hover:border-emerald-500 hover:shadow-xs hover:bg-emerald-50/60 active:scale-95 cursor-pointer group"
               >
                 <div className="flex items-center justify-between w-full">
-                  <span className="text-xs font-bold text-slate-900 group-hover:text-emerald-900">
-                    8 Photos (2×4)
-                  </span>
+                  <span className="text-xs font-bold text-slate-900 group-hover:text-emerald-900">8 Photos (2×4)</span>
                   <span className="rounded-md bg-emerald-100 text-emerald-800 text-[9px] font-black px-1.5 py-0.2">
                     8 Slots
                   </span>
                 </div>
-                <p className="text-[10px] text-slate-500 mt-1 line-clamp-1">
-                  2 columns × 4 rows
-                </p>
+                <p className="text-[10px] text-slate-500 mt-1 line-clamp-1">2 columns × 4 rows</p>
               </button>
 
               {/* Preset 6: 8 Passports */}
@@ -2591,16 +2660,12 @@ function ConfigureAndCropStep({
                 className="flex flex-col items-start rounded-xl border border-emerald-200/90 bg-white p-2.5 text-left transition hover:border-emerald-500 hover:shadow-xs hover:bg-emerald-50/60 active:scale-95 cursor-pointer group"
               >
                 <div className="flex items-center justify-between w-full">
-                  <span className="text-xs font-bold text-slate-900 group-hover:text-emerald-900">
-                    8 Passports
-                  </span>
+                  <span className="text-xs font-bold text-slate-900 group-hover:text-emerald-900">8 Passports</span>
                   <span className="rounded-md bg-emerald-100 text-emerald-800 text-[9px] font-black px-1.5 py-0.2">
                     8 Slots
                   </span>
                 </div>
-                <p className="text-[10px] text-slate-500 mt-1 line-clamp-1">
-                  Standard 3.5×4.5cm photos
-                </p>
+                <p className="text-[10px] text-slate-500 mt-1 line-clamp-1">Standard 3.5×4.5cm photos</p>
               </button>
 
               {/* Preset 7: 16 Passports */}
@@ -2610,16 +2675,12 @@ function ConfigureAndCropStep({
                 className="flex flex-col items-start rounded-xl border border-emerald-200/90 bg-white p-2.5 text-left transition hover:border-emerald-500 hover:shadow-xs hover:bg-emerald-50/60 active:scale-95 cursor-pointer group"
               >
                 <div className="flex items-center justify-between w-full">
-                  <span className="text-xs font-bold text-slate-900 group-hover:text-emerald-900">
-                    16 Passports
-                  </span>
+                  <span className="text-xs font-bold text-slate-900 group-hover:text-emerald-900">16 Passports</span>
                   <span className="rounded-md bg-emerald-100 text-emerald-800 text-[9px] font-black px-1.5 py-0.2">
                     16 Slots
                   </span>
                 </div>
-                <p className="text-[10px] text-slate-500 mt-1 line-clamp-1">
-                  Full A4 passport sheet
-                </p>
+                <p className="text-[10px] text-slate-500 mt-1 line-clamp-1">Full A4 passport sheet</p>
               </button>
 
               {/* Preset 8: Custom Canvas */}
@@ -2629,16 +2690,12 @@ function ConfigureAndCropStep({
                 className="flex flex-col items-start rounded-xl border border-dashed border-emerald-300 bg-white p-2.5 text-left transition hover:border-emerald-600 hover:shadow-xs hover:bg-emerald-50/60 active:scale-95 cursor-pointer group"
               >
                 <div className="flex items-center justify-between w-full">
-                  <span className="text-xs font-bold text-slate-900 group-hover:text-emerald-900">
-                    Custom Layout
-                  </span>
+                  <span className="text-xs font-bold text-slate-900 group-hover:text-emerald-900">Custom Layout</span>
                   <span className="rounded-md bg-slate-100 text-slate-700 text-[9px] font-bold px-1.5 py-0.2">
                     Freeform
                   </span>
                 </div>
-                <p className="text-[10px] text-slate-500 mt-1 line-clamp-1">
-                  Drag &amp; position freely
-                </p>
+                <p className="text-[10px] text-slate-500 mt-1 line-clamp-1">Drag &amp; position freely</p>
               </button>
             </div>
           </div>
@@ -2659,7 +2716,9 @@ function ConfigureAndCropStep({
               <p className="text-[11px] text-slate-500 flex items-center gap-1.5 mt-0.5">
                 <span>{(current.sizeBytes / 1024 / 1024).toFixed(2)} MB</span>
                 <span>•</span>
-                <span>{current.pageCount} {current.pageCount === 1 ? "page" : "pages"} in original document</span>
+                <span>
+                  {current.pageCount} {current.pageCount === 1 ? "page" : "pages"} in original document
+                </span>
               </p>
             </div>
             <div className="flex items-center gap-2">
@@ -2831,9 +2890,7 @@ function ConfigureAndCropStep({
 
                 {/* 2. Tactile Color Mode Selector Cards */}
                 <div>
-                  <label className="text-xs font-bold text-slate-700 block mb-1.5">
-                    Print Color Mode
-                  </label>
+                  <label className="text-xs font-bold text-slate-700 block mb-1.5">Print Color Mode</label>
                   <div className="grid grid-cols-2 gap-2.5">
                     {/* B&W Card */}
                     <button
@@ -2843,13 +2900,15 @@ function ConfigureAndCropStep({
                         "flex items-center gap-2.5 rounded-xl border p-3 text-left transition-all cursor-pointer select-none",
                         !isColor
                           ? "border-slate-800 bg-slate-900 text-white shadow-md shadow-slate-900/15 ring-2 ring-slate-800/20"
-                          : "border-slate-200 bg-white text-slate-700 hover:bg-slate-50"
+                          : "border-slate-200 bg-white text-slate-700 hover:bg-slate-50",
                       )}
                     >
-                      <div className={cn(
-                        "flex size-8 items-center justify-center rounded-lg shrink-0",
-                        !isColor ? "bg-white/20 text-white" : "bg-slate-100 text-slate-700"
-                      )}>
+                      <div
+                        className={cn(
+                          "flex size-8 items-center justify-center rounded-lg shrink-0",
+                          !isColor ? "bg-white/20 text-white" : "bg-slate-100 text-slate-700",
+                        )}
+                      >
                         <FileText className="size-4" />
                       </div>
                       <div className="min-w-0 flex-1">
@@ -2871,14 +2930,16 @@ function ConfigureAndCropStep({
                         shop.color_printer_status !== "ready"
                           ? "opacity-50 border-slate-200 bg-slate-50 cursor-not-allowed"
                           : isColor
-                          ? "border-emerald-600 bg-emerald-600 text-white shadow-md shadow-emerald-900/20 ring-2 ring-emerald-500/30"
-                          : "border-slate-200 bg-white text-slate-700 hover:bg-slate-50"
+                            ? "border-emerald-600 bg-emerald-600 text-white shadow-md shadow-emerald-900/20 ring-2 ring-emerald-500/30"
+                            : "border-slate-200 bg-white text-slate-700 hover:bg-slate-50",
                       )}
                     >
-                      <div className={cn(
-                        "flex size-8 items-center justify-center rounded-lg shrink-0",
-                        isColor ? "bg-white/20 text-white" : "bg-emerald-50 text-emerald-600"
-                      )}>
+                      <div
+                        className={cn(
+                          "flex size-8 items-center justify-center rounded-lg shrink-0",
+                          isColor ? "bg-white/20 text-white" : "bg-emerald-50 text-emerald-600",
+                        )}
+                      >
                         <Palette className="size-4" />
                       </div>
                       <div className="min-w-0 flex-1">
@@ -2895,9 +2956,7 @@ function ConfigureAndCropStep({
                 {/* 3. Tactile Side / Duplex Mode Selector Cards (Only shown if shop allows double-sided printing) */}
                 {shop.allow_double_sided !== false && (
                   <div>
-                    <label className="text-xs font-bold text-slate-700 block mb-1.5">
-                      Paper Sides (Duplex)
-                    </label>
+                    <label className="text-xs font-bold text-slate-700 block mb-1.5">Paper Sides (Duplex)</label>
                     <div className="grid grid-cols-2 gap-2.5">
                       {/* Single Sided */}
                       <button
@@ -2907,7 +2966,7 @@ function ConfigureAndCropStep({
                           "flex items-center gap-2.5 rounded-xl border p-3 text-left transition-all cursor-pointer select-none",
                           !isDoubleSided
                             ? "border-emerald-600 bg-emerald-50/90 text-emerald-950 font-bold shadow-2xs ring-1 ring-emerald-500/30"
-                            : "border-slate-200 bg-white text-slate-600 hover:bg-slate-50"
+                            : "border-slate-200 bg-white text-slate-600 hover:bg-slate-50",
                         )}
                       >
                         <div className="flex size-7 items-center justify-center rounded-lg bg-white text-slate-700 shadow-2xs shrink-0">
@@ -2927,7 +2986,7 @@ function ConfigureAndCropStep({
                           "flex items-center gap-2.5 rounded-xl border p-3 text-left transition-all cursor-pointer select-none",
                           isDoubleSided
                             ? "border-emerald-600 bg-emerald-50/90 text-emerald-950 font-bold shadow-2xs ring-1 ring-emerald-500/30"
-                            : "border-slate-200 bg-white text-slate-600 hover:bg-slate-50"
+                            : "border-slate-200 bg-white text-slate-600 hover:bg-slate-50",
                         )}
                       >
                         <div className="flex size-7 items-center justify-center rounded-lg bg-white text-slate-700 shadow-2xs shrink-0">
@@ -2944,9 +3003,7 @@ function ConfigureAndCropStep({
 
                 {/* 4. Tactile Paper Size Chips */}
                 <div>
-                  <label className="text-xs font-bold text-slate-700 block mb-1.5">
-                    Paper Size
-                  </label>
+                  <label className="text-xs font-bold text-slate-700 block mb-1.5">Paper Size</label>
                   <div className="grid grid-cols-4 gap-2">
                     {[
                       { id: "a4", label: "A4", sub: "Standard" },
@@ -2964,7 +3021,7 @@ function ConfigureAndCropStep({
                             "rounded-xl border py-2 px-1 text-center transition-all cursor-pointer select-none",
                             active
                               ? "border-slate-800 bg-slate-900 text-white font-bold shadow-xs"
-                              : "border-slate-200 bg-white text-slate-700 hover:bg-slate-50"
+                              : "border-slate-200 bg-white text-slate-700 hover:bg-slate-50",
                           )}
                         >
                           <p className="text-xs font-bold">{ps.label}</p>
@@ -2979,10 +3036,14 @@ function ConfigureAndCropStep({
                 <div className="flex flex-wrap items-center justify-between gap-2 border-t border-slate-100 pt-3 text-xs">
                   <div className="flex flex-wrap items-center gap-1.5 font-medium text-slate-600">
                     <span className="rounded-md bg-slate-100 px-2 py-0.5 font-bold text-slate-800">
-                      {range.startPage === range.endPage ? `Page ${range.startPage}` : `Pages ${range.startPage}–${range.endPage}`}
+                      {range.startPage === range.endPage
+                        ? `Page ${range.startPage}`
+                        : `Pages ${range.startPage}–${range.endPage}`}
                     </span>
                     <span>({pageSpan}p)</span>
-                    <span className="font-bold text-emerald-700">× {copiesNum} {copiesNum === 1 ? "copy" : "copies"}</span>
+                    <span className="font-bold text-emerald-700">
+                      × {copiesNum} {copiesNum === 1 ? "copy" : "copies"}
+                    </span>
                     <span>=</span>
                     <span className="rounded-lg bg-emerald-50 px-2.5 py-0.5 font-black text-emerald-800 border border-emerald-200 shadow-2xs">
                       {rangePrintedPages} Printed {rangePrintedPages === 1 ? "Page" : "Pages"}
@@ -3120,9 +3181,7 @@ function ConfigureAndCropStep({
             <p className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">
               {fallbackTotalPages} {fallbackTotalPages === 1 ? "Page" : "Pages"}
             </p>
-            <p className="text-sm font-black text-emerald-800 font-mono">
-              ₹{displayTotalAmount}
-            </p>
+            <p className="text-sm font-black text-emerald-800 font-mono">₹{displayTotalAmount}</p>
           </div>
 
           {shopPaymentMode === "both" ? (
@@ -3171,122 +3230,122 @@ function ConfigureAndCropStep({
       </div>
 
       {/* Fullscreen Page Inspector Modal on tap */}
-      {fullscreenTarget !== null && (() => {
-        const targetDoc = documents[fullscreenTarget.docIndex] || current;
-        const targetIncludedMap = new Map<number, { colorMode: string; sideMode: string; copies: number }>();
-        if (targetDoc?.ranges) {
-          targetDoc.ranges.forEach((r) => {
-            const start = Number(r.startPage) || 1;
-            const end = Number(r.endPage) || start;
-            const copies = Number(r.copies) || 1;
-            for (let p = Math.min(start, end); p <= Math.max(start, end); p++) {
-              targetIncludedMap.set(p, {
-                colorMode: r.colorMode,
-                sideMode: r.sideMode ?? "single_sided",
-                copies,
-              });
-            }
-          });
-        }
-        const targetTotalPages = targetDoc ? targetDoc.pageCount : 1;
-        const targetDocPreviewUrl =
-          targetDoc.previewUrl ||
-          (orderId && accessToken
-            ? `/api/customer/document-preview?documentId=${targetDoc.id}&orderId=${orderId}&token=${accessToken}`
-            : "");
-        const targetIsImage = targetDoc.isImage || Boolean(targetDoc.filename.match(/\.(png|jpg|jpeg|webp|gif|bmp)$/i)) || Boolean(targetDoc.previewUrl);
-        const config = targetIncludedMap.get(fullscreenTarget.pageNum);
-        const isIncluded = Boolean(config);
-        const isColor = config?.colorMode === "color";
-        const isDuplex = config?.sideMode === "double_sided";
+      {fullscreenTarget !== null &&
+        (() => {
+          const targetDoc = documents[fullscreenTarget.docIndex] || current;
+          const targetIncludedMap = new Map<number, { colorMode: string; sideMode: string; copies: number }>();
+          if (targetDoc?.ranges) {
+            targetDoc.ranges.forEach((r) => {
+              const start = Number(r.startPage) || 1;
+              const end = Number(r.endPage) || start;
+              const copies = Number(r.copies) || 1;
+              for (let p = Math.min(start, end); p <= Math.max(start, end); p++) {
+                targetIncludedMap.set(p, {
+                  colorMode: r.colorMode,
+                  sideMode: r.sideMode ?? "single_sided",
+                  copies,
+                });
+              }
+            });
+          }
+          const targetTotalPages = targetDoc ? targetDoc.pageCount : 1;
+          const targetDocPreviewUrl =
+            targetDoc.previewUrl ||
+            (orderId && accessToken
+              ? `/api/customer/document-preview?documentId=${targetDoc.id}&orderId=${orderId}&token=${accessToken}`
+              : "");
+          const targetIsImage =
+            targetDoc.isImage ||
+            Boolean(targetDoc.filename.match(/\.(png|jpg|jpeg|webp|gif|bmp)$/i)) ||
+            Boolean(targetDoc.previewUrl);
+          const config = targetIncludedMap.get(fullscreenTarget.pageNum);
+          const isIncluded = Boolean(config);
+          const isColor = config?.colorMode === "color";
+          const isDuplex = config?.sideMode === "double_sided";
 
-        return (
-          <div className="fixed inset-0 z-50 flex flex-col bg-slate-950/70 backdrop-blur-md animate-in fade-in duration-200">
-            <div className="flex items-center justify-between border-b border-slate-200 bg-white px-4 py-3 text-slate-900 shadow-xs">
-              <button
-                type="button"
-                onClick={closeFullscreenPreview}
-                className="inline-flex items-center gap-1.5 rounded-xl border border-slate-200 bg-white px-2.5 sm:px-3 py-1.5 text-xs font-bold text-slate-700 shadow-2xs hover:bg-slate-50 transition cursor-pointer"
-              >
-                <ArrowLeft className="size-3.5" />
-                Back
-              </button>
-              <div className="text-center min-w-0 px-2">
-                <span className="block text-xs font-extrabold text-slate-900 truncate max-w-[180px] sm:max-w-xs">
-                  {targetDoc.filename}
-                </span>
-                <span className="text-[11px] text-slate-500 font-medium">
+          return (
+            <div className="fixed inset-0 z-50 flex flex-col bg-slate-950/70 backdrop-blur-md animate-in fade-in duration-200">
+              <div className="flex items-center justify-between border-b border-slate-200 bg-white px-4 py-3 text-slate-900 shadow-xs">
+                <button
+                  type="button"
+                  onClick={closeFullscreenPreview}
+                  className="inline-flex items-center gap-1.5 rounded-xl border border-slate-200 bg-white px-2.5 sm:px-3 py-1.5 text-xs font-bold text-slate-700 shadow-2xs hover:bg-slate-50 transition cursor-pointer"
+                >
+                  <ArrowLeft className="size-3.5" />
+                  Back
+                </button>
+                <div className="text-center min-w-0 px-2">
+                  <span className="block text-xs font-extrabold text-slate-900 truncate max-w-[180px] sm:max-w-xs">
+                    {targetDoc.filename}
+                  </span>
+                  <span className="text-[11px] text-slate-500 font-medium">
+                    Page {fullscreenTarget.pageNum} of {targetTotalPages}
+                  </span>
+                </div>
+                <button
+                  type="button"
+                  onClick={closeFullscreenPreview}
+                  className="flex size-7 items-center justify-center rounded-lg border border-slate-200 text-slate-500 hover:text-slate-900 transition"
+                  aria-label="Close preview"
+                >
+                  <X className="size-4" />
+                </button>
+              </div>
+
+              <div className="relative flex flex-1 items-center justify-center overflow-auto p-4 select-none bg-slate-100/90">
+                <div className="relative flex max-h-[80vh] w-auto max-w-[90vw] items-center justify-center rounded-2xl bg-white p-2 shadow-2xl border border-slate-800/10">
+                  {targetDocPreviewUrl && (targetTotalPages === 1 || targetIsImage) ? (
+                    // eslint-disable-next-line @next/next/no-img-element
+                    <img
+                      src={targetDocPreviewUrl}
+                      alt={`Page ${fullscreenTarget.pageNum}`}
+                      className="max-h-[75vh] w-auto max-w-full object-contain rounded-lg"
+                      style={isColor ? undefined : { filter: "grayscale(100%) contrast(1.1) brightness(0.96)" }}
+                    />
+                  ) : (
+                    <div className="flex flex-col items-center justify-center p-12 text-center text-slate-400 space-y-2">
+                      <FileText className="size-16 text-slate-300" />
+                      <p className="text-sm font-bold text-slate-700">Page {fullscreenTarget.pageNum}</p>
+                      <p className="text-xs text-slate-400">
+                        {isColor ? "Full Color" : "Black & White"} · {isDuplex ? "2-Sided" : "1-Sided"}
+                      </p>
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              <div className="flex items-center justify-between border-t border-slate-800/60 bg-slate-950/80 px-4 py-3 text-white backdrop-blur-md">
+                <button
+                  type="button"
+                  disabled={fullscreenTarget.pageNum <= 1}
+                  onClick={() =>
+                    setFullscreenTarget((p) => (p && p.pageNum > 1 ? { ...p, pageNum: p.pageNum - 1 } : p))
+                  }
+                  className="inline-flex items-center gap-1 rounded-xl bg-white/10 px-3 py-1.5 text-xs font-bold text-white hover:bg-white/20 disabled:opacity-30 disabled:pointer-events-none transition cursor-pointer"
+                >
+                  <ChevronLeft className="size-3.5" />
+                  Prev
+                </button>
+                <span className="text-[11px] text-slate-400">
                   Page {fullscreenTarget.pageNum} of {targetTotalPages}
                 </span>
-              </div>
-              <button
-                type="button"
-                onClick={closeFullscreenPreview}
-                className="flex size-7 items-center justify-center rounded-lg border border-slate-200 text-slate-500 hover:text-slate-900 transition"
-                aria-label="Close preview"
-              >
-                <X className="size-4" />
-              </button>
-            </div>
-
-            <div className="relative flex flex-1 items-center justify-center overflow-auto p-4 select-none bg-slate-100/90">
-              <div className="relative flex max-h-[80vh] w-auto max-w-[90vw] items-center justify-center rounded-2xl bg-white p-2 shadow-2xl border border-slate-800/10">
-                {targetDocPreviewUrl && (targetTotalPages === 1 || targetIsImage) ? (
-                  // eslint-disable-next-line @next/next/no-img-element
-                  <img
-                    src={targetDocPreviewUrl}
-                    alt={`Page ${fullscreenTarget.pageNum}`}
-                    className="max-h-[75vh] w-auto max-w-full object-contain rounded-lg"
-                    style={
-                      isColor
-                        ? undefined
-                        : { filter: "grayscale(100%) contrast(1.1) brightness(0.96)" }
-                    }
-                  />
-                ) : (
-                  <div className="flex flex-col items-center justify-center p-12 text-center text-slate-400 space-y-2">
-                    <FileText className="size-16 text-slate-300" />
-                    <p className="text-sm font-bold text-slate-700">Page {fullscreenTarget.pageNum}</p>
-                    <p className="text-xs text-slate-400">
-                      {isColor ? "Full Color" : "Black & White"} · {isDuplex ? "2-Sided" : "1-Sided"}
-                    </p>
-                  </div>
-                )}
+                <button
+                  type="button"
+                  disabled={fullscreenTarget.pageNum >= targetTotalPages}
+                  onClick={() =>
+                    setFullscreenTarget((p) =>
+                      p && p.pageNum < targetTotalPages ? { ...p, pageNum: p.pageNum + 1 } : p,
+                    )
+                  }
+                  className="inline-flex items-center gap-1 rounded-xl bg-white/10 px-3 py-1.5 text-xs font-bold text-white hover:bg-white/20 disabled:opacity-30 disabled:pointer-events-none transition cursor-pointer"
+                >
+                  Next
+                  <ChevronRight className="size-3.5" />
+                </button>
               </div>
             </div>
-
-            <div className="flex items-center justify-between border-t border-slate-800/60 bg-slate-950/80 px-4 py-3 text-white backdrop-blur-md">
-              <button
-                type="button"
-                disabled={fullscreenTarget.pageNum <= 1}
-                onClick={() =>
-                  setFullscreenTarget((p) => (p && p.pageNum > 1 ? { ...p, pageNum: p.pageNum - 1 } : p))
-                }
-                className="inline-flex items-center gap-1 rounded-xl bg-white/10 px-3 py-1.5 text-xs font-bold text-white hover:bg-white/20 disabled:opacity-30 disabled:pointer-events-none transition cursor-pointer"
-              >
-                <ChevronLeft className="size-3.5" />
-                Prev
-              </button>
-              <span className="text-[11px] text-slate-400">
-                Page {fullscreenTarget.pageNum} of {targetTotalPages}
-              </span>
-              <button
-                type="button"
-                disabled={fullscreenTarget.pageNum >= targetTotalPages}
-                onClick={() =>
-                  setFullscreenTarget((p) =>
-                    p && p.pageNum < targetTotalPages ? { ...p, pageNum: p.pageNum + 1 } : p
-                  )
-                }
-                className="inline-flex items-center gap-1 rounded-xl bg-white/10 px-3 py-1.5 text-xs font-bold text-white hover:bg-white/20 disabled:opacity-30 disabled:pointer-events-none transition cursor-pointer"
-              >
-                Next
-                <ChevronRight className="size-3.5" />
-              </button>
-            </div>
-          </div>
-        );
-      })()}
+          );
+        })()}
     </div>
   );
 }
@@ -3335,7 +3394,7 @@ function CounterTokenStep({
       try {
         const response = await fetch(
           `/api/payment/status?orderId=${encodeURIComponent(orderId)}&accessToken=${encodeURIComponent(accessToken || "")}`,
-          { cache: "no-store", signal: controller.signal }
+          { cache: "no-store", signal: controller.signal },
         );
         if (!response.ok) return;
         const data = await response.json();
@@ -3408,7 +3467,9 @@ function CounterTokenStep({
         </div>
 
         <div className="mt-3 sm:mt-4">
-          <span className="text-[10px] sm:text-xs font-bold uppercase tracking-widest text-slate-400">Your Token Number</span>
+          <span className="text-[10px] sm:text-xs font-bold uppercase tracking-widest text-slate-400">
+            Your Token Number
+          </span>
           <div className="mt-0.5 text-5xl sm:text-7xl font-black tracking-tight text-emerald-700 font-mono">
             #{tokenDetails.tokenNumber}
           </div>
@@ -3418,14 +3479,17 @@ function CounterTokenStep({
         <div className="mt-3 inline-flex flex-wrap items-center justify-center gap-1.5 rounded-xl bg-emerald-50 px-3 py-1.5 text-xs sm:text-sm font-extrabold text-emerald-900 border border-emerald-200">
           <Printer className="size-3.5 sm:size-4 text-emerald-700 shrink-0" />
           <span>
-            {tokenDetails.totalPages} Pages to print ({tokenDetails.blackAndWhitePages} B&amp;W, {tokenDetails.colorPages} Color)
+            {tokenDetails.totalPages} Pages to print ({tokenDetails.blackAndWhitePages} B&amp;W,{" "}
+            {tokenDetails.colorPages} Color)
           </span>
         </div>
 
         {/* Amount to pay */}
         <div className="mt-4 pt-3 border-t border-slate-100 flex items-center justify-center gap-2 text-slate-600 text-xs sm:text-sm">
           <span>Pay at Counter:</span>
-          <b className="text-xl sm:text-2xl font-black text-slate-900 font-mono">₹{tokenDetails.totalAmount.toFixed(2)}</b>
+          <b className="text-xl sm:text-2xl font-black text-slate-900 font-mono">
+            ₹{tokenDetails.totalAmount.toFixed(2)}
+          </b>
         </div>
 
         {/* Copy Token Button */}
@@ -3462,7 +3526,7 @@ function CounterTokenStep({
             <span
               className={cn(
                 "font-mono text-xl sm:text-2xl font-black",
-                remainingSeconds < 300 ? "text-rose-600" : "text-slate-900"
+                remainingSeconds < 300 ? "text-rose-600" : "text-slate-900",
               )}
             >
               {isExpired ? "Expired" : formattedCountdown}
@@ -3470,9 +3534,7 @@ function CounterTokenStep({
             <span className="text-[11px] text-slate-500">{isExpired ? "" : "left (1 hr validity)"}</span>
           </div>
           <p className="mt-1 text-[11px] text-slate-500 leading-snug">
-            {isExpired
-              ? "Token expired. Please submit a new request."
-              : "Show token to the shopkeeper before expiry."}
+            {isExpired ? "Token expired. Please submit a new request." : "Show token to the shopkeeper before expiry."}
           </p>
         </div>
 
@@ -3501,8 +3563,8 @@ function CounterTokenStep({
             {isCompleted
               ? "Ready! Collect printed sheets from counter."
               : isPrinting
-              ? "Shop owner approved token; printing in progress."
-              : `Shopkeeper will verify Token #${tokenDetails.tokenNumber} & print.`}
+                ? "Shop owner approved token; printing in progress."
+                : `Shopkeeper will verify Token #${tokenDetails.tokenNumber} & print.`}
           </p>
         </div>
       </div>
@@ -3631,19 +3693,27 @@ function PaymentStep({
     const refresh = async () => {
       if (typeof document !== "undefined" && document.visibilityState !== "visible") return;
       try {
-        const response = await fetch(`/api/payment/status?orderId=${encodeURIComponent(orderId)}&accessToken=${encodeURIComponent(accessToken || "")}`, { cache: "no-store", signal: controller.signal });
+        const response = await fetch(
+          `/api/payment/status?orderId=${encodeURIComponent(orderId)}&accessToken=${encodeURIComponent(accessToken || "")}`,
+          { cache: "no-store", signal: controller.signal },
+        );
         if (!response.ok) return;
         const data = await response.json();
         if (controller.signal.aborted) return;
         setJobStatuses(data.printJobs || []);
         if (data.payment?.isVerified) {
-          setPaymentStatus("verified"); setErrorMessage(null);
+          setPaymentStatus("verified");
+          setErrorMessage(null);
           setVerifiedDetails({ publicOrderId: data.order.publicId, paymentId: data.payment.providerPaymentId });
         }
-      } catch { /* Poll again without changing confirmed payment state. */ }
+      } catch {
+        /* Poll again without changing confirmed payment state. */
+      }
     };
     void refresh();
-    const timer = setInterval(() => { void refresh(); }, 2000);
+    const timer = setInterval(() => {
+      void refresh();
+    }, 2000);
     const onVisibilityChange = () => {
       if (document.visibilityState === "visible") void refresh();
     };
@@ -3655,167 +3725,164 @@ function PaymentStep({
     };
   }, [orderId, accessToken]);
 
-  const initiatePayment = useCallback(
-    async () => {
-      setErrorMessage(null);
-      setPaymentStatus("creating_order");
+  const initiatePayment = useCallback(async () => {
+    setErrorMessage(null);
+    setPaymentStatus("creating_order");
 
-      try {
-        // 1. Create server-side Razorpay Order
-        const response = await fetch("/api/payment/create-order", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            orderId,
-            shopIdentifier: identifier,
-            accessToken,
-            paymentMode: "razorpay",
-          }),
-        });
+    try {
+      // 1. Create server-side Razorpay Order
+      const response = await fetch("/api/payment/create-order", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          orderId,
+          shopIdentifier: identifier,
+          accessToken,
+          paymentMode: "razorpay",
+        }),
+      });
 
-        const createRes = await safeFetchJson<{
-          alreadyPaid?: boolean;
-          publicOrderId?: string;
-          amount?: number;
-          amountRupees?: number;
-          currency?: string;
-          keyId?: string;
-          razorpayOrderId?: string;
-          isTestMode?: boolean;
-          verified?: boolean;
-          paymentId?: string;
-          error?: string;
-        }>(response);
+      const createRes = await safeFetchJson<{
+        alreadyPaid?: boolean;
+        publicOrderId?: string;
+        amount?: number;
+        amountRupees?: number;
+        currency?: string;
+        keyId?: string;
+        razorpayOrderId?: string;
+        isTestMode?: boolean;
+        verified?: boolean;
+        paymentId?: string;
+        error?: string;
+      }>(response);
 
-        const orderData = createRes.data;
-        if (!orderData) throw new Error(createRes.error || "Empty payment response");
+      const orderData = createRes.data;
+      if (!orderData) throw new Error(createRes.error || "Empty payment response");
 
-        if (!createRes.ok) {
-          if (orderData.alreadyPaid) {
-            setPaymentStatus("verified");
-            setVerifiedDetails({
-              publicOrderId: orderData.publicOrderId || orderId.slice(0, 8),
-              amount: estimate.total,
-              currency: "INR",
-            });
-            return;
-          }
-          throw new Error(createRes.error || orderData.error || "Failed to initiate payment order.");
-        }
-
-        if (orderData.verified || orderData.alreadyPaid) {
+      if (!createRes.ok) {
+        if (orderData.alreadyPaid) {
           setPaymentStatus("verified");
           setVerifiedDetails({
             publicOrderId: orderData.publicOrderId || orderId.slice(0, 8),
-            paymentId: orderData.paymentId || `payment_${orderId.slice(0, 8)}`,
-            amount: orderData.amountRupees || orderData.amount || estimate.total,
-            currency: orderData.currency || "INR",
+            amount: estimate.total,
+            currency: "INR",
           });
           return;
         }
-
-        setIsTestMode(Boolean(orderData.isTestMode));
-
-        // 2. Load Razorpay Checkout SDK
-        const scriptLoaded = await loadRazorpayScript();
-        if (!scriptLoaded || !orderData.keyId || typeof orderData.amount !== "number" || !orderData.razorpayOrderId) {
-          throw new Error("Razorpay checkout SDK could not load. Check your internet connection and retry.");
-        }
-
-        const RazorpayConstructor = (
-          window as unknown as {
-            Razorpay: new (options: RazorpayCheckoutOptions) => {
-              open: () => void;
-              on: (event: string, handler: (data: RazorpayCheckoutFailure) => void) => void;
-            };
-          }
-        ).Razorpay;
-
-        if (!RazorpayConstructor) throw new Error("Razorpay checkout is unavailable. Please retry.");
-
-        // 3. Open Razorpay Checkout modal
-        const options: RazorpayCheckoutOptions = {
-          key: orderData.keyId,
-          amount: orderData.amount,
-          currency: orderData.currency || "INR",
-          name: shop.name,
-          description: `Print Order #${orderData.publicOrderId || orderId.slice(0, 8)}`,
-          order_id: orderData.razorpayOrderId,
-          theme: {
-            color: "#0f766e",
-          },
-          handler: async (paymentResponse: RazorpayCheckoutResponse) => {
-            setPaymentStatus("verifying");
-            try {
-              const verifyRes = await fetch("/api/payment/verify", {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({
-                  orderId,
-                  razorpayOrderId: paymentResponse.razorpay_order_id,
-                  razorpayPaymentId: paymentResponse.razorpay_payment_id,
-                  razorpaySignature: paymentResponse.razorpay_signature,
-                  accessToken,
-                }),
-              });
-
-              const verifyResData = await safeFetchJson<{
-                verified?: boolean;
-                error?: string;
-                paymentId?: string;
-                publicOrderId?: string;
-                amount?: number;
-                currency?: string;
-              }>(verifyRes);
-              const verifyData = verifyResData.data || {};
-              if (!verifyResData.ok || !verifyData.verified) {
-                throw new Error(verifyResData.error || verifyData.error || "Payment signature verification failed.");
-              }
-
-              setPaymentStatus("verified");
-              setVerifiedDetails({
-                paymentId: verifyData.paymentId,
-                publicOrderId: verifyData.publicOrderId,
-                amount: verifyData.amount,
-                currency: verifyData.currency,
-              });
-            } catch (verifyError) {
-              setPaymentStatus("failed");
-              let msg = verifyError instanceof Error ? verifyError.message : "Payment verification failed.";
-              if (msg.includes("Unexpected end of JSON input")) {
-                msg = "Payment verification response error. Please try again.";
-              }
-              setErrorMessage(msg);
-            }
-          },
-          modal: {
-            ondismiss: () => {
-              setPaymentStatus("failed");
-              setErrorMessage("Payment was cancelled. Click retry when ready.");
-            },
-          },
-        };
-
-        const rzpInstance = new RazorpayConstructor(options);
-
-        rzpInstance.on("payment.failed", (response: RazorpayCheckoutFailure) => {
-          setPaymentStatus("failed");
-          setErrorMessage(response.error?.description || "Payment failed. Please try again.");
-        });
-
-        setPaymentStatus("checkout_open");
-        rzpInstance.open();
-      } catch (err) {
-        setPaymentStatus("failed");
-        let msg = err instanceof Error ? err.message : "Could not initiate payment.";
-        if (msg.includes("Unexpected end of JSON input")) {
-          msg = "Payment service communication error. Please try again.";
-        }
-        setErrorMessage(msg);
+        throw new Error(createRes.error || orderData.error || "Failed to initiate payment order.");
       }
-    },
-    [orderId, identifier, accessToken, estimate.total, shop.name]
-  );
+
+      if (orderData.verified || orderData.alreadyPaid) {
+        setPaymentStatus("verified");
+        setVerifiedDetails({
+          publicOrderId: orderData.publicOrderId || orderId.slice(0, 8),
+          paymentId: orderData.paymentId || `payment_${orderId.slice(0, 8)}`,
+          amount: orderData.amountRupees || orderData.amount || estimate.total,
+          currency: orderData.currency || "INR",
+        });
+        return;
+      }
+
+      setIsTestMode(Boolean(orderData.isTestMode));
+
+      // 2. Load Razorpay Checkout SDK
+      const scriptLoaded = await loadRazorpayScript();
+      if (!scriptLoaded || !orderData.keyId || typeof orderData.amount !== "number" || !orderData.razorpayOrderId) {
+        throw new Error("Razorpay checkout SDK could not load. Check your internet connection and retry.");
+      }
+
+      const RazorpayConstructor = (
+        window as unknown as {
+          Razorpay: new (options: RazorpayCheckoutOptions) => {
+            open: () => void;
+            on: (event: string, handler: (data: RazorpayCheckoutFailure) => void) => void;
+          };
+        }
+      ).Razorpay;
+
+      if (!RazorpayConstructor) throw new Error("Razorpay checkout is unavailable. Please retry.");
+
+      // 3. Open Razorpay Checkout modal
+      const options: RazorpayCheckoutOptions = {
+        key: orderData.keyId,
+        amount: orderData.amount,
+        currency: orderData.currency || "INR",
+        name: shop.name,
+        description: `Print Order #${orderData.publicOrderId || orderId.slice(0, 8)}`,
+        order_id: orderData.razorpayOrderId,
+        theme: {
+          color: "#0f766e",
+        },
+        handler: async (paymentResponse: RazorpayCheckoutResponse) => {
+          setPaymentStatus("verifying");
+          try {
+            const verifyRes = await fetch("/api/payment/verify", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                orderId,
+                razorpayOrderId: paymentResponse.razorpay_order_id,
+                razorpayPaymentId: paymentResponse.razorpay_payment_id,
+                razorpaySignature: paymentResponse.razorpay_signature,
+                accessToken,
+              }),
+            });
+
+            const verifyResData = await safeFetchJson<{
+              verified?: boolean;
+              error?: string;
+              paymentId?: string;
+              publicOrderId?: string;
+              amount?: number;
+              currency?: string;
+            }>(verifyRes);
+            const verifyData = verifyResData.data || {};
+            if (!verifyResData.ok || !verifyData.verified) {
+              throw new Error(verifyResData.error || verifyData.error || "Payment signature verification failed.");
+            }
+
+            setPaymentStatus("verified");
+            setVerifiedDetails({
+              paymentId: verifyData.paymentId,
+              publicOrderId: verifyData.publicOrderId,
+              amount: verifyData.amount,
+              currency: verifyData.currency,
+            });
+          } catch (verifyError) {
+            setPaymentStatus("failed");
+            let msg = verifyError instanceof Error ? verifyError.message : "Payment verification failed.";
+            if (msg.includes("Unexpected end of JSON input")) {
+              msg = "Payment verification response error. Please try again.";
+            }
+            setErrorMessage(msg);
+          }
+        },
+        modal: {
+          ondismiss: () => {
+            setPaymentStatus("failed");
+            setErrorMessage("Payment was cancelled. Click retry when ready.");
+          },
+        },
+      };
+
+      const rzpInstance = new RazorpayConstructor(options);
+
+      rzpInstance.on("payment.failed", (response: RazorpayCheckoutFailure) => {
+        setPaymentStatus("failed");
+        setErrorMessage(response.error?.description || "Payment failed. Please try again.");
+      });
+
+      setPaymentStatus("checkout_open");
+      rzpInstance.open();
+    } catch (err) {
+      setPaymentStatus("failed");
+      let msg = err instanceof Error ? err.message : "Could not initiate payment.";
+      if (msg.includes("Unexpected end of JSON input")) {
+        msg = "Payment service communication error. Please try again.";
+      }
+      setErrorMessage(msg);
+    }
+  }, [orderId, identifier, accessToken, estimate.total, shop.name]);
 
   useEffect(() => {
     // eslint-disable-next-line react-hooks/set-state-in-effect
@@ -3833,7 +3900,8 @@ function PaymentStep({
           <Badge tone="success">PAYMENT VERIFIED</Badge>
         </div>
         <p className="mt-2 text-sm leading-6 text-muted">
-          Your payment of <b className="text-brand-950">₹{estimate.total.toFixed(2)}</b> was received via Razorpay. Your print job is queued for automatic printing at <b className="text-brand-950">{shop.name}</b>.
+          Your payment of <b className="text-brand-950">₹{estimate.total.toFixed(2)}</b> was received via Razorpay. Your
+          print job is queued for automatic printing at <b className="text-brand-950">{shop.name}</b>.
         </p>
 
         <div className="mt-6 divide-y divide-emerald-100 rounded-2xl border border-emerald-200 bg-white p-5 shadow-sm">
@@ -3863,7 +3931,21 @@ function PaymentStep({
           </div>
         </div>
 
-        <div className="mt-4 space-y-2">{jobStatuses.map(job => <p key={job.id} className="rounded-lg border border-emerald-200 bg-white p-3 text-sm">Job #{job.id.slice(0, 8)}: <b>{job.status === "print_submitted" ? "Submitted to Windows; paper output unconfirmed" : job.status === "completed" ? "Printed (confirmed)" : job.status.replaceAll("_", " ")}</b>{job.failureReason && <span className="block text-red-700">{job.failureReason}</span>}</p>)}</div>
+        <div className="mt-4 space-y-2">
+          {jobStatuses.map((job) => (
+            <p key={job.id} className="rounded-lg border border-emerald-200 bg-white p-3 text-sm">
+              Job #{job.id.slice(0, 8)}:{" "}
+              <b>
+                {job.status === "print_submitted"
+                  ? "Submitted to Windows; paper output unconfirmed"
+                  : job.status === "completed"
+                    ? "Printed (confirmed)"
+                    : job.status.replaceAll("_", " ")}
+              </b>
+              {job.failureReason && <span className="block text-red-700">{job.failureReason}</span>}
+            </p>
+          ))}
+        </div>
         <div className="mt-6 flex flex-wrap items-center gap-3">
           <Button variant="primary" onClick={onReset}>
             <RotateCcw className="size-4" />
@@ -4046,7 +4128,9 @@ function RecentTokensModal({
             <div className="py-12 text-center text-slate-500">
               <Ticket className="mx-auto size-10 text-slate-300 mb-2" />
               <p className="text-sm font-semibold text-slate-700">No print tokens found in this browser</p>
-              <p className="text-xs text-slate-400 mt-1">Generated tokens will be saved here automatically for 1+ hour.</p>
+              <p className="text-xs text-slate-400 mt-1">
+                Generated tokens will be saved here automatically for 1+ hour.
+              </p>
             </div>
           ) : (
             <>
@@ -4235,4 +4319,3 @@ function RecentTokensModal({
     </div>
   );
 }
-

@@ -108,7 +108,8 @@ export default async function ShopJobsPage() {
               const copiesSummary = (rawPages as Array<{ start_page: number; end_page: number; copies?: number }>)
                 .map((p) => {
                   const copies = p.copies ?? 1;
-                  const rangeStr = p.start_page === p.end_page ? `p.${p.start_page}` : `p.${p.start_page}-${p.end_page}`;
+                  const rangeStr =
+                    p.start_page === p.end_page ? `p.${p.start_page}` : `p.${p.start_page}-${p.end_page}`;
                   return copies > 1 ? `${rangeStr} (${copies} copies)` : rangeStr;
                 })
                 .join(", ");
@@ -125,10 +126,7 @@ export default async function ShopJobsPage() {
                 <div key="doc" className="min-w-0">
                   <div className="flex items-center gap-1.5">
                     <FileText className="size-3.5 shrink-0 text-brand-500" />
-                    <span
-                      className="block max-w-44 truncate text-xs font-semibold text-brand-900"
-                      title={docName}
-                    >
+                    <span className="block max-w-44 truncate text-xs font-semibold text-brand-900" title={docName}>
                       {docName}
                     </span>
                   </div>
@@ -203,7 +201,6 @@ export default async function ShopJobsPage() {
           />
         </div>
       ) : (
-
         <ComingSoon
           title="No printing activity yet"
           description="Jobs will appear here as customers configure and complete verified payments."

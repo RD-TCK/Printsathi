@@ -12,11 +12,22 @@ export async function POST(request: Request) {
   try {
     form = await request.formData();
   } catch {
-    return NextResponse.json({ error: "Invalid upload request format. Please choose your files and try again." }, { status: 400 });
+    return NextResponse.json(
+      { error: "Invalid upload request format. Please choose your files and try again." },
+      { status: 400 },
+    );
   }
   const shopIdentifier = z.string().min(1).safeParse(form.get("shopIdentifier"));
-  const existingOrderId = z.string().uuid().optional().safeParse(form.get("orderId") || undefined);
-  const existingAccessToken = z.string().min(10).optional().safeParse(form.get("accessToken") || undefined);
+  const existingOrderId = z
+    .string()
+    .uuid()
+    .optional()
+    .safeParse(form.get("orderId") || undefined);
+  const existingAccessToken = z
+    .string()
+    .min(10)
+    .optional()
+    .safeParse(form.get("accessToken") || undefined);
   const files = form.getAll("files").filter((value): value is File => value instanceof File);
   if (!shopIdentifier.success || !files.length)
     return NextResponse.json({ error: "Select at least one document." }, { status: 400 });
@@ -43,21 +54,21 @@ export async function POST(request: Request) {
     if (file.size < 1) {
       return NextResponse.json(
         { error: `"${file.name}" is empty (0 bytes).`, failedFilename: file.name },
-        { status: 400 }
+        { status: 400 },
       );
     }
     if (file.size > maxSize) {
       const maxMb = (maxSize / (1024 * 1024)).toFixed(0);
       return NextResponse.json(
         { error: `"${file.name}" exceeds the ${maxMb} MB upload limit.`, failedFilename: file.name },
-        { status: 400 }
+        { status: 400 },
       );
     }
   }
 
   if (files.reduce((sum, file) => sum + file.size, 0) > 100 * 1024 * 1024)
     return NextResponse.json({ error: "Combined upload size must be under 100 MB." }, { status: 400 });
-  
+
   let normalized: NormalizedDocumentResult[] = [];
   try {
     normalized = await Promise.all(
@@ -66,16 +77,18 @@ export async function POST(request: Request) {
           return await normalizeDocument(file);
         } catch (error) {
           const rawMessage = error instanceof Error ? error.message : "Document conversion failed.";
-          const errorMsg = rawMessage.includes(file.name) ? rawMessage : `Failed to process "${file.name}": ${rawMessage}`;
+          const errorMsg = rawMessage.includes(file.name)
+            ? rawMessage
+            : `Failed to process "${file.name}": ${rawMessage}`;
           throw { errorMsg, failedFilename: file.name };
         }
-      })
+      }),
     );
   } catch (error: unknown) {
     const err = error as { errorMsg?: string; failedFilename?: string };
     return NextResponse.json(
       { error: err.errorMsg || "Document conversion failed.", failedFilename: err.failedFilename },
-      { status: 400 }
+      { status: 400 },
     );
   }
 

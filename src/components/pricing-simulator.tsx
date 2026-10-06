@@ -25,11 +25,7 @@ export function PricingSimulator({ rules }: { rules: Rule[] }) {
 
   const activeRules = rules
     .filter(
-      (r) =>
-        r.is_active &&
-        r.color_mode === mode &&
-        r.paper_size === paper &&
-        (r.side_mode ?? "single_sided") === side,
+      (r) => r.is_active && r.color_mode === mode && r.paper_size === paper && (r.side_mode ?? "single_sided") === side,
     )
     .sort((a, b) => a.min_pages - b.min_pages);
 
@@ -38,16 +34,16 @@ export function PricingSimulator({ rules }: { rules: Rule[] }) {
     activeRules.length > 0
       ? activeRules
       : side === "double_sided"
-      ? rules
-          .filter(
-            (r) =>
-              r.is_active &&
-              r.color_mode === mode &&
-              r.paper_size === paper &&
-              (r.side_mode ?? "single_sided") === "single_sided",
-          )
-          .sort((a, b) => a.min_pages - b.min_pages)
-      : [];
+        ? rules
+            .filter(
+              (r) =>
+                r.is_active &&
+                r.color_mode === mode &&
+                r.paper_size === paper &&
+                (r.side_mode ?? "single_sided") === "single_sided",
+            )
+            .sort((a, b) => a.min_pages - b.min_pages)
+        : [];
 
   const isFallback = activeRules.length === 0 && effectiveRules.length > 0;
 
@@ -148,7 +144,9 @@ export function PricingSimulator({ rules }: { rules: Rule[] }) {
               type="button"
               onClick={() => setPages(p)}
               className={`rounded-md px-2.5 py-1 text-xs font-semibold transition ${
-                pages === p ? "bg-brand-700 text-white" : "border border-line bg-brand-50/50 text-brand-800 hover:bg-brand-100"
+                pages === p
+                  ? "bg-brand-700 text-white"
+                  : "border border-line bg-brand-50/50 text-brand-800 hover:bg-brand-100"
               }`}
             >
               {p} {p === 1 ? "page" : "pages"}
@@ -183,7 +181,10 @@ export function PricingSimulator({ rules }: { rules: Rule[] }) {
             <div className="mt-3 space-y-1.5 text-xs text-brand-950">
               <span className="font-semibold text-muted block mb-1">Calculation Breakdown:</span>
               {breakdown.map((item, idx) => (
-                <div key={idx} className="flex justify-between items-center bg-white/80 rounded px-2.5 py-1.5 border border-line">
+                <div
+                  key={idx}
+                  className="flex justify-between items-center bg-white/80 rounded px-2.5 py-1.5 border border-line"
+                >
                   <span>
                     Matched Tier ({item.slab}): <b>{item.pagesInSlab} pages</b> × ₹{item.rate.toFixed(2)}
                   </span>
@@ -199,7 +200,8 @@ export function PricingSimulator({ rules }: { rules: Rule[] }) {
           </div>
         ) : (
           <div className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-xs text-amber-800">
-            No active pricing rules configured for {side === "double_sided" ? "Double-Sided" : "Single-Sided"} {mode === "color" ? "Color" : "Black & White"} ({paper.toUpperCase()}). Add a rule below to start pricing.
+            No active pricing rules configured for {side === "double_sided" ? "Double-Sided" : "Single-Sided"}{" "}
+            {mode === "color" ? "Color" : "Black & White"} ({paper.toUpperCase()}). Add a rule below to start pricing.
           </div>
         )}
       </CardContent>

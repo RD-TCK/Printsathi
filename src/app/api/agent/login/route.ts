@@ -23,7 +23,10 @@ export async function POST(request: Request) {
 
   const parsed = agentLoginSchema.safeParse(body);
   if (!parsed.success) {
-    return NextResponse.json({ error: "Invalid login request payload.", details: parsed.error.format() }, { status: 400 });
+    return NextResponse.json(
+      { error: "Invalid login request payload.", details: parsed.error.format() },
+      { status: 400 },
+    );
   }
 
   const adminClient = createSupabaseAdminClient();
@@ -60,11 +63,7 @@ export async function POST(request: Request) {
 
   if (!targetShopId) {
     // Check if user has an admin profile or owns a shop
-    const { data: profile } = await adminClient
-      .from("profiles")
-      .select("role")
-      .eq("id", userId)
-      .maybeSingle();
+    const { data: profile } = await adminClient.from("profiles").select("role").eq("id", userId).maybeSingle();
 
     if (profile?.role === "admin") {
       const { data: firstShop } = await adminClient
@@ -117,7 +116,7 @@ export async function POST(request: Request) {
   if (agentError || !newAgent) {
     return NextResponse.json(
       { error: agentError?.message || "Failed to initialize desktop agent profile." },
-      { status: 500 }
+      { status: 500 },
     );
   }
 

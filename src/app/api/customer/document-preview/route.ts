@@ -64,9 +64,7 @@ export async function GET(request: Request) {
 
   // 1. First, check if a direct preview.jpg exists for this document in storage
   const previewPath = doc.storage_path.replace(/source\.pdf$/, "preview.jpg");
-  const { data: previewBlob } = await client.storage
-    .from("print-documents")
-    .download(previewPath);
+  const { data: previewBlob } = await client.storage.from("print-documents").download(previewPath);
 
   if (previewBlob && previewBlob.size > 0) {
     const buffer = await previewBlob.arrayBuffer();

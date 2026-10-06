@@ -12,7 +12,21 @@ import sharp from "sharp";
 import mammoth from "mammoth";
 
 const execute = promisify(execFile);
-const officeExtensions = new Set([".doc", ".docx", ".odt", ".rtf", ".ppt", ".pptx", ".odp", ".xls", ".xlsx", ".ods", ".txt", ".csv", ".md"]);
+const officeExtensions = new Set([
+  ".doc",
+  ".docx",
+  ".odt",
+  ".rtf",
+  ".ppt",
+  ".pptx",
+  ".odp",
+  ".xls",
+  ".xlsx",
+  ".ods",
+  ".txt",
+  ".csv",
+  ".md",
+]);
 const textExtensions = new Set([".txt", ".csv", ".md"]);
 const imageExtensions = new Set([".jpg", ".jpeg", ".png", ".webp", ".gif", ".bmp", ".tif", ".tiff"]);
 
@@ -47,10 +61,7 @@ export async function normalizeDocument(file: File): Promise<NormalizedDocumentR
       previewImage = processedJpeg;
       previewMime = "image/jpeg";
     } else if (isPng) {
-      const processedPng = await sharp(bytes, { limitInputPixels: 268402689 })
-        .rotate()
-        .png()
-        .toBuffer();
+      const processedPng = await sharp(bytes, { limitInputPixels: 268402689 }).rotate().png().toBuffer();
       embeddedImage = await pdf.embedPng(processedPng);
       previewImage = processedPng;
       previewMime = "image/png";
@@ -104,7 +115,7 @@ export async function normalizeDocument(file: File): Promise<NormalizedDocumentR
         converted = true;
       } catch {
         throw new Error(
-          `Could not convert "${file.name}" to PDF. Please export your Word document as a PDF and upload the PDF file instead.`
+          `Could not convert "${file.name}" to PDF. Please export your Word document as a PDF and upload the PDF file instead.`,
         );
       }
     }
@@ -117,7 +128,7 @@ export async function normalizeDocument(file: File): Promise<NormalizedDocumentR
     bytes = Buffer.from(await convertWithLibreOffice(file, extension, bytes));
   } else if (extension !== ".pdf") {
     throw new Error(
-      `${file.name}: unsupported file type. Upload a PDF, image (JPG/PNG), Word document (.docx), PowerPoint, Excel, or plain text file.`
+      `${file.name}: unsupported file type. Upload a PDF, image (JPG/PNG), Word document (.docx), PowerPoint, Excel, or plain text file.`,
     );
   }
 
@@ -144,9 +155,13 @@ function getLibreOfficePath(): string {
     const candidates = [
       "C:\\Program Files\\LibreOffice\\program\\soffice.exe",
       "C:\\Program Files (x86)\\LibreOffice\\program\\soffice.exe",
-      process.env.LOCALAPPDATA ? path.join(process.env.LOCALAPPDATA, "Programs", "LibreOffice", "program", "soffice.exe") : "",
+      process.env.LOCALAPPDATA
+        ? path.join(process.env.LOCALAPPDATA, "Programs", "LibreOffice", "program", "soffice.exe")
+        : "",
       process.env.PROGRAMFILES ? path.join(process.env.PROGRAMFILES, "LibreOffice", "program", "soffice.exe") : "",
-      process.env["PROGRAMFILES(X86)"] ? path.join(process.env["PROGRAMFILES(X86)"], "LibreOffice", "program", "soffice.exe") : "",
+      process.env["PROGRAMFILES(X86)"]
+        ? path.join(process.env["PROGRAMFILES(X86)"], "LibreOffice", "program", "soffice.exe")
+        : "",
     ].filter(Boolean);
 
     for (const p of candidates) {
@@ -205,7 +220,7 @@ async function convertWithLibreOffice(file: File, extension: string, bytes: Buff
     await fs.mkdir(path.join(profile, "user"), { recursive: true });
     await fs.writeFile(
       path.join(profile, "user", "registrymodifications.xcu"),
-      '<?xml version="1.0"?><oor:items xmlns:oor="http://openoffice.org/2001/registry"><item oor:path="/org.openoffice.Office.Common/Security/Scripting"><prop oor:name="MacroSecurityLevel" oor:op="fuse"><value>3</value></prop></item></oor:items>'
+      '<?xml version="1.0"?><oor:items xmlns:oor="http://openoffice.org/2001/registry"><item oor:path="/org.openoffice.Office.Common/Security/Scripting"><prop oor:name="MacroSecurityLevel" oor:op="fuse"><value>3</value></prop></item></oor:items>',
     );
     const executable = getLibreOfficePath();
     try {
@@ -223,12 +238,12 @@ async function convertWithLibreOffice(file: File, extension: string, bytes: Buff
           directory,
           input,
         ],
-        { timeout: 60000, windowsHide: true, maxBuffer: 1024 * 1024 }
+        { timeout: 60000, windowsHide: true, maxBuffer: 1024 * 1024 },
       );
       return await fs.readFile(path.join(directory, "source.pdf"));
     } catch {
       throw new Error(
-        `Could not convert "${file.name}" to PDF. Please export your document as a PDF in Word/PowerPoint/Excel and upload the PDF file instead. Password-protected files are not supported.`
+        `Could not convert "${file.name}" to PDF. Please export your document as a PDF in Word/PowerPoint/Excel and upload the PDF file instead. Password-protected files are not supported.`,
       );
     }
   } finally {
@@ -274,11 +289,10 @@ try {
   [System.GC]::WaitForPendingFinalizers()
 }
 `;
-    await execute(
-      "powershell",
-      ["-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-Command", script],
-      { timeout: 60000, windowsHide: true }
-    );
+    await execute("powershell", ["-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-Command", script], {
+      timeout: 60000,
+      windowsHide: true,
+    });
 
     if (!existsSync(output)) {
       throw new Error("Word conversion did not produce output PDF.");
@@ -353,24 +367,24 @@ function sanitizeForPdf(text: string): string {
   // Common Unicode mappings
   const charMap: Record<string, string> = {
     "\u20B9": "Rs. ", // Rupee
-    "\u201C": '"',    // Left double quote
-    "\u201D": '"',    // Right double quote
+    "\u201C": '"', // Left double quote
+    "\u201D": '"', // Right double quote
     "\u201E": '"',
     "\u201F": '"',
     "\u00AB": '"',
     "\u00BB": '"',
-    "\u2018": "'",    // Left single quote
-    "\u2019": "'",    // Right single quote
+    "\u2018": "'", // Left single quote
+    "\u2019": "'", // Right single quote
     "\u201A": "'",
     "\u201B": "'",
     "\u2032": "'",
     "\u2033": '"',
     "\u2014": " -- ", // Em dash
-    "\u2013": "-",    // En dash
+    "\u2013": "-", // En dash
     "\u2015": "-",
     "\u2012": "-",
     "\u2212": "-",
-    "\u2022": "* ",   // Bullet
+    "\u2022": "* ", // Bullet
     "\u25E6": "* ",
     "\u25AA": "* ",
     "\u25AB": "* ",
@@ -403,13 +417,13 @@ function sanitizeForPdf(text: string): string {
     "\u202F": " ",
     "\u205F": " ",
     "\u3000": " ",
-    "\u200B": "",     // Zero-width space
+    "\u200B": "", // Zero-width space
     "\uFEFF": "",
     "\u200C": "",
     "\u200D": "",
-    "\u2713": "[x]",  // Checkmark
+    "\u2713": "[x]", // Checkmark
     "\u2714": "[x]",
-    "\u2717": "[ ]",  // Cross mark
+    "\u2717": "[ ]", // Cross mark
     "\u2715": "[ ]",
     "\u2264": "<=",
     "\u2265": ">=",
@@ -474,7 +488,8 @@ function parseMammothHtml(html: string): DocxBlock[] {
   const blocks: DocxBlock[] = [];
 
   // Match tags of interest: headings, paragraphs, lists, table rows, images, hr, pre, code, blockquote, div
-  const tagRegex = /<(h[1-6]|p|li|tr|hr|pre|code|blockquote|div)([^>]*)>([\s\S]*?)<\/\1>|<img\s+([^>]*)\/?>|<hr\s*\/?>/gi;
+  const tagRegex =
+    /<(h[1-6]|p|li|tr|hr|pre|code|blockquote|div)([^>]*)>([\s\S]*?)<\/\1>|<img\s+([^>]*)\/?>|<hr\s*\/?>/gi;
   let match: RegExpExecArray | null;
 
   while ((match = tagRegex.exec(html)) !== null) {
@@ -499,7 +514,9 @@ function parseMammothHtml(html: string): DocxBlock[] {
     const innerHtml = match[3] || "";
 
     // Check if innerHtml contains embedded images
-    const imgMatches = [...innerHtml.matchAll(/<img\s+[^>]*src\s*=\s*["']data:image\/([^;]+);base64,([^"']+)["'][^>]*\/?>/gi)];
+    const imgMatches = [
+      ...innerHtml.matchAll(/<img\s+[^>]*src\s*=\s*["']data:image\/([^;]+);base64,([^"']+)["'][^>]*\/?>/gi),
+    ];
     for (const img of imgMatches) {
       blocks.push({
         type: "image",

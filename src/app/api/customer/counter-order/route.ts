@@ -36,15 +36,16 @@ export async function POST(request: Request) {
   if (!shop) return NextResponse.json({ error: "Shop not found." }, { status: 404 });
 
   const [{ data: settings }, { data: subscription }] = await Promise.all([
-    client.from("shop_settings").select("accepting_orders, billing_mode, payment_mode").eq("shop_id", shop.id).maybeSingle(),
+    client
+      .from("shop_settings")
+      .select("accepting_orders, billing_mode, payment_mode")
+      .eq("shop_id", shop.id)
+      .maybeSingle(),
     client.from("subscriptions").select("status, trial_end, current_period_end").eq("shop_id", shop.id).maybeSingle(),
   ]);
 
   if (settings?.payment_mode === "online") {
-    return NextResponse.json(
-      { error: "This shop only accepts online payments at this time." },
-      { status: 409 }
-    );
+    return NextResponse.json({ error: "This shop only accepts online payments at this time." }, { status: 409 });
   }
 
   const billingMode = effectiveBillingMode(settings?.billing_mode, subscription);
@@ -53,7 +54,7 @@ export async function POST(request: Request) {
   } catch (eligibilityError) {
     return NextResponse.json(
       { error: eligibilityError instanceof Error ? eligibilityError.message : "Shop is unavailable." },
-      { status: 409 }
+      { status: 409 },
     );
   }
 
@@ -105,12 +106,12 @@ export async function POST(request: Request) {
     pricing = calculatePricing(
       allRanges,
       rules.map((rule) => ({ ...rule, price_per_page: Number(rule.price_per_page), is_active: true })) as PricingRule[],
-      billingMode
+      billingMode,
     );
   } catch (pricingError) {
     return NextResponse.json(
       { error: pricingError instanceof Error ? pricingError.message : "Could not calculate pricing." },
-      { status: 409 }
+      { status: 409 },
     );
   }
 
@@ -130,11 +131,7 @@ export async function POST(request: Request) {
   // keeps the same position in the queue. Otherwise call the atomic DB function
   // that uses INSERT ... ON CONFLICT DO UPDATE ... RETURNING to guarantee each
   // concurrent submission for the same shop receives a unique value.
-  const { data: currentOrderData } = await client
-    .from("orders")
-    .select("token_number")
-    .eq("id", orderId)
-    .maybeSingle();
+  const { data: currentOrderData } = await client.from("orders").select("token_number").eq("id", orderId).maybeSingle();
 
   let tokenNumber: number;
   if (currentOrderData?.token_number && currentOrderData.token_number > 0) {
@@ -163,7 +160,7 @@ export async function POST(request: Request) {
     const jobId = crypto.randomUUID();
     const jobPrintedPages = configuration.ranges.reduce(
       (sum, r) => sum + (r.endPage - r.startPage + 1) * Math.max(1, r.copies ?? 1),
-      0
+      0,
     );
     await client.from("print_jobs").insert({
       id: jobId,
@@ -181,8 +178,8 @@ export async function POST(request: Request) {
             price_per_page: Number(rule.price_per_page),
             is_active: true,
           })) as PricingRule[],
-          billingMode
-        ).total.toFixed(2)
+          billingMode,
+        ).total.toFixed(2),
       ),
       idempotency_key: crypto.randomUUID(),
     });
@@ -196,7 +193,7 @@ export async function POST(request: Request) {
         paper_size: range.paperSize,
         side_mode: range.sideMode ?? "single_sided",
         copies: range.copies ?? 1,
-      }))
+      })),
     );
   }
 

@@ -61,10 +61,7 @@ const rupees = (value: number) => cents(value) / 100;
 const ruleKey = (rule: PricingRule) =>
   `${rule.color_mode}:${rule.paper_size}:${rule.side_mode ?? "single_sided"}:${rule.min_pages}:${rule.max_pages ?? "plus"}`;
 
-export function calculatePlatformFee(
-  _totalPages: number,
-  _billingMode: BillingMode = "customer_fee",
-): number {
+export function calculatePlatformFee(_totalPages: number, _billingMode: BillingMode = "customer_fee"): number {
   void _totalPages;
   void _billingMode;
   return 0;
@@ -166,7 +163,9 @@ export function calculatePricing(
     }
 
     if (!bucket) {
-      throw new Error(`No pricing configured for ${mode.replaceAll("_", " ")} ${paperSize} (${sideMode.replace("_", " ")}) pages.`);
+      throw new Error(
+        `No pricing configured for ${mode.replaceAll("_", " ")} ${paperSize} (${sideMode.replace("_", " ")}) pages.`,
+      );
     }
 
     const priced = priceBucket(mode, paperSize, sideMode, pages, bucket);

@@ -51,9 +51,7 @@ export async function POST(request: Request) {
   }
 
   const eventType = String(payload.event || "");
-  const eventId =
-    request.headers.get("x-razorpay-event-id") ||
-    createHash("sha256").update(rawBodyText).digest("hex");
+  const eventId = request.headers.get("x-razorpay-event-id") || createHash("sha256").update(rawBodyText).digest("hex");
 
   // 4. Webhook Idempotency: Check if this event was already processed
   const { data: existingEvent } = await adminClient
@@ -93,15 +91,19 @@ export async function POST(request: Request) {
         if (!rzpPaymentId) throw new Error("Missing subscription payment ID.");
         await activateSubscriptionPayment(adminClient, rzpPaymentId);
       }
-      const { error } = await adminClient.from("payment_webhook_events").update({ processed: true }).eq("event_id", eventId);
+      const { error } = await adminClient
+        .from("payment_webhook_events")
+        .update({ processed: true })
+        .eq("event_id", eventId);
       if (error) throw error;
       return NextResponse.json({ received: true, eventId });
     }
 
-
     if (rzpOrderId || orderIdFromNotes) {
       // Find matching payment in our database
-      let paymentQuery = adminClient.from("payments").select("id, order_id, status, amount, currency, metadata, provider_order_id");
+      let paymentQuery = adminClient
+        .from("payments")
+        .select("id, order_id, status, amount, currency, metadata, provider_order_id");
       if (rzpOrderId) {
         paymentQuery = paymentQuery.eq("provider_order_id", rzpOrderId);
       } else {
@@ -110,13 +112,19 @@ export async function POST(request: Request) {
 
       const { data: payment } = await paymentQuery.maybeSingle();
 
-      if (!payment && ["payment.captured", "order.paid"].includes(eventType)) throw new Error("Payment record is not available yet; retry this event.");
+      if (!payment && ["payment.captured", "order.paid"].includes(eventType))
+        throw new Error("Payment record is not available yet; retry this event.");
       if (payment) {
         if (eventType === "payment.captured" || eventType === "order.paid") {
-          if (!paymentEntity || !capturedPaymentMatches(paymentEntity, {
-            providerOrderId: payment.provider_order_id,
-            amountPaise: toPaise(Number(payment.amount)), currency: payment.currency,
-          })) throw new Error("Captured payment does not match the stored order, amount, and currency.");
+          if (
+            !paymentEntity ||
+            !capturedPaymentMatches(paymentEntity, {
+              providerOrderId: payment.provider_order_id,
+              amountPaise: toPaise(Number(payment.amount)),
+              currency: payment.currency,
+            })
+          )
+            throw new Error("Captured payment does not match the stored order, amount, and currency.");
           const verifiedAt = new Date().toISOString();
           const paymentMethod = String(paymentEntity?.method || "razorpay");
 
@@ -169,7 +177,8 @@ export async function POST(request: Request) {
                   last_webhook_failure: paymentEntity,
                 },
               })
-              .eq("id", payment.id).neq("status", "verified");
+              .eq("id", payment.id)
+              .neq("status", "verified");
 
             await adminClient.from("payment_transactions").insert({
               payment_id: payment.id,

@@ -12,7 +12,6 @@ const configureSchema = z.object({
   shopIdentifier: z.string().min(1),
   accessToken: z.string().min(20),
   configurations: z.array(configurationSchema).min(1).max(10),
-
 });
 
 export async function POST(request: Request) {
@@ -50,13 +49,19 @@ export async function POST(request: Request) {
       .select("id, last_heartbeat_at")
       .eq("shop_id", shop.id)
       .eq("is_revoked", false)
-      .order("last_heartbeat_at", { ascending: false })
-      ,
-    client.from("printers").select("id, name, driver_name, desktop_agent_id, last_seen_at, is_online, status, capabilities").eq("shop_id", shop.id),
+      .order("last_heartbeat_at", { ascending: false }),
+    client
+      .from("printers")
+      .select("id, name, driver_name, desktop_agent_id, last_seen_at, is_online, status, capabilities")
+      .eq("shop_id", shop.id),
   ]);
 
   const onlinePrinters = availablePrinters(printers || [], agents || []);
-  if (!onlinePrinters.length) return NextResponse.json({ error: "No physical printer is connected. Wait for the shop to reconnect its printer before paying." }, { status: 409 });
+  if (!onlinePrinters.length)
+    return NextResponse.json(
+      { error: "No physical printer is connected. Wait for the shop to reconnect its printer before paying." },
+      { status: 409 },
+    );
 
   const orderId = parsed.data.configurations[0].orderId;
   const { data: tokenOrder } = await client
@@ -91,7 +96,10 @@ export async function POST(request: Request) {
   const allRanges = parsed.data.configurations.flatMap((configuration) => configuration.ranges);
   const destinations = onlinePrinters;
   if (allRanges.some((r) => !destinations.some((p) => supportsPrint(p, r.colorMode, r.paperSize))))
-    return NextResponse.json({ error: "No connected printer supports the selected color and paper size." }, { status: 409 });
+    return NextResponse.json(
+      { error: "No connected printer supports the selected color and paper size." },
+      { status: 409 },
+    );
   const requestsColor = allRanges.some((r) => r.colorMode === "color");
   const hasColorPrinter = onlinePrinters.some((p) => Boolean(p.capabilities?.colorSupport));
   if (requestsColor && !hasColorPrinter) {
@@ -121,8 +129,17 @@ export async function POST(request: Request) {
     if (configuration.orderId !== orderId || !document || validateRanges(configuration.ranges, document.page_count))
       return NextResponse.json({ error: "Invalid document or page ranges." }, { status: 400 });
   }
-  const { data: activePayment } = await client.from("payments").select("id").eq("order_id", orderId).in("status", ["created", "pending", "verified"]).limit(1);
-  if (activePayment?.length) return NextResponse.json({ error: "Checkout has already started. Create a new order to change print settings." }, { status: 409 });
+  const { data: activePayment } = await client
+    .from("payments")
+    .select("id")
+    .eq("order_id", orderId)
+    .in("status", ["created", "pending", "verified"])
+    .limit(1);
+  if (activePayment?.length)
+    return NextResponse.json(
+      { error: "Checkout has already started. Create a new order to change print settings." },
+      { status: 409 },
+    );
   const { error: deleteError } = await client.from("print_jobs").delete().eq("order_id", orderId);
   if (deleteError) return NextResponse.json({ error: "Could not replace draft jobs." }, { status: 500 });
   for (const configuration of parsed.data.configurations) {
@@ -134,7 +151,7 @@ export async function POST(request: Request) {
     const jobId = crypto.randomUUID();
     const jobPrintedPages = configuration.ranges.reduce(
       (sum, r) => sum + (r.endPage - r.startPage + 1) * Math.max(1, r.copies ?? 1),
-      0
+      0,
     );
     const { error: jobError } = await client.from("print_jobs").insert({
       id: jobId,

@@ -10,22 +10,11 @@ export interface SubmitButtonProps extends ButtonProps {
   children: React.ReactNode;
 }
 
-export function SubmitButton({
-  children,
-  pendingLabel,
-  disabled,
-  className = "",
-  ...props
-}: SubmitButtonProps) {
+export function SubmitButton({ children, pendingLabel, disabled, className = "", ...props }: SubmitButtonProps) {
   const { pending } = useFormStatus();
 
   return (
-    <Button
-      type="submit"
-      disabled={pending || disabled}
-      className={`relative ${className}`}
-      {...props}
-    >
+    <Button type="submit" disabled={pending || disabled} className={`relative ${className}`} {...props}>
       {pending ? (
         <PrinterLoader
           compact

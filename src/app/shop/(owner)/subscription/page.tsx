@@ -117,9 +117,7 @@ export default async function SubscriptionPage({
                       : "Not available"}
                   </p>
                   {activeDays !== null ? (
-                    <p className="mt-1 text-xs font-semibold text-brand-700">
-                      {activeDays} days remaining
-                    </p>
+                    <p className="mt-1 text-xs font-semibold text-brand-700">{activeDays} days remaining</p>
                   ) : null}
                 </div>
               </>
@@ -136,10 +134,7 @@ export default async function SubscriptionPage({
             Subscribe to eliminate customer platform convenience fees and enable direct instant printing.
           </p>
         </div>
-        <SubscriptionCheckout
-          shopName={context.shop.name}
-          shopId={context.shop.id}
-        />
+        <SubscriptionCheckout shopName={context.shop.name} shopId={context.shop.id} />
       </div>
     </div>
   );

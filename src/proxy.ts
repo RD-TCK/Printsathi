@@ -69,7 +69,7 @@ export async function proxy(request: NextRequest) {
   try {
     const authPromise = client.auth.getUser();
     const timeoutPromise = new Promise<{ data: { user: null }; error: Error }>((resolve) =>
-      setTimeout(() => resolve({ data: { user: null }, error: new Error("Auth timeout") }), 500)
+      setTimeout(() => resolve({ data: { user: null }, error: new Error("Auth timeout") }), 500),
     );
     await Promise.race([authPromise, timeoutPromise]);
   } catch {

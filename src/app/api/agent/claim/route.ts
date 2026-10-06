@@ -45,12 +45,20 @@ export async function POST(request: Request) {
     return NextResponse.json({ success: true, job: null });
   }
 
-  const { data: verifiedPayment } = await adminClient.from("payments").select("id, provider, status, provider_payment_id, metadata")
-    .eq("order_id", claimed.order_id).eq("status", "verified")
-    .not("provider_payment_id", "is", null).limit(1);
+  const { data: verifiedPayment } = await adminClient
+    .from("payments")
+    .select("id, provider, status, provider_payment_id, metadata")
+    .eq("order_id", claimed.order_id)
+    .eq("status", "verified")
+    .not("provider_payment_id", "is", null)
+    .limit(1);
   if (!verifiedPayment?.some(paymentCanPrint)) {
-    await adminClient.rpc("fail_print_job", { p_job_id: claimed.job_id, p_agent_id: auth.agent.id,
-      p_reason: "Payment is not eligible for printing. Mock payments require the server testing setting.", p_is_retryable: false });
+    await adminClient.rpc("fail_print_job", {
+      p_job_id: claimed.job_id,
+      p_agent_id: auth.agent.id,
+      p_reason: "Payment is not eligible for printing. Mock payments require the server testing setting.",
+      p_is_retryable: false,
+    });
     return NextResponse.json({ success: true, job: null });
   }
 
@@ -63,7 +71,8 @@ export async function POST(request: Request) {
 
   if (pagesError || !pages?.length) {
     await adminClient.rpc("fail_print_job", {
-      p_job_id: claimed.job_id, p_agent_id: auth.agent.id,
+      p_job_id: claimed.job_id,
+      p_agent_id: auth.agent.id,
       p_reason: "Print settings could not be loaded. No document was sent to the printer.",
       p_is_retryable: Boolean(pagesError),
     });
@@ -87,7 +96,10 @@ export async function POST(request: Request) {
 
   const isDoubleSided = (pages ?? []).some((p) => p.side_mode === "double_sided");
   let effectiveDuplexStep = jobDetails?.duplex_step || "none";
-  if (isDoubleSided && (effectiveDuplexStep === "none" || !effectiveDuplexStep || effectiveDuplexStep === "odd_pending")) {
+  if (
+    isDoubleSided &&
+    (effectiveDuplexStep === "none" || !effectiveDuplexStep || effectiveDuplexStep === "odd_pending")
+  ) {
     effectiveDuplexStep = "odd";
   }
 

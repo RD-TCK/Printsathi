@@ -13,8 +13,14 @@ export function hasSubscriptionAccess(subscription: SubscriptionState | null | u
   return Boolean(subscription && ["active", "trial"].includes(subscription.status) && end && Date.parse(end) > now);
 }
 
-export function effectiveBillingMode(mode: string | null | undefined, subscription: SubscriptionState | null | undefined, now = Date.now()): "customer_fee" | "shop_subscription" {
-  return mode === "shop_subscription" && hasSubscriptionAccess(subscription, now) ? "shop_subscription" : "customer_fee";
+export function effectiveBillingMode(
+  mode: string | null | undefined,
+  subscription: SubscriptionState | null | undefined,
+  now = Date.now(),
+): "customer_fee" | "shop_subscription" {
+  return mode === "shop_subscription" && hasSubscriptionAccess(subscription, now)
+    ? "shop_subscription"
+    : "customer_fee";
 }
 
 export function subscriptionWarningDays(subscription: SubscriptionState | null | undefined, now = Date.now()) {

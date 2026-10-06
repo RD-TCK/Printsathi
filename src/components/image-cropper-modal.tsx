@@ -43,13 +43,7 @@ type Props = {
   onSwitchToMultiImage?: () => void;
 };
 
-export function ImageCropperModal({
-  isOpen,
-  imageUrl,
-  filename,
-  onClose,
-  onApplyCrop,
-}: Props) {
+export function ImageCropperModal({ isOpen, imageUrl, filename, onClose, onApplyCrop }: Props) {
   const [cropMode, setCropMode] = useState<CropMode>("page_preset");
   const [selectedRatioId, setSelectedRatioId] = useState<string>("a4_portrait");
   const [rotation, setRotation] = useState<number>(0); // 0, 90, 180, 270
@@ -133,7 +127,8 @@ export function ImageCropperModal({
   if (!activeRatio) activeRatio = 1 / 1.414;
 
   // Frame display dimensions in page preset mode (optimized for mobile viewport)
-  const maxViewportWidth = typeof window !== "undefined" && window.innerWidth < 640 ? Math.min(340, window.innerWidth - 32) : 460;
+  const maxViewportWidth =
+    typeof window !== "undefined" && window.innerWidth < 640 ? Math.min(340, window.innerWidth - 32) : 460;
   const maxViewportHeight = typeof window !== "undefined" && window.innerHeight < 700 ? 280 : 340;
 
   let frameWidth = maxViewportWidth;
@@ -244,10 +239,7 @@ export function ImageCropperModal({
   // -------------------------------------------------------------
   // High-Performance Corner / Edge Handle Dragging (Portion Select Mode)
   // -------------------------------------------------------------
-  const handleHandlePointerDown = (
-    e: React.PointerEvent<HTMLDivElement>,
-    handle: string
-  ) => {
+  const handleHandlePointerDown = (e: React.PointerEvent<HTMLDivElement>, handle: string) => {
     e.stopPropagation();
     e.preventDefault();
     (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
@@ -355,7 +347,10 @@ export function ImageCropperModal({
   };
 
   const handleSaveCrop = async () => {
-    const img = (cropMode === "portion_select" ? portionImgRef.current : imgRef.current) || imgRef.current || portionImgRef.current;
+    const img =
+      (cropMode === "portion_select" ? portionImgRef.current : imgRef.current) ||
+      imgRef.current ||
+      portionImgRef.current;
     if (!img || naturalDimensions.width === 0) return;
     setIsProcessing(true);
 
@@ -401,7 +396,7 @@ export function ImageCropperModal({
           -naturalDimensions.width / 2,
           -naturalDimensions.height / 2,
           naturalDimensions.width,
-          naturalDimensions.height
+          naturalDimensions.height,
         );
         rCtx.restore();
 
@@ -412,8 +407,8 @@ export function ImageCropperModal({
         const srcH = Math.round(selNormH * effNaturalHeight);
 
         // Fit the selected portion nicely onto the standard A4 print canvas with crisp margins
-        const maxPrintW = canvasW * 0.90;
-        const maxPrintH = canvasH * 0.90;
+        const maxPrintW = canvasW * 0.9;
+        const maxPrintH = canvasH * 0.9;
         const scale = Math.min(maxPrintW / srcW, maxPrintH / srcH);
         const drawW = srcW * scale;
         const drawH = srcH * scale;
@@ -455,7 +450,7 @@ export function ImageCropperModal({
           -naturalDimensions.width / 2,
           -naturalDimensions.height / 2,
           naturalDimensions.width,
-          naturalDimensions.height
+          naturalDimensions.height,
         );
         ctx.restore();
       }
@@ -474,7 +469,7 @@ export function ImageCropperModal({
           onClose();
         },
         "image/jpeg",
-        0.95
+        0.95,
       );
     } catch (err) {
       console.error("Cropping failed:", err);
@@ -519,7 +514,7 @@ export function ImageCropperModal({
               "flex-1 flex items-center justify-center gap-2 rounded-xl py-2 px-3 text-xs font-bold transition-all cursor-pointer whitespace-nowrap",
               cropMode === "page_preset"
                 ? "bg-white text-emerald-900 shadow-sm border border-slate-200/80"
-                : "text-slate-600 hover:bg-white/60 hover:text-slate-900"
+                : "text-slate-600 hover:bg-white/60 hover:text-slate-900",
             )}
           >
             <Layers className="size-4 text-emerald-600" />
@@ -533,7 +528,7 @@ export function ImageCropperModal({
               "flex-1 flex items-center justify-center gap-2 rounded-xl py-2 px-3 text-xs font-bold transition-all cursor-pointer whitespace-nowrap",
               cropMode === "portion_select"
                 ? "bg-white text-emerald-900 shadow-sm border border-slate-200/80"
-                : "text-slate-600 hover:bg-white/60 hover:text-slate-900"
+                : "text-slate-600 hover:bg-white/60 hover:text-slate-900",
             )}
           >
             <BoxSelect className="size-4 text-emerald-600" />
@@ -547,9 +542,7 @@ export function ImageCropperModal({
         {cropMode === "page_preset" && (
           <div className="flex items-center justify-between gap-2 px-4 py-2 bg-slate-50 border-b border-slate-200 overflow-x-auto no-scrollbar">
             <div className="flex items-center gap-1.5 shrink-0">
-              <span className="text-[11px] font-bold uppercase tracking-wider text-slate-400 mr-1">
-                Aspect Ratio:
-              </span>
+              <span className="text-[11px] font-bold uppercase tracking-wider text-slate-400 mr-1">Aspect Ratio:</span>
               {ASPECT_RATIOS.map((option) => (
                 <button
                   key={option.id}
@@ -562,7 +555,7 @@ export function ImageCropperModal({
                     "rounded-lg px-2.5 py-1 text-xs font-semibold whitespace-nowrap transition cursor-pointer",
                     selectedRatioId === option.id
                       ? "bg-emerald-600 text-white shadow-xs font-bold"
-                      : "bg-white border border-slate-200 text-slate-700 hover:bg-slate-100"
+                      : "bg-white border border-slate-200 text-slate-700 hover:bg-slate-100",
                   )}
                 >
                   {option.label}

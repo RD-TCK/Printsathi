@@ -47,7 +47,9 @@ export async function GET(request: Request) {
   const now = new Date();
   const istOffset = 5.5 * 60 * 60 * 1000;
   const istNow = new Date(now.getTime() + istOffset);
-  const istStartOfDay = new Date(Date.UTC(istNow.getUTCFullYear(), istNow.getUTCMonth(), istNow.getUTCDate(), 0, 0, 0) - istOffset);
+  const istStartOfDay = new Date(
+    Date.UTC(istNow.getUTCFullYear(), istNow.getUTCMonth(), istNow.getUTCDate(), 0, 0, 0) - istOffset,
+  );
 
   // Fetch shop settings for payment mode
   const { data: settings } = await adminClient
@@ -90,7 +92,7 @@ export async function GET(request: Request) {
           copies
         )
       )
-    `
+    `,
     )
     .eq("shop_id", shopId)
     .eq("payment_mode", "counter")
@@ -108,7 +110,7 @@ export async function GET(request: Request) {
     const remainingSeconds = expiresAt ? Math.max(0, Math.floor((expiresAt.getTime() - now.getTime()) / 1000)) : 0;
 
     const rawJobs = Array.isArray(o.print_jobs) ? o.print_jobs : [];
-    
+
     // Check if any job/page range has double-sided mode and collect copies info
     let isDoubleSided = false;
     // duplexStep reflects the current stage of manual duplex printing.
@@ -122,7 +124,12 @@ export async function GET(request: Request) {
         duplexStep = j.duplex_step as typeof duplexStep;
       }
       const rawPages = Array.isArray(j.print_job_pages) ? j.print_job_pages : [];
-      for (const p of rawPages as Array<{ side_mode?: string; start_page: number; end_page: number; copies?: number }>) {
+      for (const p of rawPages as Array<{
+        side_mode?: string;
+        start_page: number;
+        end_page: number;
+        copies?: number;
+      }>) {
         if (p.side_mode === "double_sided") {
           isDoubleSided = true;
         }
@@ -195,7 +202,7 @@ export async function GET(request: Request) {
             endPage: p.end_page,
             copies: p.copies ?? 1,
             sideMode: p.side_mode || "single_sided",
-          })
+          }),
         ),
       })),
     };

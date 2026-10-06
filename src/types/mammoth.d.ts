@@ -14,6 +14,11 @@ declare module "mammoth" {
     includeDefaultStyleMap?: boolean;
   }
 
-  export function convertToHtml(input: { buffer: Buffer | Uint8Array | ArrayBuffer } | { path: string }, options?: MammothOptions): Promise<MammothResult>;
-  export function extractRawText(input: { buffer: Buffer | Uint8Array | ArrayBuffer } | { path: string }): Promise<MammothResult>;
+  export function convertToHtml(
+    input: { buffer: Buffer | Uint8Array | ArrayBuffer } | { path: string },
+    options?: MammothOptions,
+  ): Promise<MammothResult>;
+  export function extractRawText(
+    input: { buffer: Buffer | Uint8Array | ArrayBuffer } | { path: string },
+  ): Promise<MammothResult>;
 }

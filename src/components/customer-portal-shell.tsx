@@ -2,18 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import {
-  ClipboardList,
-  CircleUserRound,
-  Home,
-  LogOut,
-  Menu,
-  Package,
-  Printer,
-  QrCode,
-  Search,
-  X,
-} from "lucide-react";
+import { ClipboardList, CircleUserRound, Home, LogOut, Menu, Package, Printer, QrCode, Search, X } from "lucide-react";
 import { useState, type ReactNode } from "react";
 import { signOut } from "@/app/actions/auth";
 import { cn } from "@/lib/utils";
@@ -66,12 +55,8 @@ export function CustomerPortalShell({
               <CircleUserRound className="size-5 text-emerald-700" />
             </div>
             <div className="min-w-0">
-              <p className="truncate text-sm font-semibold text-slate-900">
-                {userName || "Customer"}
-              </p>
-              {email && (
-                <p className="truncate text-xs text-slate-500">{email}</p>
-              )}
+              <p className="truncate text-sm font-semibold text-slate-900">{userName || "Customer"}</p>
+              {email && <p className="truncate text-xs text-slate-500">{email}</p>}
               <span className="mt-0.5 inline-flex items-center gap-1 rounded-full bg-emerald-100 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-emerald-700">
                 <Package className="size-2.5" /> Customer Portal
               </span>
@@ -95,16 +80,9 @@ export function CustomerPortalShell({
                     : "text-slate-500 hover:bg-slate-100 hover:text-slate-800",
                 )}
               >
-                <Icon
-                  className={cn(
-                    "size-4",
-                    active ? "text-emerald-600" : "text-slate-400",
-                  )}
-                />
+                <Icon className={cn("size-4", active ? "text-emerald-600" : "text-slate-400")} />
                 {label}
-                {active && (
-                  <span className="ml-auto size-1.5 rounded-full bg-emerald-500" />
-                )}
+                {active && <span className="ml-auto size-1.5 rounded-full bg-emerald-500" />}
               </Link>
             );
           })}
@@ -172,9 +150,7 @@ export function CustomerPortalShell({
           </div>
         </header>
 
-        <main className="mx-auto max-w-6xl px-4 py-8 lg:px-8 lg:py-10">
-          {children}
-        </main>
+        <main className="mx-auto max-w-6xl px-4 py-8 lg:px-8 lg:py-10">{children}</main>
       </div>
     </div>
   );

@@ -44,7 +44,9 @@ export async function main() {
           logger.info(`Agent already running. Dashboard: ${url}`);
           if (!serviceMode && !args.includes("--no-open")) exec(`start "" "${url}"`);
           return;
-        } catch { /* Check the next local dashboard port. */ }
+        } catch {
+          /* Check the next local dashboard port. */
+        }
       }
     }
     throw error;

@@ -47,9 +47,7 @@ export class AgentWebServer {
     // CORS headers for local loopback and web dashboard
     const origin = req.headers.origin;
     const isAllowedOrigin =
-      !origin ||
-      /^https?:\/\/(127\.0\.0\.1|localhost)(:\d+)?$/.test(origin) ||
-      origin.includes("printiva.co.in");
+      !origin || /^https?:\/\/(127\.0\.0\.1|localhost)(:\d+)?$/.test(origin) || origin.includes("printiva.co.in");
     if (!isAllowedOrigin) {
       res.writeHead(403);
       res.end("Origin not allowed");
@@ -181,7 +179,7 @@ export class AgentWebServer {
             pendingCount: 0,
             error: err instanceof Error ? err.message : "Failed to load queue",
             serverUrl: agentDaemon.getStatus().serverUrl,
-          })
+          }),
         );
       }
       return;

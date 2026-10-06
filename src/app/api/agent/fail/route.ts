@@ -32,19 +32,30 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Database service not configured." }, { status: 503 });
   }
 
-  const { data: job } = await adminClient.from("print_jobs")
+  const { data: job } = await adminClient
+    .from("print_jobs")
     .select("status, print_attempts, max_attempts")
-    .eq("id", parsed.data.jobId).eq("shop_id", auth.shop.id)
+    .eq("id", parsed.data.jobId)
+    .eq("shop_id", auth.shop.id)
     .eq("claimed_by_agent_id", auth.agent.id)
-    .in("status", ["claimed", "print_submitted"]).maybeSingle();
+    .in("status", ["claimed", "print_submitted"])
+    .maybeSingle();
   if (!job) return NextResponse.json({ error: "Job is no longer owned by this agent." }, { status: 409 });
   const retryable = parsed.data.isRetryable && job.status === "claimed" && job.print_attempts < job.max_attempts;
-  const { data: success, error } = await adminClient.from("print_jobs")
-    .update({ status: retryable ? "queued" : "failed", failure_reason: parsed.data.reason,
-      claim_expires_at: null, claimed_by_agent_id: retryable ? null : auth.agent.id })
-    .eq("id", parsed.data.jobId).eq("shop_id", auth.shop.id)
-    .eq("claimed_by_agent_id", auth.agent.id).eq("status", job.status)
-    .select("id, order_id").maybeSingle();
+  const { data: success, error } = await adminClient
+    .from("print_jobs")
+    .update({
+      status: retryable ? "queued" : "failed",
+      failure_reason: parsed.data.reason,
+      claim_expires_at: null,
+      claimed_by_agent_id: retryable ? null : auth.agent.id,
+    })
+    .eq("id", parsed.data.jobId)
+    .eq("shop_id", auth.shop.id)
+    .eq("claimed_by_agent_id", auth.agent.id)
+    .eq("status", job.status)
+    .select("id, order_id")
+    .maybeSingle();
 
   if (error || !success) {
     return NextResponse.json(

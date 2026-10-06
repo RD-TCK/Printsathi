@@ -73,7 +73,9 @@ export function CounterQueueCenter({ shopName }: { shopName: string }) {
       const activePending = items.filter((i) => i.status === "awaiting_payment" && !i.isExpired);
       if (activePending.length > prevCountRef.current && prevCountRef.current > 0) {
         try {
-          const ctx = new (window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext)();
+          const ctx = new (
+            window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext
+          )();
           const osc = ctx.createOscillator();
           const gain = ctx.createGain();
           osc.connect(gain);
@@ -179,7 +181,7 @@ export function CounterQueueCenter({ shopName }: { shopName: string }) {
     const amountDisplay = amount != null ? ` (₹${amount.toFixed(2)})` : "";
     if (
       !confirm(
-        `Discard ${tokenDisplay}${amountDisplay} as a customer-rejected misprint?\n\nThis will mark the job as discarded and completely exclude it from your shop's revenue and analytics calculation.`
+        `Discard ${tokenDisplay}${amountDisplay} as a customer-rejected misprint?\n\nThis will mark the job as discarded and completely exclude it from your shop's revenue and analytics calculation.`,
       )
     ) {
       return;
@@ -218,10 +220,9 @@ export function CounterQueueCenter({ shopName }: { shopName: string }) {
     setDismissedPopups((prev) => new Set([...prev, orderId]));
   };
 
-
   // Filter active pending orders that need immediate attention and are not dismissed
   const activePendingOrders = queue.filter(
-    (item) => (item.status === "awaiting_payment" || item.status === "partially_printed") && !item.isExpired
+    (item) => (item.status === "awaiting_payment" || item.status === "partially_printed") && !item.isExpired,
   );
   const popupOrders = activePendingOrders.filter((item) => !dismissedPopups.has(item.id));
 
@@ -258,7 +259,7 @@ export function CounterQueueCenter({ shopName }: { shopName: string }) {
                   "relative overflow-hidden rounded-3xl border-2 p-5 shadow-2xl animate-in slide-in-from-top-4 duration-300",
                   isOddDone
                     ? "border-amber-500 bg-amber-50/40 shadow-amber-950/15"
-                    : "border-emerald-500 bg-white shadow-emerald-950/15"
+                    : "border-emerald-500 bg-white shadow-emerald-950/15",
                 )}
               >
                 <div className="flex flex-wrap items-start justify-between gap-4">
@@ -266,9 +267,7 @@ export function CounterQueueCenter({ shopName }: { shopName: string }) {
                     <div
                       className={cn(
                         "flex size-16 shrink-0 items-center justify-center rounded-2xl text-white shadow-lg",
-                        isOddDone
-                          ? "bg-amber-600 shadow-amber-700/20"
-                          : "bg-emerald-600 shadow-emerald-700/20"
+                        isOddDone ? "bg-amber-600 shadow-amber-700/20" : "bg-emerald-600 shadow-emerald-700/20",
                       )}
                     >
                       {isOddDone ? (
@@ -284,7 +283,7 @@ export function CounterQueueCenter({ shopName }: { shopName: string }) {
                             "text-xs font-extrabold uppercase tracking-wider px-3 py-0.5 rounded-full",
                             isOddDone
                               ? "text-amber-900 bg-amber-200/80 border border-amber-300"
-                              : "text-emerald-800 bg-emerald-100 border border-emerald-200"
+                              : "text-emerald-800 bg-emerald-100 border border-emerald-200",
                           )}
                         >
                           {isOddDone ? "Step 2: Flip & Print Back Side" : "New Counter Request"}
@@ -312,7 +311,8 @@ export function CounterQueueCenter({ shopName }: { shopName: string }) {
 
                       {/* Total pages and side details */}
                       <p className="mt-1 text-sm font-bold text-slate-900">
-                        📄 {item.totalPages} Pages ({totalSheets} Sheets) · {item.blackAndWhitePages} B&amp;W, {item.colorPages} Color
+                        📄 {item.totalPages} Pages ({totalSheets} Sheets) · {item.blackAndWhitePages} B&amp;W,{" "}
+                        {item.colorPages} Color
                       </p>
 
                       {item.copiesSummary && (
@@ -326,14 +326,13 @@ export function CounterQueueCenter({ shopName }: { shopName: string }) {
                         <div className="mt-2 rounded-xl bg-amber-100/90 border border-amber-300 p-2.5 text-xs font-bold text-amber-950 flex items-center gap-2">
                           <RotateCw className="size-4 shrink-0 text-amber-700" />
                           <span>
-                            Front side printed ({item.oddPagesCount ?? Math.ceil(item.totalPages / 2)} sheets). <b>Turn/flip sheets &amp; reload in tray</b>, then click Print Back Side.
+                            Front side printed ({item.oddPagesCount ?? Math.ceil(item.totalPages / 2)} sheets).{" "}
+                            <b>Turn/flip sheets &amp; reload in tray</b>, then click Print Back Side.
                           </span>
                         </div>
                       )}
 
-                      <p className="mt-1 text-xs text-muted">
-                        {item.documents.map((d) => d.filename).join(", ")}
-                      </p>
+                      <p className="mt-1 text-xs text-muted">{item.documents.map((d) => d.filename).join(", ")}</p>
                     </div>
                   </div>
 
@@ -404,7 +403,7 @@ export function CounterQueueCenter({ shopName }: { shopName: string }) {
             "rounded-2xl border px-4 py-3 text-sm flex items-center justify-between shadow-xs",
             statusMessage.type === "success"
               ? "border-emerald-200 bg-emerald-50 text-emerald-950 font-medium"
-              : "border-red-200 bg-red-50 text-red-950"
+              : "border-red-200 bg-red-50 text-red-950",
           )}
         >
           <div className="flex items-center gap-2">
@@ -475,7 +474,9 @@ export function CounterQueueCenter({ shopName }: { shopName: string }) {
           ) : filteredQueue.length === 0 ? (
             <div className="py-16 text-center text-sm text-muted">
               <Ticket className="size-10 mx-auto mb-2 text-slate-300" />
-              {searchQuery ? `No counter orders matching token #${searchQuery}.` : "No counter requests queued for today."}
+              {searchQuery
+                ? `No counter orders matching token #${searchQuery}.`
+                : "No counter requests queued for today."}
             </div>
           ) : (
             <div className="divide-y divide-line/60 max-h-[600px] overflow-y-auto pr-1">
@@ -498,8 +499,8 @@ export function CounterQueueCenter({ shopName }: { shopName: string }) {
                       isOddDone
                         ? "bg-amber-50/40 border-l-4 border-l-amber-500"
                         : item.status === "awaiting_payment" && !item.isExpired
-                        ? "bg-white border-l-4 border-l-emerald-500"
-                        : "bg-slate-50/60 opacity-85"
+                          ? "bg-white border-l-4 border-l-emerald-500"
+                          : "bg-slate-50/60 opacity-85",
                     )}
                   >
                     {/* Top Bar: Token Number, Badges, and Amount */}
@@ -512,10 +513,10 @@ export function CounterQueueCenter({ shopName }: { shopName: string }) {
                             isPaid
                               ? "bg-emerald-100 text-emerald-800 border border-emerald-300"
                               : isOddDone
-                              ? "bg-amber-500 text-white shadow-amber-600/30 ring-2 ring-amber-300"
-                              : item.isExpired
-                              ? "bg-slate-200 text-slate-500"
-                              : "bg-emerald-600 text-white shadow-emerald-700/25 ring-2 ring-emerald-300"
+                                ? "bg-amber-500 text-white shadow-amber-600/30 ring-2 ring-amber-300"
+                                : item.isExpired
+                                  ? "bg-slate-200 text-slate-500"
+                                  : "bg-emerald-600 text-white shadow-emerald-700/25 ring-2 ring-emerald-300",
                           )}
                         >
                           #{item.tokenNumber ?? item.publicId.slice(0, 4)}
@@ -532,23 +533,23 @@ export function CounterQueueCenter({ shopName }: { shopName: string }) {
                                 isPaid
                                   ? "success"
                                   : isOddDone
-                                  ? "warning"
-                                  : item.isExpired
-                                  ? "danger"
-                                  : isCancelled
-                                  ? "danger"
-                                  : "warning"
+                                    ? "warning"
+                                    : item.isExpired
+                                      ? "danger"
+                                      : isCancelled
+                                        ? "danger"
+                                        : "warning"
                               }
                             >
                               {isPaid
                                 ? "PRINTED / PAID"
                                 : isOddDone
-                                ? "ODD PAGES PRINTED · RELOAD TRAY"
-                                : item.isExpired
-                                ? "EXPIRED (1 HR)"
-                                : isCancelled
-                                ? "DISCARDED (MISPRINT)"
-                                : "WAITING AT COUNTER"}
+                                  ? "ODD PAGES PRINTED · RELOAD TRAY"
+                                  : item.isExpired
+                                    ? "EXPIRED (1 HR)"
+                                    : isCancelled
+                                      ? "DISCARDED (MISPRINT)"
+                                      : "WAITING AT COUNTER"}
                             </Badge>
 
                             {isDouble && (
@@ -566,14 +567,16 @@ export function CounterQueueCenter({ shopName }: { shopName: string }) {
 
                           {/* Pages breakdown */}
                           <p className="mt-0.5 text-xs font-bold text-slate-700">
-                            📄 {item.totalPages} Pages {isDouble ? `(${totalSheets} Sheets: ${oddPages} Front, ${evenPages} Back)` : ""} · {item.blackAndWhitePages} B&amp;W, {item.colorPages} Color
-                            <span className="text-slate-900 font-extrabold font-mono ml-2">· ₹{item.totalAmount.toFixed(2)}</span>
+                            📄 {item.totalPages} Pages{" "}
+                            {isDouble ? `(${totalSheets} Sheets: ${oddPages} Front, ${evenPages} Back)` : ""} ·{" "}
+                            {item.blackAndWhitePages} B&amp;W, {item.colorPages} Color
+                            <span className="text-slate-900 font-extrabold font-mono ml-2">
+                              · ₹{item.totalAmount.toFixed(2)}
+                            </span>
                           </p>
 
                           {item.copiesSummary && (
-                            <p className="mt-0.5 text-[11px] font-bold text-emerald-800">
-                              📋 {item.copiesSummary}
-                            </p>
+                            <p className="mt-0.5 text-[11px] font-bold text-emerald-800">📋 {item.copiesSummary}</p>
                           )}
 
                           <div className="mt-0.5 flex flex-wrap items-center gap-1.5 text-[11px] text-muted truncate max-w-lg">
@@ -599,7 +602,11 @@ export function CounterQueueCenter({ shopName }: { shopName: string }) {
                                   onClick={() => handleApprovePrint(item.id, "odd")}
                                 >
                                   <Printer className="size-3.5 shrink-0 drop-shadow-xs" />
-                                  <span>{actionLoading === `${item.id}-odd` ? "Printing..." : `Print Front (Odd: ${oddPages}p)`}</span>
+                                  <span>
+                                    {actionLoading === `${item.id}-odd`
+                                      ? "Printing..."
+                                      : `Print Front (Odd: ${oddPages}p)`}
+                                  </span>
                                 </button>
                               ) : (
                                 <button
@@ -609,7 +616,11 @@ export function CounterQueueCenter({ shopName }: { shopName: string }) {
                                   onClick={() => handleApprovePrint(item.id, "even")}
                                 >
                                   <RotateCw className="size-3.5 shrink-0 drop-shadow-xs" />
-                                  <span>{actionLoading === `${item.id}-even` ? "Printing..." : `Print Next Side (${evenPages}p)`}</span>
+                                  <span>
+                                    {actionLoading === `${item.id}-even`
+                                      ? "Printing..."
+                                      : `Print Next Side (${evenPages}p)`}
+                                  </span>
                                 </button>
                               )
                             ) : (
@@ -673,7 +684,9 @@ export function CounterQueueCenter({ shopName }: { shopName: string }) {
                         <div className="flex items-center gap-2 text-xs font-semibold">
                           <RotateCw className="size-4 shrink-0 text-amber-700" />
                           <span>
-                            <b>Step 1 Complete:</b> {oddPages} Odd Pages printed on Front. <b>👉 Turn/flip sheets &amp; reload them in the printer tray</b>, then click <b>Print Next Side ({evenPages}p)</b>.
+                            <b>Step 1 Complete:</b> {oddPages} Odd Pages printed on Front.{" "}
+                            <b>👉 Turn/flip sheets &amp; reload them in the printer tray</b>, then click{" "}
+                            <b>Print Next Side ({evenPages}p)</b>.
                           </span>
                         </div>
                         <Button
