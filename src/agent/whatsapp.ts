@@ -57,6 +57,7 @@ interface PendingSenderBatch {
   attachments: PendingWhatsAppAttachment[];
   timer: NodeJS.Timeout;
   lastMessage: WAMessage;
+  firstQueuedAt: number;
 }
 
 export class WhatsAppAgentService {
@@ -72,6 +73,7 @@ export class WhatsAppAgentService {
 
   // Multi-document batching: group rapid consecutive photos/PDFs from the same sender into ONE order
   private pendingBatches: Map<string, PendingSenderBatch> = new Map();
+  private activeFlushes: Set<string> = new Set();
 
   // Anti-ban safety: track timestamps of replies to prevent rapid multi-burst spam
   private lastReplyTimeBySender: Map<string, number> = new Map();
@@ -565,15 +567,13 @@ export class WhatsAppAgentService {
       `Received WhatsApp ${documentMsg ? "document" : "image"} from ${senderName} (+${senderPhone}): "${filename}"`
     );
 
-    // Anti-ban measure 4: Simulate human read receipt (mark message as read) with random delay
+    // Anti-ban measure: Simulate human read receipt asynchronously without blocking the message queue
     if (this.socket) {
-      try {
-        // Randomize read delay (1000ms - 2500ms)
-        await new Promise((resolve) => setTimeout(resolve, 1000 + Math.random() * 1500));
-        await this.socket.readMessages([msg.key]);
-      } catch {
-        // ignore
-      }
+      const socket = this.socket;
+      const key = msg.key;
+      setTimeout(() => {
+        socket.readMessages([key]).catch(() => {});
+      }, 500 + Math.random() * 1000);
     }
 
     const config = loadConfig();
@@ -602,18 +602,27 @@ export class WhatsAppAgentService {
 
       const mimetype = documentMsg?.mimetype || imageMsg?.mimetype || "application/octet-stream";
 
-      // 2. Queue into sender batch with debounce window (1.2s) to bundle multiple images/PDFs into ONE order
+      // 2. Queue into sender batch with debounce window (4.0s) to bundle multiple images/PDFs into ONE order
+      const DEBOUNCE_MS = 4000;
+      const MAX_BATCH_WAIT_MS = 25000;
       const existingBatch = this.pendingBatches.get(remoteJid);
+      const now = Date.now();
+
       if (existingBatch) {
         clearTimeout(existingBatch.timer);
         existingBatch.attachments.push({ msg, mediaBuffer, filename, mimetype });
         existingBatch.lastMessage = msg;
         existingBatch.senderName = senderName;
         existingBatch.senderPhone = senderPhone;
+
+        const elapsed = now - (existingBatch.firstQueuedAt || now);
+        const remainingMax = Math.max(1000, MAX_BATCH_WAIT_MS - elapsed);
+        const delay = Math.min(DEBOUNCE_MS, remainingMax);
+
         existingBatch.timer = setTimeout(() => {
           void this.flushBatch(remoteJid);
-        }, 1200);
-        logger.info(`Added "${filename}" to pending batch for +${senderPhone} (${existingBatch.attachments.length} files queued).`);
+        }, delay);
+        logger.info(`Added "${filename}" to pending batch for +${senderPhone} (${existingBatch.attachments.length} files queued, waiting ${delay}ms).`);
       } else {
         const newBatch: PendingSenderBatch = {
           senderPhone,
@@ -621,12 +630,13 @@ export class WhatsAppAgentService {
           remoteJid,
           attachments: [{ msg, mediaBuffer, filename, mimetype }],
           lastMessage: msg,
+          firstQueuedAt: now,
           timer: setTimeout(() => {
             void this.flushBatch(remoteJid);
-          }, 1200),
+          }, DEBOUNCE_MS),
         };
         this.pendingBatches.set(remoteJid, newBatch);
-        logger.info(`Started new batch for +${senderPhone} with "${filename}". Waiting 1.2s for consecutive files...`);
+        logger.info(`Started new batch for +${senderPhone} with "${filename}". Waiting ${DEBOUNCE_MS / 1000}s for consecutive files...`);
       }
     } catch (err) {
       const errorMsg = err instanceof Error ? err.message : "Media download failed";
@@ -635,16 +645,30 @@ export class WhatsAppAgentService {
   }
 
   /**
-   * Flushes the batched documents for a sender: uploads all files (split in chunks of up to 5)
-   * and sends clear configuration link(s).
+   * Flushes the batched documents for a sender: uploads all files into ONE draft order
+   * and sends a single clean configuration link.
    */
   private async flushBatch(remoteJid: string): Promise<void> {
+    if (this.activeFlushes.has(remoteJid)) {
+      // If a flush is currently in flight for this sender, reschedule
+      const batch = this.pendingBatches.get(remoteJid);
+      if (batch) {
+        clearTimeout(batch.timer);
+        batch.timer = setTimeout(() => void this.flushBatch(remoteJid), 2500);
+      }
+      return;
+    }
+
     const batch = this.pendingBatches.get(remoteJid);
     if (!batch || batch.attachments.length === 0) return;
     this.pendingBatches.delete(remoteJid);
+    this.activeFlushes.add(remoteJid);
 
     const config = loadConfig();
-    if (!config.agentToken || !config.serverUrl) return;
+    if (!config.agentToken || !config.serverUrl) {
+      this.activeFlushes.delete(remoteJid);
+      return;
+    }
 
     const { senderPhone, senderName, attachments, lastMessage } = batch;
 
@@ -652,8 +676,8 @@ export class WhatsAppAgentService {
       const serverUrl = config.serverUrl.replace(/\/+$/, "");
       const uploadUrl = `${serverUrl}/api/agent/whatsapp-upload`;
 
-      // Split files into chunks of maximum 10 files per draft order to ensure optimal upload limits
-      const CHUNK_SIZE = 10;
+      // Upload all batch files into ONE unified draft order (up to 50 files)
+      const CHUNK_SIZE = 50;
       const chunks: PendingWhatsAppAttachment[][] = [];
       for (let i = 0; i < attachments.length; i += CHUNK_SIZE) {
         chunks.push(attachments.slice(i, i + CHUNK_SIZE));
@@ -739,7 +763,6 @@ export class WhatsAppAgentService {
             `_Select B&W/Color, single/both sides, copies, and pay or collect your token directly from your phone._`;
         }
       } else {
-        // Multi-chunk message (e.g. 10 files -> 2 orders of 5)
         const totalDocsCount = chunkResults.reduce((sum, c) => sum + c.documents.length, 0);
         const totalPagesCount = chunkResults.reduce(
           (sum, c) => sum + c.documents.reduce((dSum, d) => dSum + (d.pageCount || 1), 0),
@@ -770,13 +793,11 @@ export class WhatsAppAgentService {
           `\n\n_Tap each link to customize copies/color and collect your tokens._`;
       }
 
-      // Anti-ban measure 5: Simulate realistic typing presence ("typing...")
+      // Anti-ban measure: Simulate realistic typing presence
       if (this.socket) {
         try {
-          // Calculate realistic typing delay based on reply text length
-          // Average typing speed: 5 chars per sec. Cap at 3-6 seconds.
-          const baseDelay = Math.min(5000, Math.max(2500, (replyText.length / 5) * 1000));
-          const jitter = Math.random() * 1500;
+          const baseDelay = Math.min(3500, Math.max(1500, (replyText.length / 8) * 1000));
+          const jitter = Math.random() * 800;
           
           await this.socket.sendPresenceUpdate("composing", remoteJid);
           await new Promise((resolve) => setTimeout(resolve, baseDelay + jitter));
@@ -819,7 +840,7 @@ export class WhatsAppAgentService {
           const fallbackText = `⚠️ *Printiva Notice:* We received your file(s), but could not process them (${errorMsg}). Please send PDF, Word documents, or clear images.`;
           
           await this.socket.sendPresenceUpdate("composing", remoteJid);
-          await new Promise((resolve) => setTimeout(resolve, 2000 + Math.random() * 1000));
+          await new Promise((resolve) => setTimeout(resolve, 1500));
           await this.socket.sendPresenceUpdate("paused", remoteJid);
           
           await this.socket.sendMessage(
@@ -829,6 +850,16 @@ export class WhatsAppAgentService {
           );
         } catch {
           // ignore
+        }
+      }
+    } finally {
+      this.activeFlushes.delete(remoteJid);
+      // If new attachments arrived while uploading, schedule flush
+      if (this.pendingBatches.has(remoteJid)) {
+        const remainingBatch = this.pendingBatches.get(remoteJid);
+        if (remainingBatch) {
+          clearTimeout(remainingBatch.timer);
+          remainingBatch.timer = setTimeout(() => void this.flushBatch(remoteJid), 2500);
         }
       }
     }
