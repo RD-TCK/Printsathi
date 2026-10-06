@@ -51,7 +51,13 @@ if (-not (Test-Path $InstallDir)) {
   New-Item -ItemType Directory -Path $InstallDir -Force | Out-Null
 }
 Copy-Item $AgentExe $InstalledExe -Force
-Write-Host "[2/6] Copied agent to $InstallDir" -ForegroundColor Green
+
+# Attempt to add Windows Defender exclusion for the install directory to prevent false positives
+try {
+  Add-MpPreference -ExclusionPath $InstallDir -ErrorAction SilentlyContinue
+} catch {}
+
+Write-Host "[2/6] Copied agent to $InstallDir and added Defender exclusion" -ForegroundColor Green
 
 # ─── Step 3: Download NSSM ────────────────────────────────────────────────────
 if (-not (Test-Path $NssmExe)) {

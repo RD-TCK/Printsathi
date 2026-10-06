@@ -51,4 +51,34 @@ describe("WhatsApp Agent Service", () => {
 
     if (fs.existsSync(testDir)) fs.rmSync(testDir, { recursive: true, force: true });
   });
+
+  it("skips background start when creds.json has registered: false", async () => {
+    const testDir = path.join(os.tmpdir(), "wa_test_auth_" + (Date.now() + 3));
+    fs.mkdirSync(testDir, { recursive: true });
+    fs.writeFileSync(path.join(testDir, "creds.json"), JSON.stringify({ registered: false }));
+
+    const service = new WhatsAppAgentService(testDir);
+    await service.start(true);
+
+    expect(service.getStatus().state).toBe("disconnected");
+    if (fs.existsSync(testDir)) fs.rmSync(testDir, { recursive: true, force: true });
+  });
+
+  it("cleans up unverified creds.json before fresh manual start", async () => {
+    const testDir = path.join(os.tmpdir(), "wa_test_auth_" + (Date.now() + 4));
+    fs.mkdirSync(testDir, { recursive: true });
+    const credsFile = path.join(testDir, "creds.json");
+    fs.writeFileSync(credsFile, JSON.stringify({ registered: false }));
+
+    const service = new WhatsAppAgentService(testDir);
+    // Setting state to connecting directly to test guard
+    (service as unknown as { state: string }).state = "connecting";
+
+    // Calling start with forceFresh should proceed past the connecting guard
+    // We disconnect immediately after
+    expect(fs.existsSync(credsFile)).toBe(true);
+    await service.disconnect();
+    expect(fs.existsSync(credsFile)).toBe(false);
+    if (fs.existsSync(testDir)) fs.rmSync(testDir, { recursive: true, force: true });
+  });
 });

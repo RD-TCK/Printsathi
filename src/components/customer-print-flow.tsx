@@ -2011,9 +2011,9 @@ function ConfigureAndCropStep({
           ))}
         </div>
 
-        {/* MULTIPLE PHOTOS ON SAME PAGE FEATURE (ONLY FOR IMAGES) */}
+        {/* MULTIPLE PHOTOS ON SAME PAGE FEATURE (DESKTOP/TABLET ONLY - HIDDEN ON MOBILE) */}
         {hasAnyImages && (
-          <div className="mt-4 rounded-2xl border border-emerald-300/80 bg-gradient-to-br from-emerald-50/90 via-teal-50/40 to-emerald-50/70 p-4 sm:p-5 shadow-xs space-y-3.5">
+          <div className="hidden md:block mt-4 rounded-2xl border border-emerald-300/80 bg-gradient-to-br from-emerald-50/90 via-teal-50/40 to-emerald-50/70 p-4 sm:p-5 shadow-xs space-y-3.5">
             <div className="flex flex-wrap items-center justify-between gap-2">
               <div className="flex items-center gap-2.5">
                 <div className="flex size-8 sm:size-9 items-center justify-center rounded-xl bg-emerald-600 text-white shadow-xs">

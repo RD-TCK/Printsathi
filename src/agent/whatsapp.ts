@@ -14,6 +14,7 @@ import makeWASocket, {
   isPnUser,
   isLidUser,
   normalizeMessageContent,
+  Browsers,
   type WASocket,
   type WAMessage,
 } from "@whiskeysockets/baileys";
@@ -98,19 +99,44 @@ export class WhatsAppAgentService {
     };
   }
 
-  public async start(onlyIfSavedSession = false): Promise<void> {
+  public async start(onlyIfSavedSession = false, isRestart = false, forceFresh = false): Promise<void> {
     const authDir = this.getAuthDirectory();
     const credsFile = path.join(authDir, "creds.json");
     const hasExistingSession = fs.existsSync(credsFile);
 
-    if (onlyIfSavedSession && !hasExistingSession) {
-      logger.info("WhatsApp background start skipped: No paired session exists yet.");
+    let isRegisteredSession = false;
+    if (hasExistingSession) {
+      try {
+        const raw = JSON.parse(fs.readFileSync(credsFile, "utf8"));
+        isRegisteredSession = Boolean(raw.registered);
+      } catch {
+        isRegisteredSession = false;
+      }
+    }
+
+    if (onlyIfSavedSession && !isRegisteredSession) {
+      logger.info("WhatsApp background start skipped: No fully paired session exists yet.");
       this.state = "disconnected";
       return;
     }
 
-    if (this.state === "connecting" || this.state === "connected") {
+    // Never disrupt an active connected session
+    if (this.state === "connected") {
+      logger.debug("WhatsApp start ignored: Already connected.");
       return;
+    }
+
+    // Prevent duplicate concurrent connection attempts unless restarting or explicitly forced
+    if (this.state === "connecting" && !isRestart && !forceFresh) {
+      return;
+    }
+
+    // If starting a fresh user-initiated connection or forced refresh, clean up any unverified/partial session
+    if (!onlyIfSavedSession && !isRestart && (!isRegisteredSession || forceFresh)) {
+      if (hasExistingSession && !isRegisteredSession) {
+        logger.info("Cleaning up unverified/partial WhatsApp session before generating fresh QR...");
+        await this.clearSession();
+      }
     }
 
     this.isIntentionalStop = false;
@@ -118,18 +144,38 @@ export class WhatsAppAgentService {
     this.lastError = null;
     this.qrCodeDataUrl = null;
 
+    // Clean up any existing socket before opening a new connection
+    if (this.socket) {
+      try {
+        this.socket.ev.removeAllListeners("connection.update");
+        this.socket.ev.removeAllListeners("creds.update");
+        this.socket.ev.removeAllListeners("messages.upsert");
+        this.socket.end(undefined);
+      } catch {
+        // ignore
+      }
+      this.socket = null;
+    }
+
     try {
       // Baileys multi-file auth helper is not a React hook
       // eslint-disable-next-line react-hooks/rules-of-hooks
       const { state: authState, saveCreds } = await useMultiFileAuthState(authDir);
-      const { version } = await fetchLatestBaileysVersion();
+
+      let version: [number, number, number] | undefined;
+      try {
+        const vResult = await fetchLatestBaileysVersion();
+        version = vResult.version;
+      } catch (vErr) {
+        logger.debug("Baileys version fetch fallback:", { error: vErr });
+      }
 
       // Standard WhatsApp Web browser signature for flawless mobile QR pairing
       const sock = makeWASocket({
         version,
         auth: authState,
         printQRInTerminal: false,
-        browser: ["Printiva Desktop", "Chrome", "1.7.0"],
+        browser: Browsers.windows("Printiva Desktop"),
         syncFullHistory: false,
         markOnlineOnConnect: true,
         connectTimeoutMs: 60000,
@@ -139,7 +185,13 @@ export class WhatsAppAgentService {
 
       this.socket = sock;
 
-      sock.ev.on("creds.update", saveCreds);
+      sock.ev.on("creds.update", async () => {
+        try {
+          await saveCreds();
+        } catch (err) {
+          logger.error("Error saving WhatsApp credentials:", { error: err });
+        }
+      });
 
       sock.ev.on("connection.update", async (update) => {
         const { connection, lastDisconnect, qr } = update;
@@ -193,22 +245,42 @@ export class WhatsAppAgentService {
             logger.info("WhatsApp pairing handshake completed (restartRequired). Starting authenticated session...");
             setTimeout(() => {
               if (!this.isIntentionalStop) {
-                void this.start(false);
+                void this.start(false, true);
               }
             }, 800);
             return;
           }
 
           if (!this.isIntentionalStop) {
-            this.state = "disconnected";
-            this.reconnectAttempts += 1;
-            const backoffMs = Math.min(1000 * Math.pow(1.5, this.reconnectAttempts), 30000);
-            logger.info(`Reconnecting WhatsApp in ${Math.round(backoffMs / 1000)}s (attempt ${this.reconnectAttempts})...`);
-            setTimeout(() => {
-              if (!this.isIntentionalStop) {
-                void this.start(true);
+            const currentAuthDir = this.getAuthDirectory();
+            const currentCredsFile = path.join(currentAuthDir, "creds.json");
+            let isRegistered = false;
+            try {
+              if (fs.existsSync(currentCredsFile)) {
+                const raw = JSON.parse(fs.readFileSync(currentCredsFile, "utf8"));
+                isRegistered = Boolean(raw.registered);
               }
-            }, backoffMs);
+            } catch {
+              isRegistered = false;
+            }
+
+            if (isRegistered) {
+              this.state = "connecting";
+              this.reconnectAttempts += 1;
+              const backoffMs = Math.min(1000 * Math.pow(1.5, this.reconnectAttempts), 20000);
+              logger.info(`Reconnecting WhatsApp in ${Math.round(backoffMs / 1000)}s (attempt ${this.reconnectAttempts})...`);
+              setTimeout(() => {
+                if (!this.isIntentionalStop) {
+                  void this.start(false, true);
+                }
+              }, backoffMs);
+            } else {
+              this.state = "disconnected";
+              this.qrCodeDataUrl = null;
+              this.reconnectAttempts = 0;
+              this.lastError = "Linking session timed out. Click Connect WhatsApp to generate a fresh QR code.";
+              logger.info("WhatsApp unauthenticated pairing socket closed. Ready for fresh connection.");
+            }
           }
         }
       });
@@ -422,19 +494,12 @@ export class WhatsAppAgentService {
       `Received WhatsApp ${documentMsg ? "document" : "image"} from ${senderName} (+${senderPhone}): "${filename}"`
     );
 
-    // Anti-ban measure 4: Simulate human read receipt (mark message as read)
+    // Anti-ban measure 4: Simulate human read receipt (mark message as read) with random delay
     if (this.socket) {
       try {
+        // Randomize read delay (1000ms - 2500ms)
+        await new Promise((resolve) => setTimeout(resolve, 1000 + Math.random() * 1500));
         await this.socket.readMessages([msg.key]);
-      } catch {
-        // ignore
-      }
-    }
-
-    // Anti-ban measure 5: Simulate realistic typing presence ("typing...")
-    if (this.socket) {
-      try {
-        await this.socket.sendPresenceUpdate("composing", remoteJid);
       } catch {
         // ignore
       }
@@ -578,15 +643,6 @@ export class WhatsAppAgentService {
         }
       }
 
-      // Stop typing presence
-      if (this.socket) {
-        try {
-          await this.socket.sendPresenceUpdate("paused", remoteJid);
-        } catch {
-          // ignore
-        }
-      }
-
       // Build customer WhatsApp reply text
       let replyText = "";
       if (chunkResults.length === 1) {
@@ -643,6 +699,22 @@ export class WhatsAppAgentService {
           `\n\n_Tap each link to customize copies/color and collect your tokens._`;
       }
 
+      // Anti-ban measure 5: Simulate realistic typing presence ("typing...")
+      if (this.socket) {
+        try {
+          // Calculate realistic typing delay based on reply text length
+          // Average typing speed: 5 chars per sec. Cap at 3-6 seconds.
+          const baseDelay = Math.min(5000, Math.max(2500, (replyText.length / 5) * 1000));
+          const jitter = Math.random() * 1500;
+          
+          await this.socket.sendPresenceUpdate("composing", remoteJid);
+          await new Promise((resolve) => setTimeout(resolve, baseDelay + jitter));
+          await this.socket.sendPresenceUpdate("paused", remoteJid);
+        } catch {
+          // ignore
+        }
+      }
+
       if (this.socket) {
         try {
           await this.socket.sendMessage(remoteJid, { text: replyText }, { quoted: lastMessage });
@@ -673,11 +745,15 @@ export class WhatsAppAgentService {
 
       if (this.socket) {
         try {
+          const fallbackText = `⚠️ *Printiva Notice:* We received your file(s), but could not process them (${errorMsg}). Please send PDF, Word documents, or clear images.`;
+          
+          await this.socket.sendPresenceUpdate("composing", remoteJid);
+          await new Promise((resolve) => setTimeout(resolve, 2000 + Math.random() * 1000));
+          await this.socket.sendPresenceUpdate("paused", remoteJid);
+          
           await this.socket.sendMessage(
             remoteJid,
-            {
-              text: `⚠️ *Printiva Notice:* We received your file(s), but could not process them (${errorMsg}). Please send PDF, Word documents, or clear images.`,
-            },
+            { text: fallbackText },
             { quoted: lastMessage }
           );
         } catch {

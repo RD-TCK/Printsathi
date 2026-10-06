@@ -232,7 +232,7 @@ export class AgentWebServer {
     }
 
     if (url.pathname === "/api/whatsapp/connect" && req.method === "POST") {
-      void whatsAppAgent.start(false);
+      void whatsAppAgent.start(false, false, true);
       res.writeHead(200, { "Content-Type": "application/json" });
       res.end(JSON.stringify(whatsAppAgent.getStatus()));
       return;
@@ -1342,7 +1342,7 @@ export class AgentWebServer {
               '</p>',
               '<div style="display:flex; gap:8px; margin-top:12px;">',
                 '<button type="button" class="btn-primary" style="font-size:11px;" onclick="connectWhatsApp()">🔄 Refresh QR Code</button>',
-                '<button type="button" class="btn-secondary" style="font-size:11px;" onclick="disconnectWhatsApp()">Cancel</button>',
+                '<button type="button" class="btn-secondary" style="font-size:11px;" onclick="disconnectWhatsApp(true)">Cancel</button>',
               '</div>',
             '</div>'
           ].join('');
@@ -1356,7 +1356,7 @@ export class AgentWebServer {
             '<div style="text-align:center; padding:16px 0;">',
               '<p style="font-size:13px; font-weight:600; color:#0f172a;">Initializing WhatsApp connection...</p>',
               '<p style="font-size:11.5px; color:#64748b; margin-top:4px;">Preparing secure link session. A fresh QR code will appear in a moment.</p>',
-              '<button type="button" class="btn-secondary" style="margin-top:12px; font-size:11px;" onclick="disconnectWhatsApp()">Cancel / Reset</button>',
+              '<button type="button" class="btn-secondary" style="margin-top:12px; font-size:11px;" onclick="disconnectWhatsApp(true)">Cancel / Reset</button>',
             '</div>'
           ].join('');
         } else {
@@ -1390,8 +1390,8 @@ export class AgentWebServer {
       }
     }
 
-    async function disconnectWhatsApp() {
-      if (!confirm('Are you sure you want to disconnect WhatsApp from Printiva?')) return;
+    async function disconnectWhatsApp(force) {
+      if (!force && !confirm('Are you sure you want to disconnect WhatsApp from Printiva?')) return;
       try {
         await fetch('/api/whatsapp/disconnect', { method: 'POST' });
         await refreshWhatsApp();

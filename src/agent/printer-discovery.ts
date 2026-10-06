@@ -312,11 +312,14 @@ export function findBestPrinterForJob(
       (p) => p.name.toLowerCase() === options.preferredName!.toLowerCase(),
     );
     if (matched) {
-      if (options.colorMode === "color" && matched.capabilities?.colorSupport === true) {
-        return matched;
-      }
-      if (options.colorMode === "black_and_white" && !matched.capabilities?.colorSupport) {
-        return matched;
+      const satisfiesDuplex = !options.requiresDuplex || matched.capabilities?.duplexSupport === true;
+      if (satisfiesDuplex) {
+        if (options.colorMode === "color" && matched.capabilities?.colorSupport === true) {
+          return matched;
+        }
+        if (options.colorMode === "black_and_white" && !matched.capabilities?.colorSupport) {
+          return matched;
+        }
       }
     }
   }
