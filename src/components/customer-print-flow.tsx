@@ -2684,6 +2684,47 @@ function ConfigureAndCropStep({
 
       {/* TOP: Live Document & Sheet Preview */}
       <Card className="p-3.5 sm:p-6 border-slate-200/80 bg-white shadow-lg shadow-slate-900/5 rounded-2xl sm:rounded-3xl overflow-hidden">
+        {/* Top Header Bar with Add More on top right corner */}
+        <div className="flex items-center justify-between gap-3 mb-3 pb-2.5 border-b border-slate-100">
+          <div className="flex items-center gap-2">
+            <span className="flex size-7 sm:size-8 items-center justify-center rounded-xl bg-emerald-100 text-emerald-800 font-bold text-xs">
+              <Eye className="size-3.5 sm:size-4" />
+            </span>
+            <div>
+              <h3 className="text-xs sm:text-sm font-extrabold text-slate-900">Document Preview</h3>
+              <p className="text-[10px] sm:text-[11px] text-slate-500">
+                {documents.length} {documents.length === 1 ? "file" : "files"} · {totalDocPages} total {totalDocPages === 1 ? "page" : "pages"}
+              </p>
+            </div>
+          </div>
+
+          <div className="flex items-center gap-2">
+            <input
+              ref={fileInputRef}
+              className="sr-only"
+              type="file"
+              accept=".pdf,.png,.jpg,.jpeg,.webp,.gif,.tif,.tiff,.doc,.docx,.odt,.rtf,.ppt,.pptx,.odp,.xls,.xlsx,.ods,.txt,.csv,.md"
+              multiple
+              onChange={(e) => {
+                const files = Array.from(e.target.files ?? []);
+                if (files.length > 0) {
+                  onAddMoreFiles(files);
+                }
+                e.currentTarget.value = "";
+              }}
+            />
+            <button
+              type="button"
+              disabled={busy || documents.length >= 10}
+              onClick={() => fileInputRef.current?.click()}
+              className="inline-flex items-center gap-1.5 rounded-xl border border-emerald-300 bg-emerald-50/80 px-3 py-1.5 text-xs font-bold text-emerald-800 shadow-2xs hover:bg-emerald-100 hover:border-emerald-500 transition active:scale-95 cursor-pointer"
+            >
+              <Plus className="size-3.5 text-emerald-600" />
+              <span>Add More</span>
+            </button>
+          </div>
+        </div>
+
         {/* Document Filter Tabs (When multiple documents exist) */}
         {documents.length > 1 && (
           <div className="mb-3.5 pb-2.5 border-b border-slate-100">
@@ -2774,27 +2815,14 @@ function ConfigureAndCropStep({
             <span className="rounded-full bg-emerald-100 px-3 py-1 text-[11px] sm:text-xs font-bold text-emerald-800 border border-emerald-200/60">
               {documents.length} File{documents.length === 1 ? "" : "s"}
             </span>
-            <input
-              ref={fileInputRef}
-              className="sr-only"
-              type="file"
-              accept=".pdf,.png,.jpg,.jpeg,.webp,.gif,.tif,.tiff,.doc,.docx,.odt,.rtf,.ppt,.pptx,.odp,.xls,.xlsx,.ods,.txt,.csv,.md"
-              multiple
-              onChange={(e) => {
-                const files = Array.from(e.target.files ?? []);
-                if (files.length > 0) {
-                  onAddMoreFiles(files);
-                }
-                e.currentTarget.value = "";
-              }}
-            />
             <button
               type="button"
               disabled={busy || documents.length >= 10}
               onClick={() => fileInputRef.current?.click()}
               className="inline-flex items-center gap-1.5 rounded-xl border border-slate-200 bg-white px-3 py-1.5 text-xs font-bold text-slate-700 shadow-2xs hover:bg-slate-50 hover:border-emerald-500 transition active:scale-95 cursor-pointer"
             >
-              <Plus className="size-3.5 text-emerald-600" /> Add File
+              <Plus className="size-3.5 text-emerald-600" />
+              <span>Add More</span>
             </button>
           </div>
         </div>
