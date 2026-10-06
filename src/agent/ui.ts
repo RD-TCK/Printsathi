@@ -232,14 +232,15 @@ export class AgentWebServer {
     }
 
     if (url.pathname === "/api/whatsapp/connect" && req.method === "POST") {
-      void whatsAppAgent.start(false, false, true);
+      const hasSaved = whatsAppAgent.hasSavedSession();
+      void whatsAppAgent.start(false, false, !hasSaved);
       res.writeHead(200, { "Content-Type": "application/json" });
       res.end(JSON.stringify(whatsAppAgent.getStatus()));
       return;
     }
 
     if (url.pathname === "/api/whatsapp/disconnect" && req.method === "POST") {
-      await whatsAppAgent.disconnect();
+      await whatsAppAgent.disconnect(true);
       res.writeHead(200, { "Content-Type": "application/json" });
       res.end(JSON.stringify(whatsAppAgent.getStatus()));
       return;
@@ -1321,9 +1322,31 @@ export class AgentWebServer {
                 '<b>✅ WhatsApp Connected:</b> Listening for customer documents on <b>' + escapeHtml(data.connectedPhone || 'Your WhatsApp') + '</b>.<br/>',
                 '<span style="font-size:11.5px; color:#166534;">Auto-reply with document configuration link is live.</span>',
               '</div>',
-              '<button type="button" class="btn-secondary" style="font-size:11px; color:#b91c1c; border-color:#fca5a5;" onclick="disconnectWhatsApp()">Disconnect</button>',
+              '<button type="button" class="btn-secondary" style="font-size:11px; color:#b91c1c; border-color:#fca5a5;" onclick="disconnectWhatsApp(false)">Unlink</button>',
             '</div>',
             eventsHtml
+          ].join('');
+        } else if (data.isSavedSession || data.connectedPhone) {
+          badge.className = 'badge';
+          badge.style.background = '#fef3c7';
+          badge.style.color = '#92400e';
+          badge.innerHTML = '<span class="status-dot pulse-dot" style="background:#f59e0b;"></span> Reconnecting (' + escapeHtml(data.connectedPhone || 'Saved') + ')';
+
+          body.innerHTML = [
+            '<div style="background:#fffbeb; border:1px solid #fde68a; border-radius:10px; padding:12px; display:flex; justify-content:space-between; align-items:center;">',
+              '<div>',
+                '<div style="display:flex; align-items:center; gap:6px;">',
+                  '<span style="font-size:13px; font-weight:700; color:#92400e;">⚡ Paired WhatsApp: ' + escapeHtml(data.connectedPhone || 'Saved Phone') + '</span>',
+                '</div>',
+                '<p style="font-size:11.5px; color:#b45309; margin-top:3px; line-height:1.4;">',
+                  'Waiting for internet connection. The agent automatically reconnects as soon as internet is restored. Your session remains linked.',
+                '</p>',
+              '</div>',
+              '<div style="display:flex; gap:8px;">',
+                '<button type="button" class="btn-secondary" style="font-size:11px;" onclick="connectWhatsApp()">🔄 Retry Now</button>',
+                '<button type="button" class="btn-secondary" style="font-size:11px; color:#b91c1c; border-color:#fca5a5;" onclick="disconnectWhatsApp(false)">Unlink</button>',
+              '</div>',
+            '</div>'
           ].join('');
         } else if (data.state === 'qr_ready' && data.qrCodeDataUrl) {
           badge.className = 'badge';
@@ -1391,7 +1414,7 @@ export class AgentWebServer {
     }
 
     async function disconnectWhatsApp(force) {
-      if (!force && !confirm('Are you sure you want to disconnect WhatsApp from Printiva?')) return;
+      if (!force && !confirm('Are you sure you want to unlink WhatsApp from Printiva? You will need to scan the QR code again to reconnect.')) return;
       try {
         await fetch('/api/whatsapp/disconnect', { method: 'POST' });
         await refreshWhatsApp();

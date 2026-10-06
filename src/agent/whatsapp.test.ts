@@ -81,4 +81,23 @@ describe("WhatsApp Agent Service", () => {
     expect(fs.existsSync(credsFile)).toBe(false);
     if (fs.existsSync(testDir)) fs.rmSync(testDir, { recursive: true, force: true });
   });
+
+  it("preserves creds.json on stop() (process restart/shutdown)", () => {
+    const testDir = path.join(os.tmpdir(), "wa_test_auth_" + (Date.now() + 5));
+    fs.mkdirSync(testDir, { recursive: true });
+    const credsFile = path.join(testDir, "creds.json");
+    fs.writeFileSync(credsFile, JSON.stringify({ registered: true, me: { id: "919905098231:1@s.whatsapp.net" } }));
+
+    const service = new WhatsAppAgentService(testDir);
+    expect(service.hasSavedSession()).toBe(true);
+    expect(service.getSavedPhone()).toBe("919905098231");
+
+    service.stop();
+    // Creds must NOT be deleted on stop
+    expect(fs.existsSync(credsFile)).toBe(true);
+    expect(service.getStatus().isSavedSession).toBe(true);
+    expect(service.getStatus().connectedPhone).toBe("919905098231");
+
+    if (fs.existsSync(testDir)) fs.rmSync(testDir, { recursive: true, force: true });
+  });
 });

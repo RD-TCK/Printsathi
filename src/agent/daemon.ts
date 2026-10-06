@@ -78,7 +78,7 @@ export class AgentDaemon {
     if (this.discoveryTimer) clearInterval(this.discoveryTimer);
     if (this.heartbeatTimer) clearInterval(this.heartbeatTimer);
     if (this.pollTimer) clearInterval(this.pollTimer);
-    void whatsAppAgent.disconnect();
+    whatsAppAgent.stop();
     logger.info("Printiva Windows Desktop Agent stopped.");
   }
 

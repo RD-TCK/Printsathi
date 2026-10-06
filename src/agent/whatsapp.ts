@@ -37,6 +37,7 @@ export interface WhatsAppEvent {
 export interface WhatsAppStatus {
   state: "disconnected" | "connecting" | "qr_ready" | "connected";
   connectedPhone: string | null;
+  isSavedSession: boolean;
   qrCodeDataUrl: string | null;
   lastError: string | null;
   recentEvents: WhatsAppEvent[];
@@ -67,6 +68,7 @@ export class WhatsAppAgentService {
   private recentEvents: WhatsAppEvent[] = [];
   private isIntentionalStop = false;
   private reconnectAttempts = 0;
+  private reconnectTimer: NodeJS.Timeout | null = null;
 
   // Multi-document batching: group rapid consecutive photos/PDFs from the same sender into ONE order
   private pendingBatches: Map<string, PendingSenderBatch> = new Map();
@@ -89,32 +91,80 @@ export class WhatsAppAgentService {
     return dir;
   }
 
+  public hasSavedSession(): boolean {
+    const authDir = this.getAuthDirectory();
+    const credsFile = path.join(authDir, "creds.json");
+    if (!fs.existsSync(credsFile)) return false;
+    try {
+      const raw = JSON.parse(fs.readFileSync(credsFile, "utf8"));
+      return Boolean(raw.registered || raw.me?.id || raw.account);
+    } catch {
+      try {
+        return fs.statSync(credsFile).size > 100;
+      } catch {
+        return false;
+      }
+    }
+  }
+
+  public getSavedPhone(): string | null {
+    if (this.connectedPhone) return this.connectedPhone;
+    const authDir = this.getAuthDirectory();
+    const credsFile = path.join(authDir, "creds.json");
+    if (!fs.existsSync(credsFile)) return null;
+    try {
+      const raw = JSON.parse(fs.readFileSync(credsFile, "utf8"));
+      const userJid = raw.me?.id || "";
+      if (userJid) {
+        return userJid.split(":")[0]?.replace("@s.whatsapp.net", "") || userJid;
+      }
+    } catch {
+      // ignore
+    }
+    return null;
+  }
+
   public getStatus(): WhatsAppStatus {
+    const isSaved = this.hasSavedSession();
+    const phone = this.connectedPhone || (isSaved ? this.getSavedPhone() : null);
     return {
       state: this.state,
-      connectedPhone: this.connectedPhone,
+      connectedPhone: phone,
+      isSavedSession: isSaved,
       qrCodeDataUrl: this.qrCodeDataUrl,
       lastError: this.lastError,
       recentEvents: this.recentEvents.slice(0, 20),
     };
   }
 
-  public async start(onlyIfSavedSession = false, isRestart = false, forceFresh = false): Promise<void> {
-    const authDir = this.getAuthDirectory();
-    const credsFile = path.join(authDir, "creds.json");
-    const hasExistingSession = fs.existsSync(credsFile);
-
-    let isRegisteredSession = false;
-    if (hasExistingSession) {
-      try {
-        const raw = JSON.parse(fs.readFileSync(credsFile, "utf8"));
-        isRegisteredSession = Boolean(raw.registered);
-      } catch {
-        isRegisteredSession = false;
+  private scheduleReconnect(delayMs?: number): void {
+    if (this.isIntentionalStop) return;
+    if (this.reconnectTimer) {
+      clearTimeout(this.reconnectTimer);
+      this.reconnectTimer = null;
+    }
+    this.reconnectAttempts += 1;
+    const backoff = delayMs ?? Math.min(2000 * Math.pow(1.3, Math.min(this.reconnectAttempts, 10)), 15000);
+    logger.info(`Reconnecting WhatsApp in ${Math.round(backoff / 1000)}s (attempt ${this.reconnectAttempts})...`);
+    this.reconnectTimer = setTimeout(() => {
+      this.reconnectTimer = null;
+      if (!this.isIntentionalStop) {
+        void this.start(false, true);
       }
+    }, backoff);
+  }
+
+  public async start(onlyIfSavedSession = false, isRestart = false, forceFresh = false): Promise<void> {
+    if (this.reconnectTimer) {
+      clearTimeout(this.reconnectTimer);
+      this.reconnectTimer = null;
     }
 
-    if (onlyIfSavedSession && !isRegisteredSession) {
+    const authDir = this.getAuthDirectory();
+    const credsFile = path.join(authDir, "creds.json");
+    const hasSaved = this.hasSavedSession();
+
+    if (onlyIfSavedSession && !hasSaved) {
       logger.info("WhatsApp background start skipped: No fully paired session exists yet.");
       this.state = "disconnected";
       return;
@@ -131,12 +181,10 @@ export class WhatsAppAgentService {
       return;
     }
 
-    // If starting a fresh user-initiated connection or forced refresh, clean up any unverified/partial session
-    if (!onlyIfSavedSession && !isRestart && (!isRegisteredSession || forceFresh)) {
-      if (hasExistingSession && !isRegisteredSession) {
-        logger.info("Cleaning up unverified/partial WhatsApp session before generating fresh QR...");
-        await this.clearSession();
-      }
+    // Clean up partial/unverified session files ONLY if there is NO saved registered session
+    if (!onlyIfSavedSession && !isRestart && !hasSaved && fs.existsSync(credsFile)) {
+      logger.info("Cleaning up unverified/partial WhatsApp session before generating fresh QR...");
+      await this.clearSession();
     }
 
     this.isIntentionalStop = false;
@@ -215,6 +263,10 @@ export class WhatsAppAgentService {
           this.qrCodeDataUrl = null;
           this.lastError = null;
           this.reconnectAttempts = 0;
+          if (this.reconnectTimer) {
+            clearTimeout(this.reconnectTimer);
+            this.reconnectTimer = null;
+          }
 
           const userJid = sock.user?.id || "";
           const phone = userJid.split(":")[0]?.replace("@s.whatsapp.net", "") || userJid;
@@ -243,37 +295,15 @@ export class WhatsAppAgentService {
           if (isRestartRequired) {
             this.state = "connecting";
             logger.info("WhatsApp pairing handshake completed (restartRequired). Starting authenticated session...");
-            setTimeout(() => {
-              if (!this.isIntentionalStop) {
-                void this.start(false, true);
-              }
-            }, 800);
+            this.scheduleReconnect(800);
             return;
           }
 
           if (!this.isIntentionalStop) {
-            const currentAuthDir = this.getAuthDirectory();
-            const currentCredsFile = path.join(currentAuthDir, "creds.json");
-            let isRegistered = false;
-            try {
-              if (fs.existsSync(currentCredsFile)) {
-                const raw = JSON.parse(fs.readFileSync(currentCredsFile, "utf8"));
-                isRegistered = Boolean(raw.registered);
-              }
-            } catch {
-              isRegistered = false;
-            }
-
-            if (isRegistered) {
+            if (this.hasSavedSession() || this.connectedPhone) {
               this.state = "connecting";
-              this.reconnectAttempts += 1;
-              const backoffMs = Math.min(1000 * Math.pow(1.5, this.reconnectAttempts), 20000);
-              logger.info(`Reconnecting WhatsApp in ${Math.round(backoffMs / 1000)}s (attempt ${this.reconnectAttempts})...`);
-              setTimeout(() => {
-                if (!this.isIntentionalStop) {
-                  void this.start(false, true);
-                }
-              }, backoffMs);
+              this.lastError = "Network connection lost. Reconnecting when internet is restored...";
+              this.scheduleReconnect();
             } else {
               this.state = "disconnected";
               this.qrCodeDataUrl = null;
@@ -292,14 +322,53 @@ export class WhatsAppAgentService {
         }
       });
     } catch (error) {
-      this.state = "disconnected";
-      this.lastError = error instanceof Error ? error.message : "Failed to start WhatsApp connector";
-      logger.error("Error starting WhatsApp client:", { error: this.lastError });
+      const errMsg = error instanceof Error ? error.message : "Failed to start WhatsApp connector";
+      this.lastError = errMsg;
+      logger.warn("Error starting WhatsApp client:", { error: errMsg });
+      if ((this.hasSavedSession() || this.connectedPhone) && !this.isIntentionalStop) {
+        this.state = "connecting";
+        this.lastError = "Waiting for internet connection...";
+        this.scheduleReconnect();
+      } else {
+        this.state = "disconnected";
+      }
     }
   }
 
-  public async disconnect(): Promise<void> {
+  /** Graceful pause / stop on agent shutdown. Keeps session credentials completely safe on disk. */
+  public stop(): void {
     this.isIntentionalStop = true;
+    if (this.reconnectTimer) {
+      clearTimeout(this.reconnectTimer);
+      this.reconnectTimer = null;
+    }
+    for (const batch of this.pendingBatches.values()) {
+      clearTimeout(batch.timer);
+    }
+    this.pendingBatches.clear();
+
+    if (this.socket) {
+      try {
+        this.socket.ev.removeAllListeners("connection.update");
+        this.socket.ev.removeAllListeners("creds.update");
+        this.socket.ev.removeAllListeners("messages.upsert");
+        this.socket.end(undefined);
+      } catch {
+        // ignore
+      }
+      this.socket = null;
+    }
+    this.state = "disconnected";
+    logger.info("WhatsApp agent stopped gracefully (session preserved).");
+  }
+
+  /** Explicit user unlink or permanent session reset */
+  public async disconnect(clearSession = true): Promise<void> {
+    this.isIntentionalStop = true;
+    if (this.reconnectTimer) {
+      clearTimeout(this.reconnectTimer);
+      this.reconnectTimer = null;
+    }
 
     // Clear any pending batch timers
     for (const batch of this.pendingBatches.values()) {
@@ -319,14 +388,16 @@ export class WhatsAppAgentService {
       }
       this.socket = null;
     }
-    await this.clearSession();
+    if (clearSession) {
+      await this.clearSession();
+    }
     this.state = "disconnected";
     this.connectedPhone = null;
     this.qrCodeDataUrl = null;
     this.reconnectAttempts = 0;
     this.lastReplyTimeBySender.clear();
     this.processedMessageIds.clear();
-    logger.info("WhatsApp agent disconnected and session cleared.");
+    logger.info("WhatsApp agent disconnected and session unlinked.");
   }
 
   private async clearSession(): Promise<void> {
