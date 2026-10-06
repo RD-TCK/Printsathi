@@ -1436,14 +1436,14 @@ export function CustomerPrintFlow({
       {step === 1 && current ? (
         <>
           {resumedFromWhatsApp && (
-            <div className="mb-4 flex items-center gap-2.5 rounded-2xl border border-emerald-300 bg-emerald-50 px-4 py-3 text-xs text-emerald-950 font-medium shadow-xs">
-              <span className="flex size-7 items-center justify-center rounded-xl bg-emerald-600 text-white font-black text-[11px] shrink-0 shadow-xs">
+            <div className="mb-2.5 sm:mb-3 flex items-center gap-2 rounded-xl border border-emerald-300/80 bg-emerald-50/90 px-2.5 py-1.5 text-xs text-emerald-950 font-medium shadow-2xs">
+              <span className="flex size-5 sm:size-6 items-center justify-center rounded-lg bg-emerald-600 text-white font-black text-[10px] shrink-0">
                 WA
               </span>
-              <div className="flex-1">
-                <p className="font-bold text-emerald-900 text-[13px]">Document received via WhatsApp!</p>
-                <p className="text-emerald-800 text-[11.5px] mt-0.5">
-                  Choose your page count, color/B&amp;W, single/both sides, and copies below.
+              <div className="flex-1 min-w-0">
+                <p className="font-bold text-emerald-900 text-xs truncate leading-tight">Document received via WhatsApp!</p>
+                <p className="text-emerald-800 text-[10.5px] truncate leading-tight">
+                  Configure your print options below.
                 </p>
               </div>
             </div>
@@ -2219,10 +2219,7 @@ function ConfigureDocPreviewSection({
                 key={`doc-${docIndex}-preview-${pageNum}`}
                 onClick={() => onOpenFullscreen(docIndex, pageNum)}
                 className={cn(
-                  "group relative flex flex-col justify-between rounded-xl border-2 p-2 transition-all duration-150 cursor-pointer active:scale-97 hover:shadow-md shrink-0 snap-start select-none",
-                  totalPagesInDoc === 1
-                    ? "w-[155px] sm:w-[175px]"
-                    : "w-[calc(50%-5px)] min-w-[125px] max-w-[155px] sm:w-[145px]",
+                  "group relative flex flex-col justify-between rounded-xl border-2 p-1.5 sm:p-2 transition-all duration-150 cursor-pointer active:scale-97 hover:shadow-md shrink-0 snap-start select-none w-[115px] sm:w-[135px]",
                   isIncluded
                     ? "border-emerald-500 bg-white shadow-xs ring-1 ring-emerald-500/20"
                     : "border-slate-200 bg-slate-50/80 opacity-60",
@@ -2260,7 +2257,7 @@ function ConfigureDocPreviewSection({
                 {/* Simulated Paper Graphic / Image Preview */}
                 <div
                   className={cn(
-                    "my-1.5 flex aspect-[1/1.25] w-full items-center justify-center rounded-lg bg-white border shadow-inner p-1 text-center overflow-hidden transition-all group-hover:border-emerald-500",
+                    "my-1 flex h-20 sm:h-24 w-full items-center justify-center rounded-lg bg-white border shadow-inner p-1 text-center overflow-hidden transition-all group-hover:border-emerald-500",
                     isIncluded && !isColor ? "border-slate-300 bg-slate-50" : "border-slate-200/90",
                   )}
                 >
@@ -2381,48 +2378,43 @@ function ConfigureAllDocsSideBySidePreviewSection({
   };
 
   return (
-    <div className="space-y-3">
+    <div className="space-y-1.5">
       {/* Header Controls for Side-by-Side Preview */}
-      <div className="flex items-center justify-between gap-2 px-0.5">
-        <div className="flex items-center gap-1.5 min-w-0">
-          <Layers className="size-3.5 text-emerald-600 shrink-0" />
-          <span className="text-xs font-bold text-slate-800 truncate">
-            Side by Side Preview ({documents.length} {documents.length === 1 ? "file" : "files"})
-          </span>
-          <span className="text-[10px] text-slate-400 hidden sm:inline">
-            · Scroll horizontally to view all
-          </span>
-        </div>
+      <div className="flex items-center justify-between gap-2 px-0.5 text-[10px]">
+        <span className="font-semibold text-slate-500 flex items-center gap-1">
+          <Layers className="size-3 text-emerald-600" />
+          <span>Tap file to configure</span>
+        </span>
 
         <div className="flex items-center gap-1.5 shrink-0">
           {documents.length > 2 && (
             <div className="flex items-center gap-1">
-              <span className="text-[9.5px] font-bold text-slate-500 bg-white border border-slate-200 px-1.5 py-0.5 rounded-md">
+              <span className="text-[9px] font-bold text-slate-500 bg-white border border-slate-200 px-1.5 py-0.2 rounded">
                 File {activeScrolledDoc} of {documents.length}
               </span>
               <button
                 type="button"
                 disabled={!canScrollLeft}
                 onClick={() => scrollByDirection("left")}
-                className="flex size-5 sm:size-6 items-center justify-center rounded-lg border border-slate-200 bg-white text-slate-600 hover:bg-slate-50 disabled:opacity-30 disabled:pointer-events-none transition shadow-2xs cursor-pointer"
+                className="flex size-5 items-center justify-center rounded border border-slate-200 bg-white text-slate-600 hover:bg-slate-50 disabled:opacity-30 disabled:pointer-events-none transition cursor-pointer"
                 title="Scroll left"
                 aria-label="Scroll left"
               >
-                <ChevronLeft className="size-3 sm:size-3.5" />
+                <ChevronLeft className="size-3" />
               </button>
               <button
                 type="button"
                 disabled={!canScrollRight}
                 onClick={() => scrollByDirection("right")}
-                className="flex size-5 sm:size-6 items-center justify-center rounded-lg border border-slate-200 bg-white text-slate-600 hover:bg-slate-50 disabled:opacity-30 disabled:pointer-events-none transition shadow-2xs cursor-pointer"
+                className="flex size-5 items-center justify-center rounded border border-slate-200 bg-white text-slate-600 hover:bg-slate-50 disabled:opacity-30 disabled:pointer-events-none transition cursor-pointer"
                 title="Scroll right"
                 aria-label="Scroll right"
               >
-                <ChevronRight className="size-3 sm:size-3.5" />
+                <ChevronRight className="size-3" />
               </button>
             </div>
           )}
-          <span className="text-[9.5px] sm:text-[10px] text-slate-400 font-semibold flex items-center gap-0.5">
+          <span className="text-[9.5px] text-slate-400 font-semibold flex items-center gap-0.5">
             <ZoomIn className="size-2.5 text-emerald-600" /> Tap zoom
           </span>
         </div>
@@ -2431,12 +2423,12 @@ function ConfigureAllDocsSideBySidePreviewSection({
       {/* Horizontal Strip Container - Strictly Side by Side */}
       <div className="relative group/carousel">
         {canScrollLeft && (
-          <div className="pointer-events-none absolute left-0 top-0 bottom-2 z-10 w-8 bg-gradient-to-r from-white via-white/80 to-transparent rounded-l-2xl" />
+          <div className="pointer-events-none absolute left-0 top-0 bottom-2 z-10 w-6 bg-gradient-to-r from-white via-white/80 to-transparent rounded-l-2xl" />
         )}
 
         <div
           ref={scrollContainerRef}
-          className="flex flex-row flex-nowrap gap-3 sm:gap-3.5 overflow-x-auto pb-3 pt-1 px-0.5 snap-x snap-mandatory scroll-smooth no-scrollbar overscroll-x-contain"
+          className="flex flex-row flex-nowrap gap-2.5 sm:gap-3 overflow-x-auto pb-1.5 pt-0.5 px-0.5 snap-x snap-mandatory scroll-smooth no-scrollbar overscroll-x-contain"
           style={{ willChange: "scroll-position" }}
         >
           {documents.map((doc, idx) => {
@@ -2455,17 +2447,17 @@ function ConfigureAllDocsSideBySidePreviewSection({
                 key={doc.id || idx}
                 onClick={() => onFocusThisDoc(idx)}
                 className={cn(
-                  "group relative flex flex-col justify-between rounded-2xl border-2 p-2.5 sm:p-3 transition-all duration-150 select-none shrink-0 snap-start w-[150px] sm:w-[175px] cursor-pointer",
+                  "group relative flex flex-col justify-between rounded-xl border-2 p-1.5 sm:p-2 transition-all duration-150 select-none shrink-0 snap-start w-[115px] sm:w-[135px] cursor-pointer",
                   isActive
                     ? "border-emerald-600 bg-emerald-50/25 ring-2 ring-emerald-500/30 shadow-md"
-                    : "border-slate-200/90 bg-white hover:-translate-y-0.5 hover:border-emerald-400 hover:shadow-md",
+                    : "border-slate-200/90 bg-white hover:-translate-y-0.5 hover:border-emerald-400 hover:shadow-xs",
                 )}
               >
                 {/* Header Badge */}
-                <div className="flex items-center justify-between gap-1 mb-2">
+                <div className="flex items-center justify-between gap-1 mb-1">
                   <span
                     className={cn(
-                      "rounded-md px-1.5 py-0.5 text-[9.5px] font-extrabold border",
+                      "rounded px-1 py-0.2 text-[8.5px] font-extrabold border",
                       isActive
                         ? "bg-emerald-600 text-white border-emerald-700 shadow-2xs"
                         : "bg-emerald-50 text-emerald-900 border-emerald-200/70",
@@ -2473,12 +2465,12 @@ function ConfigureAllDocsSideBySidePreviewSection({
                   >
                     {isActive ? `✓ Doc #${idx + 1}` : `Doc #${idx + 1}`}
                   </span>
-                  <span className="text-[9.5px] font-bold text-slate-500 shrink-0">
+                  <span className="text-[8.5px] font-bold text-slate-500 shrink-0">
                     {doc.pageCount} {doc.pageCount === 1 ? "pg" : "pgs"}
                   </span>
                 </div>
 
-                {/* Thumbnail */}
+                {/* Thumbnail - Fixed compact height */}
                 <div
                   onClick={(e) => {
                     e.stopPropagation();
@@ -2489,7 +2481,7 @@ function ConfigureAllDocsSideBySidePreviewSection({
                     }
                   }}
                   className={cn(
-                    "relative flex aspect-[1/1.25] w-full items-center justify-center rounded-xl bg-slate-50 border border-slate-200/90 p-1 overflow-hidden mb-2 shadow-inner group-hover:border-emerald-400 transition-colors cursor-pointer",
+                    "relative flex h-20 sm:h-24 w-full items-center justify-center rounded-lg bg-slate-50 border border-slate-200/90 p-1 overflow-hidden mb-1 shadow-inner group-hover:border-emerald-400 transition-colors cursor-pointer",
                     !isColor && "bg-slate-100",
                   )}
                 >
@@ -2501,33 +2493,33 @@ function ConfigureAllDocsSideBySidePreviewSection({
                       !isColor && "grayscale contrast-105 brightness-95",
                     )}
                     style={!isColor ? { filter: "grayscale(100%) contrast(1.1) brightness(0.96)" } : undefined}
-                    fallback={<FileText className="size-8 text-slate-300 group-hover:text-emerald-500 transition-colors" />}
+                    fallback={<FileText className="size-6 text-slate-300 group-hover:text-emerald-500 transition-colors" />}
                   />
 
                   {/* Zoom Overlay Hint */}
-                  <div className="pointer-events-none absolute inset-0 flex items-center justify-center bg-black/20 opacity-0 group-hover:opacity-100 transition-opacity rounded-xl">
-                    <span className="rounded-lg bg-white/95 px-2 py-0.5 text-[9.5px] font-bold text-slate-800 shadow-sm flex items-center gap-1 backdrop-blur-xs">
-                      <ZoomIn className="size-3 text-emerald-600" /> Zoom
+                  <div className="pointer-events-none absolute inset-0 flex items-center justify-center bg-black/20 opacity-0 group-hover:opacity-100 transition-opacity rounded-lg">
+                    <span className="rounded bg-white/95 px-1.5 py-0.5 text-[8.5px] font-bold text-slate-800 shadow-xs flex items-center gap-0.5 backdrop-blur-xs">
+                      <ZoomIn className="size-2.5 text-emerald-600" /> Zoom
                     </span>
                   </div>
                 </div>
 
                 {/* Details */}
-                <div className="flex flex-col gap-1.5 text-[9.5px]">
-                  <span className="font-bold text-slate-800 truncate block text-left" title={doc.filename}>
+                <div className="flex flex-col gap-1 text-[9px]">
+                  <span className="font-bold text-slate-800 truncate block text-left leading-tight" title={doc.filename}>
                     {doc.filename}
                   </span>
 
                   <div className="flex items-center justify-between gap-1">
                     <span
                       className={cn(
-                        "rounded-md px-1.5 py-0.5 text-[8.5px] font-bold",
+                        "rounded px-1 py-0.2 text-[8px] font-bold",
                         isColor ? "bg-emerald-50 text-emerald-800 border border-emerald-200/80" : "bg-slate-100 text-slate-700 border border-slate-200",
                       )}
                     >
                       {isColor ? "🎨 Color" : "📄 B&W"}
                     </span>
-                    <span className="rounded-md bg-slate-100 border border-slate-200 px-1.5 py-0.5 font-bold text-slate-600 text-[8.5px]">
+                    <span className="rounded bg-slate-100 border border-slate-200 px-1 py-0.2 font-bold text-slate-600 text-[8px]">
                       {totalCopies}x copy
                     </span>
                   </div>
@@ -2540,13 +2532,13 @@ function ConfigureAllDocsSideBySidePreviewSection({
                       onFocusThisDoc(idx);
                     }}
                     className={cn(
-                      "mt-1 w-full flex items-center justify-center gap-1 rounded-lg border py-1 text-[10px] font-bold transition shadow-2xs cursor-pointer",
+                      "mt-0.5 w-full flex items-center justify-center gap-1 rounded-md border py-0.5 text-[9px] font-bold transition shadow-2xs cursor-pointer",
                       isActive
-                        ? "bg-emerald-600 text-white border-emerald-600"
+                        ? "bg-emerald-600 text-white border-emerald-600 shadow-2xs"
                         : "border-slate-200 bg-slate-50 text-slate-700 hover:bg-emerald-50 hover:border-emerald-300 hover:text-emerald-800",
                     )}
                   >
-                    <Eye className={cn("size-3", isActive ? "text-white" : "text-emerald-600")} />
+                    <Eye className={cn("size-2.5", isActive ? "text-white" : "text-emerald-600")} />
                     <span>{isActive ? "Configuring" : "Configure"}</span>
                   </button>
                 </div>
@@ -2556,7 +2548,7 @@ function ConfigureAllDocsSideBySidePreviewSection({
         </div>
 
         {canScrollRight && (
-          <div className="pointer-events-none absolute right-0 top-0 bottom-2 z-10 w-8 bg-gradient-to-l from-white via-white/80 to-transparent rounded-r-2xl" />
+          <div className="pointer-events-none absolute right-0 top-0 bottom-2 z-10 w-6 bg-gradient-to-l from-white via-white/80 to-transparent rounded-r-2xl" />
         )}
       </div>
     </div>
@@ -2698,7 +2690,7 @@ function ConfigureAndCropStep({
   const focusedPreviewDoc = typeof previewDocView === "number" ? documents[previewDocView] || current : null;
 
   return (
-    <div className="space-y-4 sm:space-y-6">
+    <div className="space-y-2.5 sm:space-y-4">
       {/* Offline Warnings */}
       {colorPrinterUnavailable ? (
         <Alert tone="warning" title="Color Printer Currently Offline">
@@ -2708,16 +2700,16 @@ function ConfigureAndCropStep({
       ) : null}
 
       {/* TOP: Live Document & Sheet Preview */}
-      <Card className="p-3.5 sm:p-6 border-slate-200/80 bg-white shadow-lg shadow-slate-900/5 rounded-2xl sm:rounded-3xl overflow-hidden">
+      <Card className="p-2.5 sm:p-4 border-slate-200/80 bg-white shadow-lg shadow-slate-900/5 rounded-2xl sm:rounded-3xl overflow-hidden">
         {/* Top Header Bar with Add More on top right corner */}
-        <div className="flex items-center justify-between gap-3 mb-3 pb-2.5 border-b border-slate-100">
-          <div className="flex items-center gap-2">
-            <span className="flex size-7 sm:size-8 items-center justify-center rounded-xl bg-emerald-100 text-emerald-800 font-bold text-xs">
-              <Eye className="size-3.5 sm:size-4" />
+        <div className="flex items-center justify-between gap-2 mb-2 pb-1.5 border-b border-slate-100">
+          <div className="flex items-center gap-1.5">
+            <span className="flex size-6 sm:size-7 items-center justify-center rounded-lg bg-emerald-100 text-emerald-800 font-bold text-xs">
+              <Eye className="size-3.5" />
             </span>
             <div>
-              <h3 className="text-xs sm:text-sm font-extrabold text-slate-900">Document Preview</h3>
-              <p className="text-[10px] sm:text-[11px] text-slate-500">
+              <h3 className="text-xs sm:text-sm font-extrabold text-slate-900 leading-tight">Document Preview</h3>
+              <p className="text-[10px] sm:text-[11px] text-slate-500 leading-tight">
                 {documents.length} {documents.length === 1 ? "file" : "files"} · {totalDocPages} total {totalDocPages === 1 ? "page" : "pages"}
               </p>
             </div>
@@ -2742,64 +2734,28 @@ function ConfigureAndCropStep({
               type="button"
               disabled={busy || documents.length >= 10}
               onClick={() => fileInputRef.current?.click()}
-              className="inline-flex items-center gap-1.5 rounded-xl border border-emerald-300 bg-emerald-50/80 px-3 py-1.5 text-xs font-bold text-emerald-800 shadow-2xs hover:bg-emerald-100 hover:border-emerald-500 transition active:scale-95 cursor-pointer"
+              className="inline-flex items-center gap-1 rounded-lg border border-emerald-300 bg-emerald-50/80 px-2.5 py-1 text-[11px] sm:text-xs font-bold text-emerald-800 shadow-2xs hover:bg-emerald-100 hover:border-emerald-500 transition active:scale-95 cursor-pointer"
             >
-              <Plus className="size-3.5 text-emerald-600" />
+              <Plus className="size-3 text-emerald-600" />
               <span>Add More</span>
             </button>
           </div>
         </div>
 
-        {/* Document Filter Tabs (When multiple documents exist) */}
-        {documents.length > 1 && (
-          <div className="mb-3.5 pb-2.5 border-b border-slate-100">
-            <div className="flex items-center justify-between gap-2 mb-2">
-              <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">Preview Filter:</span>
-              <span className="text-[11px] text-slate-400 font-medium">
-                {previewDocView === "all" ? `Showing all ${documents.length} files` : `Showing 1 file`}
-              </span>
-            </div>
-            <div className="flex gap-2 overflow-x-auto pb-1 no-scrollbar">
-              <button
-                type="button"
-                onClick={() => setPreviewDocView("all")}
-                className={cn(
-                  "flex items-center gap-1.5 shrink-0 rounded-xl border px-3 py-1.5 text-left text-xs transition-all cursor-pointer select-none",
-                  previewDocView === "all"
-                    ? "border-emerald-600 bg-emerald-50 font-bold text-emerald-950 shadow-xs ring-1 ring-emerald-500/20"
-                    : "border-slate-200 bg-white text-slate-600 hover:bg-slate-50",
-                )}
-              >
-                <Layers className="size-3.5 text-emerald-600 shrink-0" />
-                <span>All Files</span>
-                <span className="rounded-md bg-white px-1.5 py-0.5 text-[10px] font-semibold text-slate-500 border border-slate-200/60">
-                  {documents.length} files · {totalDocPages}p
-                </span>
-              </button>
-
-              {documents.map((doc, idx) => (
-                <button
-                  key={doc.id}
-                  type="button"
-                  onClick={() => {
-                    setPreviewDocView(idx);
-                    setActiveDocument(idx);
-                  }}
-                  className={cn(
-                    "flex items-center gap-1.5 shrink-0 rounded-xl border px-3 py-1.5 text-left text-xs transition-all cursor-pointer select-none",
-                    previewDocView === idx
-                      ? "border-emerald-600 bg-emerald-50 font-bold text-emerald-950 shadow-xs ring-1 ring-emerald-500/20"
-                      : "border-slate-200 bg-white text-slate-600 hover:bg-slate-50",
-                  )}
-                >
-                  <FileText className="size-3.5 text-emerald-600 shrink-0" />
-                  <span className="max-w-28 sm:max-w-36 truncate">{doc.filename}</span>
-                  <span className="rounded-md bg-white px-1.5 py-0.5 text-[10px] font-semibold text-slate-500 border border-slate-200/60">
-                    {doc.pageCount}p
-                  </span>
-                </button>
-              ))}
-            </div>
+        {/* Back link when viewing specific document pages */}
+        {previewDocView !== "all" && documents.length > 1 && (
+          <div className="flex items-center justify-between gap-2 mb-2 pb-1.5 border-b border-slate-100">
+            <button
+              type="button"
+              onClick={() => setPreviewDocView("all")}
+              className="inline-flex items-center gap-1 text-xs font-bold text-emerald-700 hover:text-emerald-800 bg-emerald-50 px-2 py-0.5 rounded-lg border border-emerald-200 cursor-pointer"
+            >
+              <ChevronLeft className="size-3" />
+              <span>Back to all files ({documents.length})</span>
+            </button>
+            <span className="text-[10px] text-slate-400 font-medium truncate">
+              Viewing pages of {focusedPreviewDoc?.filename}
+            </span>
           </div>
         )}
 
@@ -2811,7 +2767,6 @@ function ConfigureAndCropStep({
             accessToken={accessToken}
             activeDocument={activeDocument}
             onFocusThisDoc={(idx) => {
-              setPreviewDocView(idx);
               setActiveDocument(idx);
             }}
             onOpenFullscreen={openFullscreenPreview}
@@ -2829,7 +2784,7 @@ function ConfigureAndCropStep({
       </Card>
 
       {/* 1. Document Configuration Card (Below Preview) */}
-      <Card className="p-4 sm:p-7 border-slate-200/80 bg-white shadow-lg shadow-slate-900/5 rounded-2xl sm:rounded-3xl">
+      <Card className="p-3 sm:p-6 border-slate-200/80 bg-white shadow-lg shadow-slate-900/5 rounded-2xl sm:rounded-3xl">
 
         {/* MULTIPLE PHOTOS ON SAME PAGE FEATURE (DESKTOP/TABLET ONLY - HIDDEN ON MOBILE) */}
         {hasAnyImages && (
@@ -2994,8 +2949,8 @@ function ConfigureAndCropStep({
         )}
 
         {/* Active Document Details Box */}
-        <div className="rounded-2xl bg-slate-50/80 border border-slate-200/80 p-3.5 sm:p-6 space-y-4">
-          <div className="flex flex-wrap items-center justify-between gap-2 pb-3.5 border-b border-slate-200/70">
+        <div className="rounded-2xl bg-slate-50/80 border border-slate-200/80 p-2.5 sm:p-5 space-y-3 sm:space-y-4">
+          <div className="flex flex-wrap items-center justify-between gap-1.5 pb-2 sm:pb-3 border-b border-slate-200/70">
             <div className="min-w-0 max-w-[65%]">
               <div className="flex items-center gap-2">
                 {documents.length > 1 && (
