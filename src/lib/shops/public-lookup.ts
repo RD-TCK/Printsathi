@@ -153,11 +153,7 @@ export async function getPublicShop(
         }
       }
 
-      // If there's an online color printer, it can also print B&W
-      if (hasColor && colorStatus === "ready" && bwStatus !== "ready") {
-        hasBw = true;
-        bwStatus = "ready";
-      }
+
 
       if (bwStatus === "ready" || colorStatus === "ready") {
         overallPrinterStatus = "ready";

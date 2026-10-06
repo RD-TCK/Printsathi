@@ -1396,7 +1396,7 @@ export function CustomerPrintFlow({
             allValid={allValid}
             busy={busy}
             estimate={estimate}
-            onContinueToPreview={() => setStep(2)}
+
             onOpenCropper={(docIndex) => {
               setCropTargetDocIndex(docIndex);
               setCropperOpen(true);
@@ -1407,8 +1407,7 @@ export function CustomerPrintFlow({
             accessToken={accessToken}
             onProceedToPay={handleProceedToPay}
             onProceedToCounterToken={handleProceedToCounterToken}
-            selectedMode={selectedMode}
-            setSelectedMode={setSelectedMode}
+
           />
         </>
       ) : null}
@@ -1902,7 +1901,6 @@ function ConfigureAndCropStep({
   allValid,
   busy,
   estimate,
-  onContinueToPreview,
   onOpenCropper,
   onOpenMultiImage,
   onAddMoreFiles,
@@ -1910,8 +1908,6 @@ function ConfigureAndCropStep({
   accessToken,
   onProceedToPay,
   onProceedToCounterToken,
-  selectedMode,
-  setSelectedMode,
 }: {
   shop: PublicShop;
   documents: CustomerDocument[];
@@ -1925,7 +1921,6 @@ function ConfigureAndCropStep({
   allValid: boolean;
   busy: boolean;
   estimate?: Estimate | null;
-  onContinueToPreview: () => void;
   onOpenCropper: (docIndex: number) => void;
   onOpenMultiImage: (initialDocIndex?: number, defaultPreset?: LayoutTemplate) => void;
   onAddMoreFiles: (files: File[]) => void;
@@ -1933,8 +1928,6 @@ function ConfigureAndCropStep({
   accessToken?: string | null;
   onProceedToPay?: () => void;
   onProceedToCounterToken?: () => void;
-  selectedMode?: "counter" | "online";
-  setSelectedMode?: (mode: "counter" | "online") => void;
 }) {
   const rangeError = validateRanges(current.ranges, current.pageCount);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -1996,18 +1989,14 @@ function ConfigureAndCropStep({
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   const [canScrollLeft, setCanScrollLeft] = useState(false);
   const [canScrollRight, setCanScrollRight] = useState(false);
-  const [activeScrolledPage, setActiveScrolledPage] = useState(1);
+
 
   const checkScroll = useCallback(() => {
     const el = scrollContainerRef.current;
     if (!el) return;
     setCanScrollLeft(el.scrollLeft > 10);
     setCanScrollRight(el.scrollLeft + el.clientWidth < el.scrollWidth - 10);
-
-    const cardWidth = el.firstElementChild ? (el.firstElementChild as HTMLElement).offsetWidth + 10 : 150;
-    const page = Math.min(totalPagesInDoc, Math.max(1, Math.round(el.scrollLeft / cardWidth) + 1));
-    setActiveScrolledPage(page);
-  }, [totalPagesInDoc]);
+  }, []);
 
   useEffect(() => {
     const el = scrollContainerRef.current;

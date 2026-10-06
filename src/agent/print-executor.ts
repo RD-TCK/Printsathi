@@ -123,7 +123,6 @@ export async function prepareAndPrintDocument(
       }`,
     );
 
-    const outputPdf = await PDFDocument.create();
     let calculatedPages = 0;
 
     const firstPageRef = sourcePdf.getPageCount() > 0 ? sourcePdf.getPage(0) : null;
@@ -145,124 +144,137 @@ export async function prepareAndPrintDocument(
             },
           ];
 
-    for (const config of configsToProcess) {
-      const start = Math.max(1, config.startPage);
-      const end = Math.min(sourcePdf.getPageCount(), config.endPage);
-      const copies = Math.max(1, config.copies ?? 1);
+    let outputPdf: PDFDocument;
+
+    const isSimpleFullPrint =
+      configsToProcess.length === 1 &&
+      configsToProcess[0].startPage === 1 &&
+      configsToProcess[0].endPage === sourcePdf.getPageCount() &&
+      configsToProcess[0].copies === 1 &&
+      !isManualDuplexOdd &&
+      !isManualDuplexEven;
+
+    if (isSimpleFullPrint) {
+      outputPdf = sourcePdf;
+      calculatedPages = sourcePdf.getPageCount();
+
+      if (isHardwareDuplex && calculatedPages % 2 === 1) {
+        outputPdf.addPage(defaultPageSize);
+      }
 
       if (isHardwareDuplex) {
-        // Hardware duplex: each copy must have an even number of pages so that
-        // Copy 2 does not print on the backside of Copy 1's final page.
-        const pageIndices: number[] = [];
-        for (let i = start; i <= end; i++) {
-          pageIndices.push(i - 1);
-        }
-        const rangeCount = pageIndices.length;
-        if (rangeCount > 0) {
-          for (let c = 0; c < copies; c++) {
-            const copiedPages = await outputPdf.copyPages(sourcePdf, pageIndices);
-            copiedPages.forEach((p) => outputPdf.addPage(p));
-            calculatedPages += rangeCount;
+        outputPdf.addPage(defaultPageSize);
+        outputPdf.addPage(defaultPageSize);
+      } else {
+        outputPdf.addPage(defaultPageSize);
+      }
+    } else {
+      outputPdf = await PDFDocument.create();
 
-            // Pad with blank page if odd number of pages in this copy
-            if (rangeCount % 2 === 1) {
-              const lastPage = copiedPages[copiedPages.length - 1];
-              const { width, height } = lastPage.getSize();
-              outputPdf.addPage([width, height]);
-            }
-          }
-        }
-      } else if (isManualDuplexOdd) {
-        // Manual Duplex Step 1: Print all odd pages (front side)
-        const oddIndices: number[] = [];
-        for (let i = start; i <= end; i++) {
-          if (i % 2 === 1) {
-            oddIndices.push(i - 1);
-          }
-        }
-        if (oddIndices.length > 0) {
-          for (let c = 0; c < copies; c++) {
-            const copiedPages = await outputPdf.copyPages(sourcePdf, oddIndices);
-            copiedPages.forEach((p) => outputPdf.addPage(p));
-            calculatedPages += oddIndices.length;
-          }
-        }
-      } else if (isManualDuplexEven) {
-        // Manual Duplex Step 2: Print all even pages (back side)
-        // If there are no even pages at all in the range (e.g. 1-page document),
-        // no sheets need to be submitted for Step 2.
-        const evenPagesInConfig: number[] = [];
-        for (let i = start; i <= end; i++) {
-          if (i % 2 === 0) evenPagesInConfig.push(i);
-        }
+      for (const config of configsToProcess) {
+        const start = Math.max(1, config.startPage);
+        const end = Math.min(sourcePdf.getPageCount(), config.endPage);
+        const copies = Math.max(1, config.copies ?? 1);
 
-        if (evenPagesInConfig.length > 0) {
-          const oddPagesInConfig: number[] = [];
+        if (isHardwareDuplex) {
+          const pageIndices: number[] = [];
           for (let i = start; i <= end; i++) {
-            if (i % 2 === 1) oddPagesInConfig.push(i);
+            pageIndices.push(i - 1);
           }
+          const rangeCount = pageIndices.length;
+          if (rangeCount > 0) {
+            for (let c = 0; c < copies; c++) {
+              const copiedPages = await outputPdf.copyPages(sourcePdf, pageIndices);
+              copiedPages.forEach((p) => outputPdf.addPage(p));
+              calculatedPages += rangeCount;
 
-          for (let c = 0; c < copies; c++) {
-            for (const oddPage of oddPagesInConfig) {
-              const evenPage = oddPage + 1;
-              if (evenPage <= end) {
-                const [copiedPage] = await outputPdf.copyPages(sourcePdf, [evenPage - 1]);
-                outputPdf.addPage(copiedPage);
-                calculatedPages += 1;
-              } else {
-                // Blank back side to feed the sheet through the printer
-                const [correspondingOdd] = await outputPdf.copyPages(sourcePdf, [oddPage - 1]);
-                const { width, height } = correspondingOdd.getSize();
+              if (rangeCount % 2 === 1) {
+                const lastPage = copiedPages[copiedPages.length - 1];
+                const { width, height } = lastPage.getSize();
                 outputPdf.addPage([width, height]);
               }
             }
           }
-        }
-      } else {
-        // Standard Single-Sided
-        const pageIndices: number[] = [];
-        for (let i = start; i <= end; i++) {
-          pageIndices.push(i - 1);
-        }
-        if (pageIndices.length > 0) {
-          for (let c = 0; c < copies; c++) {
-            const copiedPages = await outputPdf.copyPages(sourcePdf, pageIndices);
-            copiedPages.forEach((p) => outputPdf.addPage(p));
-            calculatedPages += pageIndices.length;
+        } else if (isManualDuplexOdd) {
+          const oddIndices: number[] = [];
+          for (let i = start; i <= end; i++) {
+            if (i % 2 === 1) {
+              oddIndices.push(i - 1);
+            }
+          }
+          if (oddIndices.length > 0) {
+            for (let c = 0; c < copies; c++) {
+              const copiedPages = await outputPdf.copyPages(sourcePdf, oddIndices);
+              copiedPages.forEach((p) => outputPdf.addPage(p));
+              calculatedPages += oddIndices.length;
+            }
+          }
+        } else if (isManualDuplexEven) {
+          const evenPagesInConfig: number[] = [];
+          for (let i = start; i <= end; i++) {
+            if (i % 2 === 0) evenPagesInConfig.push(i);
+          }
+
+          if (evenPagesInConfig.length > 0) {
+            const oddPagesInConfig: number[] = [];
+            for (let i = start; i <= end; i++) {
+              if (i % 2 === 1) oddPagesInConfig.push(i);
+            }
+
+            for (let c = 0; c < copies; c++) {
+              for (const oddPage of oddPagesInConfig) {
+                const evenPage = oddPage + 1;
+                if (evenPage <= end) {
+                  const [copiedPage] = await outputPdf.copyPages(sourcePdf, [evenPage - 1]);
+                  outputPdf.addPage(copiedPage);
+                  calculatedPages += 1;
+                } else {
+                  const [correspondingOdd] = await outputPdf.copyPages(sourcePdf, [oddPage - 1]);
+                  const { width, height } = correspondingOdd.getSize();
+                  outputPdf.addPage([width, height]);
+                }
+              }
+            }
+          }
+        } else {
+          const pageIndices: number[] = [];
+          for (let i = start; i <= end; i++) {
+            pageIndices.push(i - 1);
+          }
+          if (pageIndices.length > 0) {
+            for (let c = 0; c < copies; c++) {
+              const copiedPages = await outputPdf.copyPages(sourcePdf, pageIndices);
+              copiedPages.forEach((p) => outputPdf.addPage(p));
+              calculatedPages += pageIndices.length;
+            }
           }
         }
       }
-    }
 
-    // If no pages were generated for this pass, complete successfully
-    if (outputPdf.getPageCount() === 0) {
-      logger.info(`Job #${job.id.slice(0, 8)}: No pages to print for step "${duplexStep || "standard"}".`);
-      return {
-        success: true,
-        status: "PRINT_SUBMITTED",
-        printerName: targetPrinterName,
-        pagesSubmitted: 0,
-        duplexModeUsed: isHardwareDuplex
-          ? "hardware"
-          : isManualDuplexOdd
-          ? "manual_odd"
-          : isManualDuplexEven
-          ? "manual_even"
-          : "simplex",
-      };
-    }
-    // Add 1 blank separator sheet at the very end of the customer's completed job
-    // to cleanly separate different customers' orders in the physical printer exit tray.
-    // For manual duplex step 1 (odd pass), omit the separator so the odd pile
-    // does not contain an extra blank sheet before flipping.
-    if (!isManualDuplexOdd) {
-      if (isHardwareDuplex) {
-        // In hardware duplex mode, 2 blank pages produce 1 physical double-sided blank sheet
-        outputPdf.addPage(defaultPageSize);
-        outputPdf.addPage(defaultPageSize);
-      } else {
-        // In single-sided mode and manual duplex step 2 (final pass), add 1 blank page
-        outputPdf.addPage(defaultPageSize);
+      if (outputPdf.getPageCount() === 0) {
+        logger.info(`Job #${job.id.slice(0, 8)}: No pages to print for step "${duplexStep || "standard"}".`);
+        return {
+          success: true,
+          status: "PRINT_SUBMITTED",
+          printerName: targetPrinterName,
+          pagesSubmitted: 0,
+          duplexModeUsed: isHardwareDuplex
+            ? "hardware"
+            : isManualDuplexOdd
+            ? "manual_odd"
+            : isManualDuplexEven
+            ? "manual_even"
+            : "simplex",
+        };
+      }
+
+      if (!isManualDuplexOdd) {
+        if (isHardwareDuplex) {
+          outputPdf.addPage(defaultPageSize);
+          outputPdf.addPage(defaultPageSize);
+        } else {
+          outputPdf.addPage(defaultPageSize);
+        }
       }
     }
 

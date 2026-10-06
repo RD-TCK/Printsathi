@@ -58,19 +58,25 @@ export async function POST(request: Request) {
   if (files.reduce((sum, file) => sum + file.size, 0) > 100 * 1024 * 1024)
     return NextResponse.json({ error: "Combined upload size must be under 100 MB." }, { status: 400 });
   
-  const normalized: NormalizedDocumentResult[] = [];
-  for (const file of files) {
-    try {
-      const norm = await normalizeDocument(file);
-      normalized.push(norm);
-    } catch (error) {
-      const rawMessage = error instanceof Error ? error.message : "Document conversion failed.";
-      const errorMsg = rawMessage.includes(file.name) ? rawMessage : `Failed to process "${file.name}": ${rawMessage}`;
-      return NextResponse.json(
-        { error: errorMsg, failedFilename: file.name },
-        { status: 400 }
-      );
-    }
+  let normalized: NormalizedDocumentResult[] = [];
+  try {
+    normalized = await Promise.all(
+      files.map(async (file) => {
+        try {
+          return await normalizeDocument(file);
+        } catch (error) {
+          const rawMessage = error instanceof Error ? error.message : "Document conversion failed.";
+          const errorMsg = rawMessage.includes(file.name) ? rawMessage : `Failed to process "${file.name}": ${rawMessage}`;
+          throw { errorMsg, failedFilename: file.name };
+        }
+      })
+    );
+  } catch (error: unknown) {
+    const err = error as { errorMsg?: string; failedFilename?: string };
+    return NextResponse.json(
+      { error: err.errorMsg || "Document conversion failed.", failedFilename: err.failedFilename },
+      { status: 400 }
+    );
   }
 
   let customerId: string | null = null;
