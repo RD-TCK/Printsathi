@@ -1963,6 +1963,90 @@ function UploadStep({
   );
 }
 
+function getOptimizedPreviewUrl(url?: string, width = 360) {
+  if (!url) return "";
+  if (url.startsWith("/api/customer/document-preview") || url.includes("/document-preview?")) {
+    const sep = url.includes("?") ? "&" : "?";
+    return `${url}${sep}w=${width}`;
+  }
+  return url;
+}
+
+function LazyPreviewImage({
+  src,
+  alt,
+  className,
+  style,
+  fallback,
+}: {
+  src?: string;
+  alt: string;
+  className?: string;
+  style?: React.CSSProperties;
+  fallback?: React.ReactNode;
+}) {
+  const [isLoaded, setIsLoaded] = useState(false);
+  const [hasError, setHasError] = useState(false);
+  const [isVisible, setIsVisible] = useState(false);
+  const containerRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!src) return;
+    const el = containerRef.current;
+    if (!el) return;
+
+    if (typeof IntersectionObserver === "undefined") {
+      setIsVisible(true);
+      return;
+    }
+
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries[0]?.isIntersecting) {
+          setIsVisible(true);
+          observer.disconnect();
+        }
+      },
+      { rootMargin: "150px" }
+    );
+
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, [src]);
+
+  if (!src || hasError) {
+    return <>{fallback || <FileText className="size-8 text-slate-300" />}</>;
+  }
+
+  return (
+    <div ref={containerRef} className="relative flex h-full w-full items-center justify-center overflow-hidden">
+      {(!isVisible || !isLoaded) && (
+        <div className="absolute inset-0 flex items-center justify-center bg-slate-100/90 animate-pulse">
+          <FileText className="size-5 sm:size-6 text-slate-300" />
+        </div>
+      )}
+
+      {isVisible && (
+        // eslint-disable-next-line @next/next/no-img-element
+        <img
+          src={src}
+          alt={alt}
+          loading="lazy"
+          decoding="async"
+          onLoad={() => setIsLoaded(true)}
+          onError={() => setHasError(true)}
+          className={cn(
+            className,
+            "transition-opacity duration-200",
+            isLoaded ? "opacity-100" : "opacity-0"
+          )}
+          style={style}
+        />
+      )}
+    </div>
+  );
+}
+
 function ConfigureDocPreviewSection({
   doc,
   docIndex,
@@ -2181,9 +2265,8 @@ function ConfigureDocPreviewSection({
                   )}
                 >
                   {docPreviewUrl && (totalPagesInDoc === 1 || isImageDoc) ? (
-                    // eslint-disable-next-line @next/next/no-img-element
-                    <img
-                      src={docPreviewUrl}
+                    <LazyPreviewImage
+                      src={getOptimizedPreviewUrl(docPreviewUrl, 380)}
                       alt={`Page ${pageNum} preview`}
                       className={cn(
                         "max-h-full max-w-full object-contain rounded-xs transition-all",
@@ -2238,6 +2321,217 @@ function ConfigureDocPreviewSection({
 
         {canScrollRight && (
           <div className="pointer-events-none absolute right-0 top-0 bottom-2 z-10 w-6 bg-gradient-to-l from-white via-white/80 to-transparent rounded-r-2xl" />
+        )}
+      </div>
+    </div>
+  );
+}
+
+function ConfigureAllDocsSideBySidePreviewSection({
+  documents,
+  orderId,
+  accessToken,
+  onFocusThisDoc,
+  onOpenFullscreen,
+}: {
+  documents: CustomerDocument[];
+  orderId?: string | null;
+  accessToken?: string | null;
+  onFocusThisDoc: (docIndex: number) => void;
+  onOpenFullscreen: (docIndex: number, pageNum: number) => void;
+}) {
+  const scrollContainerRef = useRef<HTMLDivElement>(null);
+  const [canScrollLeft, setCanScrollLeft] = useState(false);
+  const [canScrollRight, setCanScrollRight] = useState(false);
+  const [activeScrolledDoc, setActiveScrolledDoc] = useState(1);
+
+  const checkScroll = useCallback(() => {
+    const el = scrollContainerRef.current;
+    if (!el) return;
+    setCanScrollLeft(el.scrollLeft > 10);
+    setCanScrollRight(el.scrollLeft + el.clientWidth < el.scrollWidth - 10);
+
+    const cardWidth = el.firstElementChild ? (el.firstElementChild as HTMLElement).offsetWidth + 12 : 180;
+    const currentDocIndex = Math.min(documents.length, Math.max(1, Math.round(el.scrollLeft / cardWidth) + 1));
+    setActiveScrolledDoc(currentDocIndex);
+  }, [documents.length]);
+
+  useEffect(() => {
+    const el = scrollContainerRef.current;
+    if (!el) return;
+    checkScroll();
+    el.addEventListener("scroll", checkScroll, { passive: true });
+    window.addEventListener("resize", checkScroll);
+    return () => {
+      el.removeEventListener("scroll", checkScroll);
+      window.removeEventListener("resize", checkScroll);
+    };
+  }, [checkScroll, documents.length]);
+
+  const scrollByDirection = (direction: "left" | "right") => {
+    const el = scrollContainerRef.current;
+    if (!el) return;
+    const scrollAmount = Math.max(el.clientWidth * 0.75, 200);
+    el.scrollBy({
+      left: direction === "left" ? -scrollAmount : scrollAmount,
+      behavior: "smooth",
+    });
+  };
+
+  return (
+    <div className="space-y-3">
+      {/* Header Controls for Side-by-Side Preview */}
+      <div className="flex items-center justify-between gap-2 px-0.5">
+        <div className="flex items-center gap-1.5 min-w-0">
+          <Layers className="size-3.5 text-emerald-600 shrink-0" />
+          <span className="text-xs font-bold text-slate-800 truncate">
+            Side by Side Preview ({documents.length} {documents.length === 1 ? "file" : "files"})
+          </span>
+          <span className="text-[10px] text-slate-400 hidden sm:inline">
+            · Scroll horizontally to view all
+          </span>
+        </div>
+
+        <div className="flex items-center gap-1.5 shrink-0">
+          {documents.length > 2 && (
+            <div className="flex items-center gap-1">
+              <span className="text-[9.5px] font-bold text-slate-500 bg-white border border-slate-200 px-1.5 py-0.5 rounded-md">
+                File {activeScrolledDoc} of {documents.length}
+              </span>
+              <button
+                type="button"
+                disabled={!canScrollLeft}
+                onClick={() => scrollByDirection("left")}
+                className="flex size-5 sm:size-6 items-center justify-center rounded-lg border border-slate-200 bg-white text-slate-600 hover:bg-slate-50 disabled:opacity-30 disabled:pointer-events-none transition shadow-2xs cursor-pointer"
+                title="Scroll left"
+                aria-label="Scroll left"
+              >
+                <ChevronLeft className="size-3 sm:size-3.5" />
+              </button>
+              <button
+                type="button"
+                disabled={!canScrollRight}
+                onClick={() => scrollByDirection("right")}
+                className="flex size-5 sm:size-6 items-center justify-center rounded-lg border border-slate-200 bg-white text-slate-600 hover:bg-slate-50 disabled:opacity-30 disabled:pointer-events-none transition shadow-2xs cursor-pointer"
+                title="Scroll right"
+                aria-label="Scroll right"
+              >
+                <ChevronRight className="size-3 sm:size-3.5" />
+              </button>
+            </div>
+          )}
+          <span className="text-[9.5px] sm:text-[10px] text-slate-400 font-semibold flex items-center gap-0.5">
+            <ZoomIn className="size-2.5 text-emerald-600" /> Tap zoom
+          </span>
+        </div>
+      </div>
+
+      {/* Horizontal Strip Container - Strictly Side by Side */}
+      <div className="relative group/carousel">
+        {canScrollLeft && (
+          <div className="pointer-events-none absolute left-0 top-0 bottom-2 z-10 w-8 bg-gradient-to-r from-white via-white/80 to-transparent rounded-l-2xl" />
+        )}
+
+        <div
+          ref={scrollContainerRef}
+          className="flex flex-row flex-nowrap gap-3 sm:gap-3.5 overflow-x-auto pb-3 pt-1 px-0.5 snap-x snap-mandatory scroll-smooth no-scrollbar touch-pan-x"
+          style={{ willChange: "scroll-position" }}
+        >
+          {documents.map((doc, idx) => {
+            const isColor = doc.ranges[0]?.colorMode === "color";
+            const totalCopies = doc.ranges.reduce((s, r) => s + (Number(r.copies) || 1), 0);
+            const docPreviewUrl =
+              doc.previewUrl ||
+              (orderId && accessToken
+                ? `/api/customer/document-preview?documentId=${doc.id}&orderId=${orderId}&token=${accessToken}`
+                : "");
+            const thumbUrl = getOptimizedPreviewUrl(docPreviewUrl, 360);
+
+            return (
+              <div
+                key={doc.id || idx}
+                className="group relative flex flex-col justify-between rounded-2xl border-2 border-slate-200/90 bg-white p-2.5 sm:p-3 transition-all duration-150 hover:-translate-y-0.5 hover:border-emerald-500 hover:shadow-md select-none shrink-0 snap-start w-[150px] sm:w-[175px]"
+              >
+                {/* Header Badge */}
+                <div className="flex items-center justify-between gap-1 mb-2">
+                  <span className="rounded-md bg-emerald-50 px-1.5 py-0.5 text-[9.5px] font-extrabold text-emerald-900 border border-emerald-200/70">
+                    Doc #{idx + 1}
+                  </span>
+                  <span className="text-[9.5px] font-bold text-slate-500 shrink-0">
+                    {doc.pageCount} {doc.pageCount === 1 ? "pg" : "pgs"}
+                  </span>
+                </div>
+
+                {/* Thumbnail */}
+                <div
+                  onClick={() => {
+                    if (doc.pageCount === 1 || doc.isImage) {
+                      onOpenFullscreen(idx, 1);
+                    } else {
+                      onFocusThisDoc(idx);
+                    }
+                  }}
+                  className={cn(
+                    "relative flex aspect-[1/1.25] w-full items-center justify-center rounded-xl bg-slate-50 border border-slate-200/90 p-1 overflow-hidden mb-2 shadow-inner group-hover:border-emerald-400 transition-colors cursor-pointer",
+                    !isColor && "bg-slate-100"
+                  )}
+                >
+                  <LazyPreviewImage
+                    src={thumbUrl}
+                    alt={`Preview for ${doc.filename}`}
+                    className={cn(
+                      "max-h-full max-w-full object-contain rounded-xs transition-all",
+                      !isColor && "grayscale contrast-105 brightness-95"
+                    )}
+                    style={!isColor ? { filter: "grayscale(100%) contrast(1.1) brightness(0.96)" } : undefined}
+                    fallback={<FileText className="size-8 text-slate-300 group-hover:text-emerald-500 transition-colors" />}
+                  />
+
+                  {/* Zoom Overlay Hint */}
+                  <div className="pointer-events-none absolute inset-0 flex items-center justify-center bg-black/20 opacity-0 group-hover:opacity-100 transition-opacity rounded-xl">
+                    <span className="rounded-lg bg-white/95 px-2 py-0.5 text-[9.5px] font-bold text-slate-800 shadow-sm flex items-center gap-1 backdrop-blur-xs">
+                      <ZoomIn className="size-3 text-emerald-600" /> Zoom
+                    </span>
+                  </div>
+                </div>
+
+                {/* Details */}
+                <div className="flex flex-col gap-1.5 text-[9.5px]">
+                  <span className="font-bold text-slate-800 truncate block text-left" title={doc.filename}>
+                    {doc.filename}
+                  </span>
+
+                  <div className="flex items-center justify-between gap-1">
+                    <span
+                      className={cn(
+                        "rounded-md px-1.5 py-0.5 text-[8.5px] font-bold",
+                        isColor ? "bg-emerald-50 text-emerald-800 border border-emerald-200/80" : "bg-slate-100 text-slate-700 border border-slate-200"
+                      )}
+                    >
+                      {isColor ? "🎨 Color" : "📄 B&W"}
+                    </span>
+                    <span className="rounded-md bg-slate-100 border border-slate-200 px-1.5 py-0.5 font-bold text-slate-600 text-[8.5px]">
+                      {totalCopies}x copy
+                    </span>
+                  </div>
+
+                  {/* Quick Focus Button */}
+                  <button
+                    type="button"
+                    onClick={() => onFocusThisDoc(idx)}
+                    className="mt-1 w-full flex items-center justify-center gap-1 rounded-lg border border-slate-200 bg-slate-50 py-1 text-[10px] font-bold text-slate-700 hover:bg-emerald-50 hover:border-emerald-300 hover:text-emerald-800 transition shadow-2xs cursor-pointer"
+                  >
+                    <Eye className="size-3 text-emerald-600" />
+                    <span>Focus</span>
+                  </button>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+
+        {canScrollRight && (
+          <div className="pointer-events-none absolute right-0 top-0 bottom-2 z-10 w-8 bg-gradient-to-l from-white via-white/80 to-transparent rounded-r-2xl" />
         )}
       </div>
     </div>
@@ -2445,23 +2739,16 @@ function ConfigureAndCropStep({
 
         {/* Content: All Documents Preview OR Specific Document Preview */}
         {previewDocView === "all" ? (
-          <div className="space-y-3.5">
-            {documents.map((doc, idx) => (
-              <ConfigureDocPreviewSection
-                key={doc.id}
-                doc={doc}
-                docIndex={idx}
-                isFocusedView={false}
-                orderId={orderId}
-                accessToken={accessToken}
-                onFocusThisDoc={() => {
-                  setPreviewDocView(idx);
-                  setActiveDocument(idx);
-                }}
-                onOpenFullscreen={openFullscreenPreview}
-              />
-            ))}
-          </div>
+          <ConfigureAllDocsSideBySidePreviewSection
+            documents={documents}
+            orderId={orderId}
+            accessToken={accessToken}
+            onFocusThisDoc={(idx) => {
+              setPreviewDocView(idx);
+              setActiveDocument(idx);
+            }}
+            onOpenFullscreen={openFullscreenPreview}
+          />
         ) : focusedPreviewDoc ? (
           <ConfigureDocPreviewSection
             doc={focusedPreviewDoc}
@@ -3297,7 +3584,7 @@ function ConfigureAndCropStep({
                   {targetDocPreviewUrl && (targetTotalPages === 1 || targetIsImage) ? (
                     // eslint-disable-next-line @next/next/no-img-element
                     <img
-                      src={targetDocPreviewUrl}
+                      src={getOptimizedPreviewUrl(targetDocPreviewUrl, 1400)}
                       alt={`Page ${fullscreenTarget.pageNum}`}
                       className="max-h-[75vh] w-auto max-w-full object-contain rounded-lg"
                       style={isColor ? undefined : { filter: "grayscale(100%) contrast(1.1) brightness(0.96)" }}
