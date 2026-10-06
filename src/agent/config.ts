@@ -11,7 +11,7 @@ const DEFAULT_CONFIG: AgentConfig = {
   agentToken: null,
   agentName: `Windows Agent (${os.hostname() || "Local"})`,
   selectedPrinter: null,
-  version: "1.7.4",
+  version: "1.7.5",
   pollIntervalMs: 2000,
   heartbeatIntervalMs: 10000,
 };
