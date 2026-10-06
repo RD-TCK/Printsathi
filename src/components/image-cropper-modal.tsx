@@ -44,7 +44,7 @@ type Props = {
 };
 
 export function ImageCropperModal({ isOpen, imageUrl, filename, onClose, onApplyCrop }: Props) {
-  const [cropMode, setCropMode] = useState<CropMode>("page_preset");
+  const [cropMode, setCropMode] = useState<CropMode>("portion_select");
   const [selectedRatioId, setSelectedRatioId] = useState<string>("a4_portrait");
   const [rotation, setRotation] = useState<number>(0); // 0, 90, 180, 270
   const [zoom, setZoom] = useState<number>(1);
@@ -52,6 +52,17 @@ export function ImageCropperModal({ isOpen, imageUrl, filename, onClose, onApply
   const [isProcessing, setIsProcessing] = useState<boolean>(false);
   const [imageLoading, setImageLoading] = useState<boolean>(true);
   const [loadError, setLoadError] = useState<string | null>(null);
+
+  // Prevent background page from scrolling while modal is active
+  useEffect(() => {
+    if (isOpen) {
+      const origOverflow = document.body.style.overflow;
+      document.body.style.overflow = "hidden";
+      return () => {
+        document.body.style.overflow = origOverflow;
+      };
+    }
+  }, [isOpen]);
 
   // Portion Selection Mode state (percentages from 0 to 100 relative to displayed image)
   const [selectionBox, setSelectionBox] = useState<{
@@ -509,20 +520,6 @@ export function ImageCropperModal({ isOpen, imageUrl, filename, onClose, onApply
         <div className="flex items-center border-b border-slate-200 bg-slate-100/80 p-1.5 gap-1.5 overflow-x-auto no-scrollbar">
           <button
             type="button"
-            onClick={() => setCropMode("page_preset")}
-            className={cn(
-              "flex-1 flex items-center justify-center gap-2 rounded-xl py-2 px-3 text-xs font-bold transition-all cursor-pointer whitespace-nowrap",
-              cropMode === "page_preset"
-                ? "bg-white text-emerald-900 shadow-sm border border-slate-200/80"
-                : "text-slate-600 hover:bg-white/60 hover:text-slate-900",
-            )}
-          >
-            <Layers className="size-4 text-emerald-600" />
-            <span>Page Fit &amp; Presets (A4, etc.)</span>
-          </button>
-
-          <button
-            type="button"
             onClick={() => setCropMode("portion_select")}
             className={cn(
               "flex-1 flex items-center justify-center gap-2 rounded-xl py-2 px-3 text-xs font-bold transition-all cursor-pointer whitespace-nowrap",
@@ -533,6 +530,20 @@ export function ImageCropperModal({ isOpen, imageUrl, filename, onClose, onApply
           >
             <BoxSelect className="size-4 text-emerald-600" />
             <span>✂️ Select Portion / Snippet</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setCropMode("page_preset")}
+            className={cn(
+              "flex-1 flex items-center justify-center gap-2 rounded-xl py-2 px-3 text-xs font-bold transition-all cursor-pointer whitespace-nowrap",
+              cropMode === "page_preset"
+                ? "bg-white text-emerald-900 shadow-sm border border-slate-200/80"
+                : "text-slate-600 hover:bg-white/60 hover:text-slate-900",
+            )}
+          >
+            <Layers className="size-4 text-emerald-600" />
+            <span>Page Fit &amp; Presets (A4, etc.)</span>
           </button>
 
           {/* Multiple Photos on 1 Page button hidden from frontend */}

@@ -292,6 +292,17 @@ export function MultiImagePageModal({
   const [zoom, setZoom] = useState<number>(1);
   const [mobileTab, setMobileTab] = useState<"canvas" | "presets" | "settings">("canvas");
 
+  // Prevent background page from scrolling while modal is active
+  useEffect(() => {
+    if (isOpen) {
+      const origOverflow = document.body.style.overflow;
+      document.body.style.overflow = "hidden";
+      return () => {
+        document.body.style.overflow = origOverflow;
+      };
+    }
+  }, [isOpen]);
+
   // Combined pool of available uploaded batch photos
   const availableBatchPool = useMemo(() => {
     const list: { dataUrl: string; filename: string; documentId?: string }[] = [];
@@ -315,19 +326,66 @@ export function MultiImagePageModal({
   const [images, setImages] = useState<PlacedImage[]>([]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
 
+  // Helper to place an uploaded batch photo directly onto the canvas (ideal for freeform)
+  const handlePlaceBatchPhotoOnCanvas = useCallback(
+    (photo: { dataUrl: string; filename: string; documentId?: string }) => {
+      const newId = `img-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
+      const offset = (images.length * 7) % 28;
+      const newImg: PlacedImage = {
+        id: newId,
+        dataUrl: photo.dataUrl,
+        filename: photo.filename,
+        documentId: photo.documentId,
+        x: Math.min(15 + offset, 45),
+        y: Math.min(15 + offset, 45),
+        width: 55,
+        height: 45,
+        rotation: 0,
+        objectFit: "contain",
+        border: photoBorder,
+      };
+      setImages((prev) => [...prev, newImg]);
+      setSelectedId(newId);
+      if (template !== "custom") setTemplate("custom");
+    },
+    [images.length, photoBorder, template],
+  );
+
   // Function to construct filled images from the batch pool for a target preset
   const buildImagesForTemplate = useCallback(
-    (tmpl: LayoutTemplate, orient: "portrait" | "landscape", m: number, g: number, border: boolean) => {
-      if (tmpl === "custom") return images;
-      const tmplObj = TEMPLATES.find((t) => t.id === tmpl);
-      const targetCount = tmplObj?.count || 2;
-
+    (tmpl: LayoutTemplate, orient: "portrait" | "landscape", m: number, g: number, border: boolean): PlacedImage[] => {
       const pool =
         availableBatchPool.length > 0
           ? availableBatchPool
           : images.length > 0
             ? images.map((i) => ({ dataUrl: i.dataUrl, filename: i.filename, documentId: i.documentId }))
             : [];
+
+      if (tmpl === "custom") {
+        if (images.length > 0) return images;
+        if (pool.length > 0) {
+          const source = pool[0];
+          return [
+            {
+              id: `img-${Date.now()}-0-${Math.random().toString(36).slice(2, 6)}`,
+              dataUrl: source.dataUrl,
+              filename: source.filename,
+              documentId: source.documentId,
+              x: 15,
+              y: 15,
+              width: 70,
+              height: 55,
+              rotation: 0,
+              objectFit: "contain" as const,
+              border: border,
+            },
+          ];
+        }
+        return [];
+      }
+
+      const tmplObj = TEMPLATES.find((t) => t.id === tmpl);
+      const targetCount = tmplObj?.count || 2;
 
       if (pool.length === 0) return [];
 
@@ -539,6 +597,11 @@ export function MultiImagePageModal({
   const handlePointerDown = (e: React.PointerEvent, id: string, mode: "move" | "resize", corner?: string) => {
     e.stopPropagation();
     e.preventDefault();
+    try {
+      (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
+    } catch {
+      // Ignore if pointer capture unavailable
+    }
     setSelectedId(id);
 
     const img = images.find((i) => i.id === id);
@@ -613,13 +676,19 @@ export function MultiImagePageModal({
       setDragState(null);
     };
 
+    const handlePreventTouchMove = (e: TouchEvent) => {
+      if (e.cancelable) e.preventDefault();
+    };
+
     if (dragState) {
       window.addEventListener("pointermove", handlePointerMove);
       window.addEventListener("pointerup", handlePointerUp);
+      window.addEventListener("touchmove", handlePreventTouchMove, { passive: false });
     }
     return () => {
       window.removeEventListener("pointermove", handlePointerMove);
       window.removeEventListener("pointerup", handlePointerUp);
+      window.removeEventListener("touchmove", handlePreventTouchMove);
     };
   }, [dragState, template]);
 
@@ -929,11 +998,13 @@ export function MultiImagePageModal({
                       key={`${photo.filename}-${pIdx}`}
                       type="button"
                       onClick={() => {
-                        if (selectedId) {
+                        if (selectedId && template !== "custom") {
                           handleAssignBatchPhotoToSlot(selectedId, photo);
+                        } else {
+                          handlePlaceBatchPhotoOnCanvas(photo);
                         }
                       }}
-                      title={selectedId ? `Click to place into selected slot: ${photo.filename}` : photo.filename}
+                      title={selectedId ? `Click to place into selected slot: ${photo.filename}` : `Place ${photo.filename} on canvas`}
                       className={cn(
                         "relative flex flex-col items-center shrink-0 rounded-xl border p-1 bg-white transition hover:scale-105 cursor-pointer",
                         currentSelectedImage?.dataUrl === photo.dataUrl
@@ -1104,7 +1175,7 @@ export function MultiImagePageModal({
           {/* Center: Live Interactive A4 Sheet Canvas (col-span-6) */}
           <div
             className={cn(
-              "lg:col-span-6 flex flex-col items-center justify-center p-3 sm:p-4 bg-slate-100/90 relative overflow-auto min-h-[380px] sm:min-h-[420px]",
+              "lg:col-span-6 flex flex-col items-center justify-center p-3 sm:p-4 bg-slate-100/90 relative overflow-auto min-h-[380px] sm:min-h-[420px] touch-none overscroll-none",
               mobileTab !== "canvas" && "hidden lg:flex",
             )}
           >
@@ -1140,7 +1211,7 @@ export function MultiImagePageModal({
                 aspectRatio: orientation === "portrait" ? "210 / 297" : "297 / 210",
               }}
               onClick={() => setSelectedId(null)}
-              className="relative bg-white shadow-2xl rounded-xs border-2 border-slate-300 overflow-hidden transition-all duration-150 select-none cursor-default max-w-full"
+              className="relative bg-white shadow-2xl rounded-xs border-2 border-slate-300 overflow-hidden transition-all duration-150 select-none cursor-default max-w-full touch-none"
             >
               {/* Safe Print Margins Guide */}
               <div
@@ -1168,7 +1239,7 @@ export function MultiImagePageModal({
                       height: `${img.height}%`,
                     }}
                     className={cn(
-                      "absolute flex items-center justify-center p-0.5 transition-shadow cursor-move z-10",
+                      "absolute flex items-center justify-center p-0.5 transition-shadow cursor-move z-10 touch-none select-none",
                       isSelected ? "ring-2 ring-emerald-600 shadow-xl z-20" : "hover:ring-1 hover:ring-emerald-400/80",
                     )}
                   >
@@ -1235,14 +1306,59 @@ export function MultiImagePageModal({
                 <div className="absolute inset-0 flex flex-col items-center justify-center p-6 text-center text-slate-400">
                   <ImageIcon className="size-10 text-slate-300 mb-2" />
                   <p className="text-xs font-bold text-slate-600">A4 Blank Sheet</p>
-                  <p className="text-[10px] text-slate-400 mt-0.5">
-                    Choose a preset on the left or add photos to begin.
+                  <p className="text-[10px] text-slate-400 mt-0.5 mb-3">
+                    Place uploaded photos or choose a layout preset to begin.
                   </p>
+                  {availableBatchPool.length > 0 ? (
+                    <button
+                      type="button"
+                      onClick={() => handlePlaceBatchPhotoOnCanvas(availableBatchPool[0])}
+                      className="inline-flex items-center gap-1.5 rounded-xl bg-emerald-600 text-white px-3.5 py-1.5 text-xs font-bold shadow-sm hover:bg-emerald-700 transition active:scale-95 cursor-pointer"
+                    >
+                      <Plus className="size-3.5" />
+                      <span>Place First Photo</span>
+                    </button>
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={() => fileInputRef.current?.click()}
+                      className="inline-flex items-center gap-1.5 rounded-xl bg-emerald-600 text-white px-3.5 py-1.5 text-xs font-bold shadow-sm hover:bg-emerald-700 transition active:scale-95 cursor-pointer"
+                    >
+                      <Plus className="size-3.5" />
+                      <span>Add Photo</span>
+                    </button>
+                  )}
                 </div>
               )}
             </div>
 
-            <p className="mt-3 text-[11px] text-slate-500 flex items-center gap-1">
+            {/* Quick Uploaded Photos Strip to Place onto Canvas */}
+            {availableBatchPool.length > 0 && (
+              <div className="mt-2.5 w-full max-w-sm rounded-xl border border-blue-200/90 bg-blue-50/70 p-2 z-20">
+                <div className="flex items-center justify-between mb-1 px-0.5">
+                  <span className="text-[10px] font-bold text-blue-900 flex items-center gap-1">
+                    <LucideImage className="size-3 text-blue-600" /> Tap photo to place on sheet:
+                  </span>
+                  <span className="text-[9.5px] text-blue-600 font-semibold">{availableBatchPool.length} available</span>
+                </div>
+                <div className="flex gap-1.5 overflow-x-auto pb-1 no-scrollbar">
+                  {availableBatchPool.map((photo, pIdx) => (
+                    <button
+                      key={`canvas-strip-${photo.documentId || pIdx}`}
+                      type="button"
+                      onClick={() => handlePlaceBatchPhotoOnCanvas(photo)}
+                      className="flex items-center gap-1.5 shrink-0 rounded-lg border border-blue-300 bg-white p-1 hover:bg-blue-50 hover:border-blue-500 transition active:scale-95 cursor-pointer shadow-2xs"
+                    >
+                      {/* eslint-disable-next-line @next/next/no-img-element */}
+                      <img src={photo.dataUrl} alt={photo.filename} className="size-7 rounded-sm object-cover bg-slate-100" />
+                      <span className="text-[9.5px] font-bold text-blue-900 pr-1">#{pIdx + 1} Place</span>
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            <p className="mt-2 text-[11px] text-slate-500 flex items-center gap-1">
               <Move className="size-3 text-emerald-600" />
               Click &amp; drag photos on sheet to reposition or resize corner handles
             </p>

@@ -305,7 +305,7 @@ function SingleDocPreviewSection({
 
           <div
             ref={scrollContainerRef}
-            className="flex gap-2 sm:gap-2.5 overflow-x-auto pb-2 pt-0.5 px-0.5 snap-x snap-mandatory scroll-smooth no-scrollbar touch-pan-x"
+            className="flex gap-2 sm:gap-2.5 overflow-x-auto pb-2 pt-0.5 px-0.5 snap-x snap-mandatory scroll-smooth no-scrollbar overscroll-x-contain"
           >
             {pagesList.map((pageNum) => {
               const config = includedPagesMap.get(pageNum);
@@ -532,7 +532,7 @@ function AllDocsSideBySidePreviewSection({
 
         <div
           ref={scrollContainerRef}
-          className="flex flex-row flex-nowrap gap-3 sm:gap-3.5 overflow-x-auto pb-3 pt-1 px-0.5 snap-x snap-mandatory scroll-smooth no-scrollbar touch-pan-x"
+          className="flex flex-row flex-nowrap gap-3 sm:gap-3.5 overflow-x-auto pb-3 pt-1 px-0.5 snap-x snap-mandatory scroll-smooth no-scrollbar overscroll-x-contain"
           style={{ willChange: "scroll-position" }}
         >
           {documents.map((doc, idx) => {
