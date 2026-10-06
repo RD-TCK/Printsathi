@@ -58,13 +58,21 @@ export async function normalizeDocument(file: File): Promise<NormalizedDocumentR
         .jpeg({ quality: 100, chromaSubsampling: "4:4:4" })
         .toBuffer();
       embeddedImage = await pdf.embedJpg(processedJpeg);
-      previewImage = processedJpeg;
+      previewImage = await sharp(bytes, { limitInputPixels: 268402689 })
+        .rotate()
+        .resize({ width: 1200, height: 1600, fit: "inside", withoutEnlargement: true })
+        .jpeg({ quality: 80, mozjpeg: true })
+        .toBuffer();
       previewMime = "image/jpeg";
     } else if (isPng) {
       const processedPng = await sharp(bytes, { limitInputPixels: 268402689 }).rotate().png().toBuffer();
       embeddedImage = await pdf.embedPng(processedPng);
-      previewImage = processedPng;
-      previewMime = "image/png";
+      previewImage = await sharp(bytes, { limitInputPixels: 268402689 })
+        .rotate()
+        .resize({ width: 1200, height: 1600, fit: "inside", withoutEnlargement: true })
+        .jpeg({ quality: 80, mozjpeg: true })
+        .toBuffer();
+      previewMime = "image/jpeg";
     } else {
       // Other formats (WebP, GIF, BMP, TIFF) -> lossless PNG
       const png = await sharp(bytes, { limitInputPixels: 268402689 })
@@ -73,8 +81,13 @@ export async function normalizeDocument(file: File): Promise<NormalizedDocumentR
         .png()
         .toBuffer();
       embeddedImage = await pdf.embedPng(png);
-      previewImage = png;
-      previewMime = "image/png";
+      previewImage = await sharp(bytes, { limitInputPixels: 268402689 })
+        .rotate()
+        .flatten({ background: "white" })
+        .resize({ width: 1200, height: 1600, fit: "inside", withoutEnlargement: true })
+        .jpeg({ quality: 80, mozjpeg: true })
+        .toBuffer();
+      previewMime = "image/jpeg";
     }
 
     const page = pdf.addPage([595.28, 841.89]);

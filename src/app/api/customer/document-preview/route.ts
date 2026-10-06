@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
+import sharp from "sharp";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import { hashGuestOrderToken } from "@/lib/guest-order";
 import { extractImageFromPdf } from "@/lib/pdf-preview";
@@ -10,9 +11,30 @@ const QuerySchema = z.object({
   documentId: z.string().uuid(),
   orderId: z.string().uuid(),
   accessToken: z.string().min(10),
+  w: z.coerce.number().min(60).max(2000).optional(),
 });
 
 const imageExtensions = new Set([".jpg", ".jpeg", ".png", ".webp", ".gif", ".bmp", ".tif", ".tiff"]);
+
+async function optimizePreviewImage(
+  rawBuffer: Buffer,
+  targetWidth?: number,
+): Promise<{ buffer: Buffer; mimeType: string }> {
+  try {
+    const width = targetWidth ? Math.min(1600, Math.max(80, targetWidth)) : 800;
+    const quality = width <= 400 ? 75 : 82;
+
+    const optimized = await sharp(rawBuffer, { limitInputPixels: 268402689 })
+      .rotate()
+      .resize({ width, withoutEnlargement: true, fit: "inside" })
+      .jpeg({ quality, mozjpeg: true })
+      .toBuffer();
+
+    return { buffer: optimized, mimeType: "image/jpeg" };
+  } catch {
+    return { buffer: rawBuffer, mimeType: "image/jpeg" };
+  }
+}
 
 export async function GET(request: Request) {
   const url = new URL(request.url);
@@ -20,13 +42,14 @@ export async function GET(request: Request) {
     documentId: url.searchParams.get("documentId"),
     orderId: url.searchParams.get("orderId"),
     accessToken: url.searchParams.get("accessToken") || url.searchParams.get("token"),
+    w: url.searchParams.get("w") || undefined,
   });
 
   if (!parsed.success) {
     return NextResponse.json({ error: "Missing or invalid document preview parameters." }, { status: 400 });
   }
 
-  const { documentId, orderId, accessToken } = parsed.data;
+  const { documentId, orderId, accessToken, w: targetWidth } = parsed.data;
   const client = createSupabaseAdminClient();
   if (!client) {
     return NextResponse.json({ error: "Service unavailable." }, { status: 503 });
@@ -67,14 +90,16 @@ export async function GET(request: Request) {
   const { data: previewBlob } = await client.storage.from("print-documents").download(previewPath);
 
   if (previewBlob && previewBlob.size > 0) {
-    const buffer = await previewBlob.arrayBuffer();
+    const rawBuffer = Buffer.from(await previewBlob.arrayBuffer());
+    const { buffer: optimizedBuffer, mimeType } = await optimizePreviewImage(rawBuffer, targetWidth);
+
     const headers = new Headers();
-    headers.set("Content-Type", "image/jpeg");
-    headers.set("Cache-Control", "public, max-age=3600, immutable");
+    headers.set("Content-Type", mimeType);
+    headers.set("Cache-Control", "public, max-age=86400, stale-while-revalidate=604800");
     headers.set("Access-Control-Allow-Origin", "*");
     headers.set("Content-Disposition", `inline; filename="${encodeURIComponent(doc.original_filename)}"`);
 
-    return new NextResponse(buffer, {
+    return new NextResponse(new Uint8Array(optimizedBuffer), {
       status: 200,
       headers,
     });
@@ -105,13 +130,15 @@ export async function GET(request: Request) {
         })
         .catch(() => {});
 
+      const { buffer: optimizedBuffer, mimeType } = await optimizePreviewImage(extracted.buffer, targetWidth);
+
       const headers = new Headers();
-      headers.set("Content-Type", extracted.mimeType);
-      headers.set("Cache-Control", "public, max-age=3600, immutable");
+      headers.set("Content-Type", mimeType);
+      headers.set("Cache-Control", "public, max-age=86400, stale-while-revalidate=604800");
       headers.set("Access-Control-Allow-Origin", "*");
       headers.set("Content-Disposition", `inline; filename="${encodeURIComponent(doc.original_filename)}"`);
 
-      return new NextResponse(new Uint8Array(extracted.buffer), {
+      return new NextResponse(new Uint8Array(optimizedBuffer), {
         status: 200,
         headers,
       });
@@ -120,7 +147,7 @@ export async function GET(request: Request) {
 
   const headers = new Headers();
   headers.set("Content-Type", doc.mime_type || "application/octet-stream");
-  headers.set("Cache-Control", "public, max-age=3600, immutable");
+  headers.set("Cache-Control", "public, max-age=86400, stale-while-revalidate=604800");
   headers.set("Access-Control-Allow-Origin", "*");
   headers.set("Content-Disposition", `inline; filename="${encodeURIComponent(doc.original_filename)}"`);
 
