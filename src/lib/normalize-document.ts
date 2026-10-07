@@ -52,41 +52,44 @@ export async function normalizeDocument(file: File): Promise<NormalizedDocumentR
     let embeddedImage;
 
     if (isJpeg) {
-      // Preserve 100% original JPEG quality without inflating into 30MB uncompressed PNG!
-      const processedJpeg = await sharp(bytes, { limitInputPixels: 268402689 })
-        .rotate()
-        .jpeg({ quality: 100, chromaSubsampling: "4:4:4" })
-        .toBuffer();
+      const sharpInstance = sharp(bytes, { limitInputPixels: 268402689 }).rotate();
+      const [processedJpeg, previewBuf] = await Promise.all([
+        sharpInstance.clone().jpeg({ quality: 95 }).toBuffer(),
+        sharpInstance
+          .clone()
+          .resize({ width: 1200, height: 1600, fit: "inside", withoutEnlargement: true })
+          .jpeg({ quality: 75 })
+          .toBuffer(),
+      ]);
       embeddedImage = await pdf.embedJpg(processedJpeg);
-      previewImage = await sharp(bytes, { limitInputPixels: 268402689 })
-        .rotate()
-        .resize({ width: 1200, height: 1600, fit: "inside", withoutEnlargement: true })
-        .jpeg({ quality: 80, mozjpeg: true })
-        .toBuffer();
+      previewImage = previewBuf;
       previewMime = "image/jpeg";
     } else if (isPng) {
-      const processedPng = await sharp(bytes, { limitInputPixels: 268402689 }).rotate().png().toBuffer();
+      const sharpInstance = sharp(bytes, { limitInputPixels: 268402689 }).rotate();
+      const [processedPng, previewBuf] = await Promise.all([
+        sharpInstance.clone().png().toBuffer(),
+        sharpInstance
+          .clone()
+          .resize({ width: 1200, height: 1600, fit: "inside", withoutEnlargement: true })
+          .jpeg({ quality: 75 })
+          .toBuffer(),
+      ]);
       embeddedImage = await pdf.embedPng(processedPng);
-      previewImage = await sharp(bytes, { limitInputPixels: 268402689 })
-        .rotate()
-        .resize({ width: 1200, height: 1600, fit: "inside", withoutEnlargement: true })
-        .jpeg({ quality: 80, mozjpeg: true })
-        .toBuffer();
+      previewImage = previewBuf;
       previewMime = "image/jpeg";
     } else {
       // Other formats (WebP, GIF, BMP, TIFF) -> lossless PNG
-      const png = await sharp(bytes, { limitInputPixels: 268402689 })
-        .rotate()
-        .flatten({ background: "white" })
-        .png()
-        .toBuffer();
-      embeddedImage = await pdf.embedPng(png);
-      previewImage = await sharp(bytes, { limitInputPixels: 268402689 })
-        .rotate()
-        .flatten({ background: "white" })
-        .resize({ width: 1200, height: 1600, fit: "inside", withoutEnlargement: true })
-        .jpeg({ quality: 80, mozjpeg: true })
-        .toBuffer();
+      const sharpInstance = sharp(bytes, { limitInputPixels: 268402689 }).rotate().flatten({ background: "white" });
+      const [processedPng, previewBuf] = await Promise.all([
+        sharpInstance.clone().png().toBuffer(),
+        sharpInstance
+          .clone()
+          .resize({ width: 1200, height: 1600, fit: "inside", withoutEnlargement: true })
+          .jpeg({ quality: 75 })
+          .toBuffer(),
+      ]);
+      embeddedImage = await pdf.embedPng(processedPng);
+      previewImage = previewBuf;
       previewMime = "image/jpeg";
     }
 

@@ -606,9 +606,9 @@ export class WhatsAppAgentService {
 
       const mimetype = documentMsg?.mimetype || imageMsg?.mimetype || "application/octet-stream";
 
-      // 2. Queue into sender batch with debounce window (4.0s) to bundle multiple images/PDFs into ONE order
-      const DEBOUNCE_MS = 4000;
-      const MAX_BATCH_WAIT_MS = 25000;
+      // 2. Queue into sender batch with debounce window (1.5s) to bundle multiple images/PDFs into ONE order fast
+      const DEBOUNCE_MS = 1500;
+      const MAX_BATCH_WAIT_MS = 8000;
       const existingBatch = this.pendingBatches.get(remoteJid);
       const now = Date.now();
 
@@ -620,7 +620,7 @@ export class WhatsAppAgentService {
         existingBatch.senderPhone = senderPhone;
 
         const elapsed = now - (existingBatch.firstQueuedAt || now);
-        const remainingMax = Math.max(1000, MAX_BATCH_WAIT_MS - elapsed);
+        const remainingMax = Math.max(500, MAX_BATCH_WAIT_MS - elapsed);
         const delay = Math.min(DEBOUNCE_MS, remainingMax);
 
         existingBatch.timer = setTimeout(() => {
@@ -662,7 +662,7 @@ export class WhatsAppAgentService {
       const batch = this.pendingBatches.get(remoteJid);
       if (batch) {
         clearTimeout(batch.timer);
-        batch.timer = setTimeout(() => void this.flushBatch(remoteJid), 2500);
+        batch.timer = setTimeout(() => void this.flushBatch(remoteJid), 800);
       }
       return;
     }
@@ -807,14 +807,11 @@ export class WhatsAppAgentService {
           `\n\n_Tap each link to customize copies/color and collect your tokens._`;
       }
 
-      // Anti-ban measure: Simulate realistic typing presence
+      // Anti-ban measure: Simulate brief natural typing presence
       if (this.socket) {
         try {
-          const baseDelay = Math.min(3500, Math.max(1500, (replyText.length / 8) * 1000));
-          const jitter = Math.random() * 800;
-
           await this.socket.sendPresenceUpdate("composing", remoteJid);
-          await new Promise((resolve) => setTimeout(resolve, baseDelay + jitter));
+          await new Promise((resolve) => setTimeout(resolve, 250));
           await this.socket.sendPresenceUpdate("paused", remoteJid);
         } catch {
           // ignore
@@ -854,7 +851,7 @@ export class WhatsAppAgentService {
           const fallbackText = `⚠️ *Printiva Notice:* We received your file(s), but could not process them (${errorMsg}). Please send PDF, Word documents, or clear images.`;
 
           await this.socket.sendPresenceUpdate("composing", remoteJid);
-          await new Promise((resolve) => setTimeout(resolve, 1500));
+          await new Promise((resolve) => setTimeout(resolve, 250));
           await this.socket.sendPresenceUpdate("paused", remoteJid);
 
           await this.socket.sendMessage(remoteJid, { text: fallbackText }, { quoted: lastMessage });
@@ -869,7 +866,7 @@ export class WhatsAppAgentService {
         const remainingBatch = this.pendingBatches.get(remoteJid);
         if (remainingBatch) {
           clearTimeout(remainingBatch.timer);
-          remainingBatch.timer = setTimeout(() => void this.flushBatch(remoteJid), 2500);
+          remainingBatch.timer = setTimeout(() => void this.flushBatch(remoteJid), 800);
         }
       }
     }
