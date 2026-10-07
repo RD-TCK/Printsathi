@@ -3,7 +3,6 @@
 import { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import {
   FileText,
-  Printer,
   Sparkles,
   ArrowLeft,
   ArrowRight,
@@ -88,7 +87,7 @@ function LazyPreviewImage({
 }) {
   const [isLoaded, setIsLoaded] = useState(false);
   const [hasError, setHasError] = useState(false);
-  const [isVisible, setIsVisible] = useState(false);
+  const [isVisible, setIsVisible] = useState(() => typeof window === "undefined" || typeof IntersectionObserver === "undefined");
   const containerRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -97,7 +96,6 @@ function LazyPreviewImage({
     if (!el) return;
 
     if (typeof IntersectionObserver === "undefined") {
-      setIsVisible(true);
       return;
     }
 
@@ -634,7 +632,6 @@ function AllDocsSideBySidePreviewSection({
 export function PrintPreviewStep({
   shop,
   documents,
-  activeDocument,
   setActiveDocument,
   estimate,
   busy,
@@ -717,6 +714,7 @@ export function PrintPreviewStep({
   // Keep selectedDocView valid if documents change
   useEffect(() => {
     if (typeof selectedDocView === "number" && selectedDocView >= documents.length) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setSelectedDocView(documents.length > 1 ? "all" : 0);
     }
   }, [documents.length, selectedDocView]);

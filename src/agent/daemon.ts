@@ -32,6 +32,8 @@ export class AgentDaemon {
   private discoveryTimer: NodeJS.Timeout | null = null;
   private discovering = false;
   private heartbeatBusy = false;
+  private lastSentPrintersSignature: string | null = null;
+  private processedJobIds: Set<string> = new Set();
 
   private heartbeatTimer: NodeJS.Timeout | null = null;
   private pollTimer: NodeJS.Timeout | null = null;
@@ -72,7 +74,7 @@ export class AgentDaemon {
 
     this.discoveryTimer = setInterval(() => {
       void this.refreshPrinters();
-    }, 5000);
+    }, 30000);
     // Start background intervals
     this.startHeartbeatLoop();
     this.startJobPollingLoop();
@@ -220,10 +222,24 @@ export class AgentDaemon {
     const runHeartbeat = async () => {
       if (!this.isRunning || !isConfigPaired(this.config)) return;
       await this.sendHeartbeat();
+      this.scheduleNextHeartbeat();
     };
 
-    runHeartbeat();
-    this.heartbeatTimer = setInterval(runHeartbeat, this.config.heartbeatIntervalMs);
+    void runHeartbeat();
+  }
+
+  private scheduleNextHeartbeat(): void {
+    if (!this.isRunning) return;
+    if (this.heartbeatTimer) clearTimeout(this.heartbeatTimer);
+    const baseInterval = this.config.heartbeatIntervalMs || 45000;
+    const jitter = (Math.random() - 0.5) * 10000; // ±5s jitter
+    const delay = Math.max(20000, baseInterval + jitter);
+    this.heartbeatTimer = setTimeout(async () => {
+      if (this.isRunning && isConfigPaired(this.config)) {
+        await this.sendHeartbeat();
+      }
+      this.scheduleNextHeartbeat();
+    }, delay);
   }
 
   private async sendHeartbeat(): Promise<void> {
@@ -239,13 +255,27 @@ export class AgentDaemon {
         uptimeSec: os.uptime(),
       };
 
+      const currentSignature = JSON.stringify(
+        this.discoveredPrinters.map((p) => ({
+          name: p.name,
+          status: p.status,
+          isDefault: p.isDefault,
+          driver: p.driverName,
+        })),
+      );
+
+      // Only send full printer inventory when changed or on initial pulse
+      const printersToSend =
+        this.lastSentPrintersSignature !== currentSignature ? this.discoveredPrinters : undefined;
+
       const result = await this.client.sendHeartbeat({
-        printers: this.discoveredPrinters,
+        printers: printersToSend,
         currentJobId: this.currentJob?.id || null,
         version: this.config.version,
         machineInfo,
       });
 
+      this.lastSentPrintersSignature = currentSignature;
       this.lastHeartbeatTime = result.timestamp;
       this.isConnected = true;
       logger.debug("Heartbeat acknowledged by server.", { timestamp: result.timestamp });
@@ -294,6 +324,16 @@ export class AgentDaemon {
       const job = await this.client.claimNextJob(300); // 5 minute lease
       if (!job) {
         return;
+      }
+
+      if (this.processedJobIds.has(job.id)) {
+        logger.debug(`Job ${job.id} already processed by this agent session, skipping duplicate print.`);
+        return;
+      }
+      this.processedJobIds.add(job.id);
+      if (this.processedJobIds.size > 500) {
+        const firstKey = this.processedJobIds.values().next().value;
+        if (firstKey) this.processedJobIds.delete(firstKey);
       }
 
       this.currentJob = job;

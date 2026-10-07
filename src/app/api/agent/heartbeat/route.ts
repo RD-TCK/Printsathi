@@ -57,16 +57,18 @@ export async function POST(request: Request) {
     .eq("id", auth.agent.id);
   if (agentError) return NextResponse.json({ error: "Could not save agent heartbeat." }, { status: 500 });
 
-  // A complete inventory must retire printers that disappeared, including an empty inventory.
-  const { error: offlineError } = await adminClient
-    .from("printers")
-    .update({ status: "offline", is_online: false })
-    .eq("shop_id", auth.shop.id)
-    .eq("desktop_agent_id", auth.agent.id);
-  if (offlineError) return NextResponse.json({ error: "Could not reconcile printer inventory." }, { status: 500 });
-  // 2. Upsert Discovered Printers
-  if (parsed.data.printers && parsed.data.printers.length > 0) {
-    for (const p of parsed.data.printers) {
+  // 2. Upsert Discovered Printers only when inventory is provided (on change or startup)
+  if (parsed.data.printers !== undefined) {
+    // A complete inventory must retire printers that disappeared, including an empty inventory.
+    const { error: offlineError } = await adminClient
+      .from("printers")
+      .update({ status: "offline", is_online: false })
+      .eq("shop_id", auth.shop.id)
+      .eq("desktop_agent_id", auth.agent.id);
+    if (offlineError) return NextResponse.json({ error: "Could not reconcile printer inventory." }, { status: 500 });
+
+    if (parsed.data.printers.length > 0) {
+      for (const p of parsed.data.printers) {
       if (/onenote|print to pdf|xps|fax|pdfcreator|cutepdf/i.test(`${p.name} ${p.driverName || ""}`)) continue;
       const systemId =
         p.systemIdentifier ||
@@ -117,6 +119,7 @@ export async function POST(request: Request) {
       }
     }
   }
+}
 
   return NextResponse.json({
     success: true,

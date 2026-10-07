@@ -93,7 +93,7 @@ export class AgentApiClient {
   }
 
   async sendHeartbeat(params: {
-    printers: DiscoveredPrinter[];
+    printers?: DiscoveredPrinter[];
     currentJobId?: string | null;
     version?: string;
     machineInfo?: Record<string, unknown>;

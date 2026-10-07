@@ -37,9 +37,30 @@ export type PublicPricingRule = {
   price_per_page: number;
 };
 
+const publicShopCache = new Map<string, { data: { shop: PublicShop | null; configured: boolean }; expiresAt: number }>();
+const publicPricingCache = new Map<string, { data: PublicPricingRule[]; expiresAt: number }>();
+const PUBLIC_SHOP_CACHE_TTL_MS = 30_000;
+const PUBLIC_PRICING_CACHE_TTL_MS = 60_000;
+
+export function invalidatePublicShopCache(publicIdentifier?: string) {
+  if (publicIdentifier) {
+    publicShopCache.delete(publicIdentifier);
+    publicPricingCache.delete(publicIdentifier);
+  } else {
+    publicShopCache.clear();
+    publicPricingCache.clear();
+  }
+}
+
 export async function getPublicShop(
   publicIdentifier: string,
 ): Promise<{ shop: PublicShop | null; configured: boolean }> {
+  const now = Date.now();
+  const cached = publicShopCache.get(publicIdentifier);
+  if (cached && cached.expiresAt > now) {
+    return cached.data;
+  }
+
   const client = await createSupabaseServerClient();
   if (!client) return { shop: null, configured: false };
   const inventoryClient = createSupabaseAdminClient() || client;
@@ -83,7 +104,11 @@ export async function getPublicShop(
     data = initialQuery.data;
   }
 
-  if (!data) return { shop: null, configured: true };
+  if (!data) {
+    const result = { shop: null, configured: true };
+    publicShopCache.set(publicIdentifier, { data: result, expiresAt: now + 5000 });
+    return result;
+  }
 
   // Fetch shop's internal ID and printers to check real-time color vs B&W connectivity
   let hasBw = false;
@@ -193,10 +218,18 @@ export async function getPublicShop(
     has_custom_razorpay: Boolean(data.has_custom_razorpay),
   };
 
-  return { shop, configured: true };
+  const result = { shop, configured: true };
+  publicShopCache.set(publicIdentifier, { data: result, expiresAt: now + PUBLIC_SHOP_CACHE_TTL_MS });
+  return result;
 }
 
 export async function getPublicPricing(publicIdentifier: string): Promise<PublicPricingRule[]> {
+  const now = Date.now();
+  const cached = publicPricingCache.get(publicIdentifier);
+  if (cached && cached.expiresAt > now) {
+    return cached.data;
+  }
+
   const client = await createSupabaseServerClient();
   if (!client) return [];
   const { data } = await client
@@ -206,5 +239,7 @@ export async function getPublicPricing(publicIdentifier: string): Promise<Public
     .order("color_mode")
     .order("paper_size")
     .order("min_pages");
-  return (data ?? []) as PublicPricingRule[];
+  const result = (data ?? []) as PublicPricingRule[];
+  publicPricingCache.set(publicIdentifier, { data: result, expiresAt: now + PUBLIC_PRICING_CACHE_TTL_MS });
+  return result;
 }

@@ -28,6 +28,11 @@ export async function POST(request: Request) {
     .min(10)
     .optional()
     .safeParse(form.get("accessToken") || undefined);
+  const replaceDocumentId = z
+    .string()
+    .uuid()
+    .optional()
+    .safeParse(form.get("replaceDocumentId") || undefined);
   const files = form.getAll("files").filter((value): value is File => value instanceof File);
   if (!shopIdentifier.success || !files.length)
     return NextResponse.json({ error: "Select at least one document." }, { status: 400 });
@@ -224,6 +229,26 @@ export async function POST(request: Request) {
 
     const { error: batchInsertError } = await client.from("documents").insert(documentsToInsert);
     if (batchInsertError) throw new Error("Could not register the documents.");
+
+    if (replaceDocumentId.success && replaceDocumentId.data) {
+      const oldDocId = replaceDocumentId.data;
+      const { data: oldDoc } = await client
+        .from("documents")
+        .select("id, storage_path, normalized_storage_path")
+        .eq("id", oldDocId)
+        .eq("order_id", orderId)
+        .maybeSingle();
+
+      if (oldDoc) {
+        await client.from("documents").delete().eq("id", oldDocId);
+        const pathsToDelete = [oldDoc.storage_path, oldDoc.normalized_storage_path].filter(
+          (p): p is string => Boolean(p) && !storedPaths.includes(p),
+        );
+        if (pathsToDelete.length > 0) {
+          void client.storage.from("print-documents").remove(pathsToDelete);
+        }
+      }
+    }
 
     const documents = preparedDocs.map(({ id, doc }) => ({
       id,

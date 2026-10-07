@@ -2,6 +2,7 @@ import { cache } from "react";
 import { createServerClient } from "@supabase/ssr";
 import { cookies } from "next/headers";
 import { publicEnv } from "@/lib/env";
+import { devMetricsFetch } from "./metrics";
 
 export const createSupabaseServerClient = cache(async () => {
   if (!publicEnv.NEXT_PUBLIC_SUPABASE_URL || !publicEnv.NEXT_PUBLIC_SUPABASE_ANON_KEY) return null;
@@ -33,6 +34,7 @@ export const createSupabaseServerClient = cache(async () => {
         }
       },
     },
+    global: { fetch: devMetricsFetch },
   });
 });
 

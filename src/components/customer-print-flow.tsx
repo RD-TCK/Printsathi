@@ -395,6 +395,7 @@ export function CustomerPrintFlow({
     const controller = new AbortController();
     const refresh = async () => {
       try {
+        if (document.visibilityState === "hidden") return;
         const response = await fetch(`/api/public/shops/${encodeURIComponent(identifier)}/status`, {
           cache: "no-store",
           signal: controller.signal,
@@ -416,10 +417,15 @@ export function CustomerPrintFlow({
     void refresh();
     const timer = setInterval(() => {
       void refresh();
-    }, 2000);
+    }, 30000);
+    const onVisibilityChange = () => {
+      if (document.visibilityState === "visible") void refresh();
+    };
+    document.addEventListener("visibilitychange", onVisibilityChange);
     return () => {
       controller.abort();
       clearInterval(timer);
+      document.removeEventListener("visibilitychange", onVisibilityChange);
     };
   }, [identifier]);
 
@@ -1055,6 +1061,9 @@ export function CustomerPrintFlow({
         form.append("shopIdentifier", identifier);
         form.append("orderId", orderId);
         form.append("accessToken", accessToken);
+        if (targetDoc.id) {
+          form.append("replaceDocumentId", targetDoc.id);
+        }
         form.append("files", croppedFile);
 
         const uploadRes = await safeFetchJson<{
@@ -1987,7 +1996,7 @@ function LazyPreviewImage({
 }) {
   const [isLoaded, setIsLoaded] = useState(false);
   const [hasError, setHasError] = useState(false);
-  const [isVisible, setIsVisible] = useState(false);
+  const [isVisible, setIsVisible] = useState(() => typeof window === "undefined" || typeof IntersectionObserver === "undefined");
   const containerRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -1996,7 +2005,6 @@ function LazyPreviewImage({
     if (!el) return;
 
     if (typeof IntersectionObserver === "undefined") {
-      setIsVisible(true);
       return;
     }
 
@@ -2683,6 +2691,7 @@ function ConfigureAndCropStep({
   // Keep previewDocView valid if documents change
   useEffect(() => {
     if (typeof previewDocView === "number" && previewDocView >= documents.length) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setPreviewDocView(documents.length > 1 ? "all" : 0);
     }
   }, [documents.length, previewDocView]);
@@ -3541,7 +3550,6 @@ function ConfigureAndCropStep({
             Boolean(targetDoc.filename.match(/\.(png|jpg|jpeg|webp|gif|bmp)$/i)) ||
             Boolean(targetDoc.previewUrl);
           const config = targetIncludedMap.get(fullscreenTarget.pageNum);
-          const isIncluded = Boolean(config);
           const isColor = config?.colorMode === "color";
           const isDuplex = config?.sideMode === "double_sided";
 
@@ -3694,7 +3702,7 @@ function CounterTokenStep({
     void refresh();
     const timer = setInterval(() => {
       void refresh();
-    }, 2000);
+    }, 8000);
     const onVisibilityChange = () => {
       if (document.visibilityState === "visible") void refresh();
     };
@@ -3995,7 +4003,7 @@ function PaymentStep({
     void refresh();
     const timer = setInterval(() => {
       void refresh();
-    }, 2000);
+    }, 5000);
     const onVisibilityChange = () => {
       if (document.visibilityState === "visible") void refresh();
     };

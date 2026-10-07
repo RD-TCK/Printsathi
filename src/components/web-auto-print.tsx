@@ -30,7 +30,7 @@ export function WebAutoPrintStation({ shopName }: { shopName: string }) {
     void refresh();
     const timer = setInterval(() => {
       void refresh();
-    }, 2000);
+    }, 30000);
     const onVisibilityChange = () => {
       if (document.visibilityState === "visible") void refresh();
     };
@@ -49,7 +49,7 @@ export function WebAutoPrintStation({ shopName }: { shopName: string }) {
           <Badge tone={ready ? "success" : "warning"}>{ready ? "Printer connected" : "Waiting for printer"}</Badge>
         </div>
         <p className="mt-2 text-sm text-muted">
-          The Windows agent picks up paid jobs automatically. Connection status refreshes every 2 seconds.
+          The Windows agent picks up paid jobs automatically. Connection status refreshes automatically.
         </p>
       </CardHeader>
       <CardContent>

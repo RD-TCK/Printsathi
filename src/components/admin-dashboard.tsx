@@ -100,7 +100,7 @@ export function AdminDashboard({ data }: { data: AdminData }) {
     if (!automatic) return;
     const timer = setInterval(() => {
       if (document.visibilityState === "visible" && !refreshing) startTransition(() => router.refresh());
-    }, 15000);
+    }, 45000);
     return () => clearInterval(timer);
   }, [automatic, refreshing, router]);
 

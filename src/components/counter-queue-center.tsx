@@ -107,7 +107,7 @@ export function CounterQueueCenter({ shopName }: { shopName: string }) {
     };
     // eslint-disable-next-line react-hooks/set-state-in-effect
     void fetchQueue();
-    const timer = setInterval(doFetch, 2000);
+    const timer = setInterval(doFetch, 15000);
     const onVisibilityChange = () => {
       if (document.visibilityState === "visible") void fetchQueue();
     };

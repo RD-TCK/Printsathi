@@ -1,6 +1,8 @@
 import { createBrowserClient } from "@supabase/ssr";
 import { publicEnv } from "@/lib/env";
 
+import { devMetricsFetch } from "./metrics";
+
 export function createSupabaseBrowserClient() {
   if (!publicEnv.NEXT_PUBLIC_SUPABASE_URL || !publicEnv.NEXT_PUBLIC_SUPABASE_ANON_KEY) return null;
   return createBrowserClient(publicEnv.NEXT_PUBLIC_SUPABASE_URL, publicEnv.NEXT_PUBLIC_SUPABASE_ANON_KEY, {
@@ -10,5 +12,6 @@ export function createSupabaseBrowserClient() {
       sameSite: "lax",
       secure: process.env.NODE_ENV === "production",
     },
+    global: { fetch: devMetricsFetch },
   });
 }

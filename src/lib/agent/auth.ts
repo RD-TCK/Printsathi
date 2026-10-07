@@ -38,6 +38,17 @@ export interface AuthenticatedAgent {
   };
 }
 
+const agentAuthCache = new Map<string, { data: AuthenticatedAgent; expiresAt: number }>();
+const AGENT_AUTH_CACHE_TTL_MS = 60_000;
+
+export function invalidateAgentAuthCache(token?: string) {
+  if (token) {
+    agentAuthCache.delete(hashAgentToken(token));
+  } else {
+    agentAuthCache.clear();
+  }
+}
+
 export async function authenticateAgent(request: Request): Promise<AuthenticatedAgent | null> {
   const authHeader = request.headers.get("Authorization");
   const agentTokenHeader = request.headers.get("x-agent-token");
@@ -49,10 +60,15 @@ export async function authenticateAgent(request: Request): Promise<Authenticated
 
   if (!token) return null;
 
+  const tokenHash = hashAgentToken(token);
+  const now = Date.now();
+  const cached = agentAuthCache.get(tokenHash);
+  if (cached && cached.expiresAt > now) {
+    return cached.data;
+  }
+
   const adminClient = createSupabaseAdminClient();
   if (!adminClient) return null;
-
-  const tokenHash = hashAgentToken(token);
 
   const { data: agent, error } = await adminClient
     .from("desktop_agents")
@@ -61,7 +77,10 @@ export async function authenticateAgent(request: Request): Promise<Authenticated
     .eq("is_revoked", false)
     .maybeSingle();
 
-  if (error || !agent) return null;
+  if (error || !agent) {
+    agentAuthCache.delete(tokenHash);
+    return null;
+  }
 
   const { data: shop } = await adminClient
     .from("shops")
@@ -70,7 +89,13 @@ export async function authenticateAgent(request: Request): Promise<Authenticated
     .eq("is_active", true)
     .maybeSingle();
 
-  if (!shop) return null;
+  if (!shop) {
+    agentAuthCache.delete(tokenHash);
+    return null;
+  }
 
-  return { agent, shop };
+  const result: AuthenticatedAgent = { agent, shop };
+  agentAuthCache.set(tokenHash, { data: result, expiresAt: now + AGENT_AUTH_CACHE_TTL_MS });
+
+  return result;
 }
