@@ -55,10 +55,35 @@ export async function processAndCacheDocument(
   const isPdf = ext === ".pdf" || mimetype.includes("pdf");
   const isImage = !isPdf && (mimetype.startsWith("image/") || imageExtensions.has(ext));
   const isWord = !isPdf && !isImage && (ext === ".docx" || ext === ".doc" || ext === ".rtf");
+  const isPowerPoint = !isPdf && !isImage && !isWord && (ext === ".pptx" || ext === ".ppt" || ext === ".odp");
+  const isExcel = !isPdf && !isImage && !isWord && !isPowerPoint && (ext === ".xlsx" || ext === ".xls" || ext === ".ods");
+  const isText =
+    !isPdf &&
+    !isImage &&
+    !isWord &&
+    !isPowerPoint &&
+    !isExcel &&
+    (ext === ".txt" ||
+      ext === ".csv" ||
+      ext === ".tsv" ||
+      ext === ".log" ||
+      ext === ".md" ||
+      ext === ".json" ||
+      ext === ".sql" ||
+      ext === ".py" ||
+      ext === ".js" ||
+      ext === ".ts" ||
+      ext === ".html" ||
+      ext === ".xml" ||
+      ext === ".sh" ||
+      ext === ".css" ||
+      ext === ".yaml" ||
+      ext === ".yml" ||
+      mimetype.startsWith("text/"));
 
-  if (!isPdf && !isImage && !isWord) {
+  if (!isPdf && !isImage && !isWord && !isPowerPoint && !isExcel && !isText) {
     throw new Error(
-      "unsupported file type. Please send a PDF, image (JPG/PNG/HEIC), or Word document (.docx).",
+      "unsupported file type. Please send a PDF, image (JPG/PNG/HEIC), Word document (.docx), PowerPoint presentation (.pptx), Excel sheet (.xlsx), or text file.",
     );
   }
 
@@ -124,22 +149,105 @@ export async function processAndCacheDocument(
 
     previewBuffer = thumbBuf;
 
-    // Embed high-res image into standard A4 PDF sheet
+    // Embed high-res image into standard A4 PDF sheet (auto-orient landscape vs portrait)
     const pdf = await PDFDocument.create();
     const embeddedImage = await pdf.embedJpg(processedJpeg);
-    const page = pdf.addPage([595.28, 841.89]);
-    const scale = Math.min(523.28 / embeddedImage.width, 769.89 / embeddedImage.height);
+
+    const isLandscape = embeddedImage.width > embeddedImage.height * 1.15;
+    const pageWidth = isLandscape ? 841.89 : 595.28;
+    const pageHeight = isLandscape ? 595.28 : 841.89;
+    const margin = 36;
+    const contentW = pageWidth - margin * 2;
+    const contentH = pageHeight - margin * 2;
+
+    const scale = Math.min(contentW / embeddedImage.width, contentH / embeddedImage.height);
     const width = embeddedImage.width * scale;
     const height = embeddedImage.height * scale;
+
+    const page = pdf.addPage([pageWidth, pageHeight]);
     page.drawImage(embeddedImage, {
-      x: (595.28 - width) / 2,
-      y: (841.89 - height) / 2,
+      x: (pageWidth - width) / 2,
+      y: (pageHeight - height) / 2,
       width,
       height,
     });
 
     finalPdfBuffer = Buffer.from(await pdf.save());
     pageCount = 1;
+  } else if (isText) {
+    // Plain text, CSV, Code, Markdown, JSON, SQL document conversion
+    const textContent = rawBuffer.toString("utf-8");
+    finalPdfBuffer = await renderTextToPdf(textContent, rawFilename);
+    const pdf = await PDFDocument.load(finalPdfBuffer, { ignoreEncryption: true });
+    pageCount = pdf.getPageCount();
+  } else if (isPowerPoint) {
+    // High-Fidelity PowerPoint (.pptx / .ppt / .odp) presentation conversion
+    let converted = false;
+
+    // 1. High-fidelity conversion via Microsoft PowerPoint COM automation
+    if (process.platform === "win32") {
+      try {
+        finalPdfBuffer = await convertWithPowerPoint(ext, rawBuffer);
+        converted = true;
+        logger.info(`⚡ Exact Microsoft PowerPoint COM layout conversion succeeded for "${rawFilename}".`);
+      } catch (comErr) {
+        logger.debug("PowerPoint COM conversion not available, trying next fallback:", { error: String(comErr) });
+      }
+    }
+
+    // 2. High-fidelity conversion via LibreOffice headless (if installed)
+    if (!converted) {
+      try {
+        finalPdfBuffer = await convertWithLibreOffice(ext, rawBuffer);
+        converted = true;
+        logger.info(`⚡ LibreOffice headless presentation conversion succeeded for "${rawFilename}".`);
+      } catch (loErr) {
+        logger.debug("LibreOffice presentation conversion not available:", { error: String(loErr) });
+      }
+    }
+
+    if (!converted) {
+      throw new Error(
+        `Could not convert presentation "${rawFilename}" to PDF. Please export your slides as a PDF and send again.`,
+      );
+    }
+
+    const pdf = await PDFDocument.load(finalPdfBuffer, { ignoreEncryption: true });
+    pageCount = pdf.getPageCount();
+  } else if (isExcel) {
+    // High-Fidelity Excel (.xlsx / .xls / .ods) spreadsheet conversion
+    let converted = false;
+
+    // 1. High-fidelity conversion via Microsoft Excel COM automation
+    if (process.platform === "win32") {
+      try {
+        finalPdfBuffer = await convertWithExcel(ext, rawBuffer);
+        converted = true;
+        logger.info(`⚡ Exact Microsoft Excel COM layout conversion succeeded for "${rawFilename}".`);
+      } catch (comErr) {
+        logger.debug("Excel COM conversion not available, trying next fallback:", { error: String(comErr) });
+      }
+    }
+
+    // 2. High-fidelity conversion via LibreOffice headless (if installed)
+    if (!converted) {
+      try {
+        finalPdfBuffer = await convertWithLibreOffice(ext, rawBuffer);
+        converted = true;
+        logger.info(`⚡ LibreOffice headless spreadsheet conversion succeeded for "${rawFilename}".`);
+      } catch (loErr) {
+        logger.debug("LibreOffice spreadsheet conversion not available:", { error: String(loErr) });
+      }
+    }
+
+    if (!converted) {
+      throw new Error(
+        `Could not convert spreadsheet "${rawFilename}" to PDF. Please export your sheet as a PDF and send again.`,
+      );
+    }
+
+    const pdf = await PDFDocument.load(finalPdfBuffer, { ignoreEncryption: true });
+    pageCount = pdf.getPageCount();
   } else {
     // High-Fidelity Word (.docx / .doc / .rtf) document conversion
     let converted = false;
@@ -184,8 +292,10 @@ export async function processAndCacheDocument(
 
     const pdf = await PDFDocument.load(finalPdfBuffer, { ignoreEncryption: true });
     pageCount = pdf.getPageCount();
+  }
 
-    // Try extracting page 1 thumbnail from Word-converted PDF
+  // Extract page 1 thumbnail from converted document PDF if not already set
+  if (!previewBuffer && finalPdfBuffer.length > 0) {
     try {
       const extracted = await extractImageFromPdf(finalPdfBuffer);
       if (extracted?.buffer) {
@@ -262,6 +372,110 @@ try {
 
     if (!fs.existsSync(output)) {
       throw new Error("Word COM conversion did not produce output PDF.");
+    }
+    return fs.readFileSync(output);
+  } finally {
+    try {
+      fs.rmSync(directory, { recursive: true, force: true });
+    } catch {
+      // ignore
+    }
+  }
+}
+
+/**
+ * Converts a PowerPoint presentation directly to PDF using native Microsoft PowerPoint COM automation.
+ */
+async function convertWithPowerPoint(extension: string, bytes: Buffer): Promise<Buffer> {
+  if (process.platform !== "win32") {
+    throw new Error("PowerPoint COM conversion is only available on Windows.");
+  }
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), "printiva-ppt-"));
+  try {
+    const input = path.join(directory, `source${extension}`);
+    const output = path.join(directory, "source.pdf");
+    fs.writeFileSync(input, bytes);
+
+    const script = `
+$ppt = $null
+$pres = $null
+try {
+  $ppt = New-Object -ComObject PowerPoint.Application
+  $pres = $ppt.Presentations.Open('${input.replace(/'/g, "''")}', [Microsoft.Office.Core.MsoTriState]::msoTrue, [Microsoft.Office.Core.MsoTriState]::msoFalse, [Microsoft.Office.Core.MsoTriState]::msoFalse)
+  $pres.SaveAs('${output.replace(/'/g, "''")}', 32)
+  $pres.Close()
+  $ppt.Quit()
+} catch {
+  if ($pres) { $pres.Close() }
+  if ($ppt) { $ppt.Quit() }
+  throw $_.Exception.Message
+} finally {
+  if ($pres) { [System.Runtime.InteropServices.Marshal]::ReleaseComObject($pres) | Out-Null }
+  if ($ppt) { [System.Runtime.InteropServices.Marshal]::ReleaseComObject($ppt) | Out-Null }
+  [System.GC]::Collect()
+  [System.GC]::WaitForPendingFinalizers()
+}
+`;
+    await execute("powershell.exe", ["-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-Command", script], {
+      timeout: 60000,
+      windowsHide: true,
+    });
+
+    if (!fs.existsSync(output)) {
+      throw new Error("PowerPoint COM conversion did not produce output PDF.");
+    }
+    return fs.readFileSync(output);
+  } finally {
+    try {
+      fs.rmSync(directory, { recursive: true, force: true });
+    } catch {
+      // ignore
+    }
+  }
+}
+
+/**
+ * Converts an Excel spreadsheet directly to PDF using native Microsoft Excel COM automation.
+ */
+async function convertWithExcel(extension: string, bytes: Buffer): Promise<Buffer> {
+  if (process.platform !== "win32") {
+    throw new Error("Excel COM conversion is only available on Windows.");
+  }
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), "printiva-excel-"));
+  try {
+    const input = path.join(directory, `source${extension}`);
+    const output = path.join(directory, "source.pdf");
+    fs.writeFileSync(input, bytes);
+
+    const script = `
+$excel = $null
+$wb = $null
+try {
+  $excel = New-Object -ComObject Excel.Application
+  $excel.Visible = $false
+  $excel.DisplayAlerts = $false
+  $wb = $excel.Workbooks.Open('${input.replace(/'/g, "''")}', [Type]::Missing, $true)
+  $wb.ExportAsFixedFormat(0, '${output.replace(/'/g, "''")}')
+  $wb.Close($false)
+  $excel.Quit()
+} catch {
+  if ($wb) { $wb.Close($false) }
+  if ($excel) { $excel.Quit() }
+  throw $_.Exception.Message
+} finally {
+  if ($wb) { [System.Runtime.InteropServices.Marshal]::ReleaseComObject($wb) | Out-Null }
+  if ($excel) { [System.Runtime.InteropServices.Marshal]::ReleaseComObject($excel) | Out-Null }
+  [System.GC]::Collect()
+  [System.GC]::WaitForPendingFinalizers()
+}
+`;
+    await execute("powershell.exe", ["-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-Command", script], {
+      timeout: 60000,
+      windowsHide: true,
+    });
+
+    if (!fs.existsSync(output)) {
+      throw new Error("Excel COM conversion did not produce output PDF.");
     }
     return fs.readFileSync(output);
   } finally {
@@ -729,3 +943,107 @@ async function renderDocxHtmlToPdf(html: string, filename: string): Promise<Buff
 
   return Buffer.from(await pdfDoc.save());
 }
+
+/**
+ * Renders plain text, CSV, logs, or code into a paginated A4 PDF.
+ * Uses Courier for monospace code/data/csv alignment, and Helvetica for prose/markdown notes.
+ * Formats clean headers, page numbers, and footers.
+ */
+async function renderTextToPdf(textContent: string, filename: string): Promise<Buffer> {
+  const pdfDoc = await PDFDocument.create();
+  const ext = path.extname(filename).toLowerCase();
+  const isMono =
+    [
+      ".csv",
+      ".tsv",
+      ".log",
+      ".json",
+      ".sql",
+      ".py",
+      ".js",
+      ".ts",
+      ".sh",
+      ".xml",
+      ".html",
+      ".css",
+      ".yaml",
+      ".yml",
+    ].includes(ext) || ext === "";
+
+  const font = await pdfDoc.embedFont(isMono ? StandardFonts.Courier : StandardFonts.Helvetica);
+  const boldFont = await pdfDoc.embedFont(isMono ? StandardFonts.CourierBold : StandardFonts.HelveticaBold);
+
+  const a4Width = 595.28;
+  const a4Height = 841.89;
+  const margin = 40;
+  const contentWidth = a4Width - margin * 2;
+  const fontSize = isMono ? 9.5 : 10.5;
+  const lineHeight = isMono ? 13 : 15;
+  const topMargin = 50;
+  const bottomMargin = 40;
+  const linesPerPage = Math.floor((a4Height - topMargin - bottomMargin) / lineHeight);
+
+  // Expand tabs to 4 spaces to preserve column alignments
+  const expanded = textContent.replace(/\t/g, "    ");
+  const sanitized = sanitizeForPdf(expanded);
+  const wrappedLines = wrapText(sanitized, font, fontSize, contentWidth);
+
+  const totalPages = Math.max(1, Math.ceil(wrappedLines.length / linesPerPage));
+  const cleanHeaderName = sanitizeForPdf(path.basename(filename)).slice(0, 50);
+
+  for (let p = 0; p < totalPages; p++) {
+    const page = pdfDoc.addPage([a4Width, a4Height]);
+
+    // Header
+    page.drawText(cleanHeaderName, {
+      x: margin,
+      y: a4Height - 28,
+      size: 8,
+      font: boldFont,
+      color: rgb(0.35, 0.35, 0.4),
+    });
+    page.drawText(`Page ${p + 1} of ${totalPages}`, {
+      x: a4Width - margin - 55,
+      y: a4Height - 28,
+      size: 8,
+      font,
+      color: rgb(0.45, 0.45, 0.5),
+    });
+    page.drawLine({
+      start: { x: margin, y: a4Height - 34 },
+      end: { x: a4Width - margin, y: a4Height - 34 },
+      thickness: 0.5,
+      color: rgb(0.85, 0.85, 0.88),
+    });
+
+    // Content lines
+    const startIdx = p * linesPerPage;
+    const endIdx = Math.min(startIdx + linesPerPage, wrappedLines.length);
+    let currentY = a4Height - topMargin;
+    for (let i = startIdx; i < endIdx; i++) {
+      const line = wrappedLines[i];
+      if (line) {
+        page.drawText(line, {
+          x: margin,
+          y: currentY - fontSize,
+          size: fontSize,
+          font,
+          color: rgb(0.12, 0.12, 0.15),
+        });
+      }
+      currentY -= lineHeight;
+    }
+
+    // Footer
+    page.drawText("Printed with PrintSathi", {
+      x: margin,
+      y: 20,
+      size: 7.5,
+      font,
+      color: rgb(0.6, 0.6, 0.65),
+    });
+  }
+
+  return Buffer.from(await pdfDoc.save());
+}
+

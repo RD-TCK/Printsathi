@@ -27,7 +27,24 @@ const officeExtensions = new Set([
   ".csv",
   ".md",
 ]);
-const textExtensions = new Set([".txt", ".csv", ".md"]);
+const textExtensions = new Set([
+  ".txt",
+  ".csv",
+  ".tsv",
+  ".md",
+  ".log",
+  ".json",
+  ".sql",
+  ".py",
+  ".js",
+  ".ts",
+  ".sh",
+  ".xml",
+  ".html",
+  ".css",
+  ".yaml",
+  ".yml",
+]);
 const imageExtensions = new Set([
   ".jpg",
   ".jpeg",
@@ -114,11 +131,18 @@ export async function normalizeDocument(file: DocumentInputSource): Promise<Norm
       previewMime = "image/jpeg";
     }
 
-    const page = pdf.addPage([595.28, 841.89]);
-    const scale = Math.min(523.28 / embeddedImage.width, 769.89 / embeddedImage.height);
+    const isLandscape = embeddedImage.width > embeddedImage.height * 1.15;
+    const pageWidth = isLandscape ? 841.89 : 595.28;
+    const pageHeight = isLandscape ? 595.28 : 841.89;
+    const margin = 36;
+    const contentW = pageWidth - margin * 2;
+    const contentH = pageHeight - margin * 2;
+
+    const page = pdf.addPage([pageWidth, pageHeight]);
+    const scale = Math.min(contentW / embeddedImage.width, contentH / embeddedImage.height);
     const width = embeddedImage.width * scale;
     const height = embeddedImage.height * scale;
-    page.drawImage(embeddedImage, { x: (595.28 - width) / 2, y: (841.89 - height) / 2, width, height });
+    page.drawImage(embeddedImage, { x: (pageWidth - width) / 2, y: (pageHeight - height) / 2, width, height });
     bytes = Buffer.from(await pdf.save());
     return { bytes, pageCount: 1, filename: file.name, previewImage, previewMime };
   } else if (extension === ".docx" || extension === ".doc" || extension === ".rtf") {
@@ -161,8 +185,28 @@ export async function normalizeDocument(file: DocumentInputSource): Promise<Norm
     const textContent = bytes.toString("utf-8");
     bytes = Buffer.from(await renderTextToPdf(textContent, file.name));
   } else if (officeExtensions.has(extension)) {
-    // .odt, .ppt, .pptx, .xls, .xlsx, .ods, .rtf — use LibreOffice
-    bytes = Buffer.from(await convertWithLibreOffice(file, extension, bytes));
+    // .odt, .ppt, .pptx, .xls, .xlsx, .ods, .rtf — use LibreOffice or native COM on Windows
+    let converted = false;
+    if (process.platform === "win32") {
+      if (extension === ".pptx" || extension === ".ppt") {
+        try {
+          bytes = Buffer.from(await convertWithPowerPoint(extension, bytes));
+          converted = true;
+        } catch {
+          // Fall back to LibreOffice
+        }
+      } else if (extension === ".xlsx" || extension === ".xls") {
+        try {
+          bytes = Buffer.from(await convertWithExcel(extension, bytes));
+          converted = true;
+        } catch {
+          // Fall back to LibreOffice
+        }
+      }
+    }
+    if (!converted) {
+      bytes = Buffer.from(await convertWithLibreOffice(file, extension, bytes));
+    }
   } else if (extension !== ".pdf") {
     throw new Error(
       `${file.name}: unsupported file type. Upload a PDF, image (JPG/PNG), Word document (.docx), PowerPoint, Excel, or plain text file.`,
@@ -333,6 +377,102 @@ try {
 
     if (!existsSync(output)) {
       throw new Error("Word conversion did not produce output PDF.");
+    }
+    return await fs.readFile(output);
+  } finally {
+    await fs.rm(directory, { recursive: true, force: true }).catch(() => {});
+  }
+}
+
+/**
+ * Converts a PowerPoint presentation directly to PDF using native Microsoft PowerPoint COM automation.
+ */
+async function convertWithPowerPoint(extension: string, bytes: Buffer): Promise<Buffer> {
+  if (process.platform !== "win32") {
+    throw new Error("PowerPoint COM conversion is only available on Windows.");
+  }
+  const directory = await fs.mkdtemp(path.join(os.tmpdir(), "printiva-ppt-"));
+  try {
+    const input = path.join(directory, `source${extension}`);
+    const output = path.join(directory, "source.pdf");
+    await fs.writeFile(input, bytes);
+
+    const script = `
+$ppt = $null
+$pres = $null
+try {
+  $ppt = New-Object -ComObject PowerPoint.Application
+  $pres = $ppt.Presentations.Open('${input.replace(/'/g, "''")}', [Microsoft.Office.Core.MsoTriState]::msoTrue, [Microsoft.Office.Core.MsoTriState]::msoFalse, [Microsoft.Office.Core.MsoTriState]::msoFalse)
+  $pres.SaveAs('${output.replace(/'/g, "''")}', 32)
+  $pres.Close()
+  $ppt.Quit()
+} catch {
+  if ($pres) { $pres.Close() }
+  if ($ppt) { $ppt.Quit() }
+  throw $_.Exception.Message
+} finally {
+  if ($pres) { [System.Runtime.InteropServices.Marshal]::ReleaseComObject($pres) | Out-Null }
+  if ($ppt) { [System.Runtime.InteropServices.Marshal]::ReleaseComObject($ppt) | Out-Null }
+  [System.GC]::Collect()
+  [System.GC]::WaitForPendingFinalizers()
+}
+`;
+    await execute("powershell", ["-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-Command", script], {
+      timeout: 60000,
+      windowsHide: true,
+    });
+
+    if (!existsSync(output)) {
+      throw new Error("PowerPoint COM conversion did not produce output PDF.");
+    }
+    return await fs.readFile(output);
+  } finally {
+    await fs.rm(directory, { recursive: true, force: true }).catch(() => {});
+  }
+}
+
+/**
+ * Converts an Excel spreadsheet directly to PDF using native Microsoft Excel COM automation.
+ */
+async function convertWithExcel(extension: string, bytes: Buffer): Promise<Buffer> {
+  if (process.platform !== "win32") {
+    throw new Error("Excel COM conversion is only available on Windows.");
+  }
+  const directory = await fs.mkdtemp(path.join(os.tmpdir(), "printiva-excel-"));
+  try {
+    const input = path.join(directory, `source${extension}`);
+    const output = path.join(directory, "source.pdf");
+    await fs.writeFile(input, bytes);
+
+    const script = `
+$excel = $null
+$wb = $null
+try {
+  $excel = New-Object -ComObject Excel.Application
+  $excel.Visible = $false
+  $excel.DisplayAlerts = $false
+  $wb = $excel.Workbooks.Open('${input.replace(/'/g, "''")}', [Type]::Missing, $true)
+  $wb.ExportAsFixedFormat(0, '${output.replace(/'/g, "''")}')
+  $wb.Close($false)
+  $excel.Quit()
+} catch {
+  if ($wb) { $wb.Close($false) }
+  if ($excel) { $excel.Quit() }
+  throw $_.Exception.Message
+} finally {
+  if ($wb) { [System.Runtime.InteropServices.Marshal]::ReleaseComObject($wb) | Out-Null }
+  if ($excel) { [System.Runtime.InteropServices.Marshal]::ReleaseComObject($excel) | Out-Null }
+  [System.GC]::Collect()
+  [System.GC]::WaitForPendingFinalizers()
+}
+`;
+    await execute("powershell", ["-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-Command", script], {
+      timeout: 60000,
+      windowsHide: true,
+    });
+
+    if (!existsSync(output)) {
+      throw new Error("Excel COM conversion did not produce output PDF.");
     }
     return await fs.readFile(output);
   } finally {
@@ -877,20 +1017,41 @@ async function renderDocxHtmlToPdf(html: string, filename: string): Promise<Buff
  */
 async function renderTextToPdf(textContent: string, filename: string): Promise<Buffer> {
   const pdfDoc = await PDFDocument.create();
-  const font = await pdfDoc.embedFont(StandardFonts.Helvetica);
-  const boldFont = await pdfDoc.embedFont(StandardFonts.HelveticaBold);
+  const ext = path.extname(filename).toLowerCase();
+  const isMono =
+    [
+      ".csv",
+      ".tsv",
+      ".log",
+      ".json",
+      ".sql",
+      ".py",
+      ".js",
+      ".ts",
+      ".sh",
+      ".xml",
+      ".html",
+      ".css",
+      ".yaml",
+      ".yml",
+    ].includes(ext) || ext === "";
+
+  const font = await pdfDoc.embedFont(isMono ? StandardFonts.Courier : StandardFonts.Helvetica);
+  const boldFont = await pdfDoc.embedFont(isMono ? StandardFonts.CourierBold : StandardFonts.HelveticaBold);
 
   const a4Width = 595.28;
   const a4Height = 841.89;
   const margin = 45;
   const contentWidth = a4Width - margin * 2;
-  const fontSize = 10.5;
-  const lineHeight = 15;
+  const fontSize = isMono ? 9.5 : 10.5;
+  const lineHeight = isMono ? 13 : 15;
   const topMargin = 50;
   const bottomMargin = 40;
   const linesPerPage = Math.floor((a4Height - topMargin - bottomMargin) / lineHeight);
 
-  const sanitized = sanitizeForPdf(textContent);
+  // Expand tabs to 4 spaces to preserve column alignment
+  const expanded = textContent.replace(/\t/g, "    ");
+  const sanitized = sanitizeForPdf(expanded);
   const wrappedLines = wrapText(sanitized, font, fontSize, contentWidth);
 
   const totalPages = Math.max(1, Math.ceil(wrappedLines.length / linesPerPage));
