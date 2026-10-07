@@ -28,7 +28,20 @@ const officeExtensions = new Set([
   ".md",
 ]);
 const textExtensions = new Set([".txt", ".csv", ".md"]);
-const imageExtensions = new Set([".jpg", ".jpeg", ".png", ".webp", ".gif", ".bmp", ".tif", ".tiff"]);
+const imageExtensions = new Set([
+  ".jpg",
+  ".jpeg",
+  ".png",
+  ".webp",
+  ".gif",
+  ".bmp",
+  ".tif",
+  ".tiff",
+  ".heic",
+  ".heif",
+  ".avif",
+  ".svg",
+]);
 
 export type NormalizedDocumentResult = {
   bytes: Buffer;
@@ -38,7 +51,12 @@ export type NormalizedDocumentResult = {
   previewMime?: string;
 };
 
-export async function normalizeDocument(file: File): Promise<NormalizedDocumentResult> {
+export interface DocumentInputSource {
+  name: string;
+  arrayBuffer(): Promise<ArrayBuffer>;
+}
+
+export async function normalizeDocument(file: DocumentInputSource): Promise<NormalizedDocumentResult> {
   const extension = path.extname(file.name).toLowerCase();
   let bytes: Buffer = Buffer.from(await file.arrayBuffer());
   let previewImage: Buffer | undefined;
@@ -51,42 +69,48 @@ export async function normalizeDocument(file: File): Promise<NormalizedDocumentR
     const pdf = await PDFDocument.create();
     let embeddedImage;
 
+    // Create base sharp pipeline with rotation and sRGB color normalization (handles HDR, Display-P3, 10-bit, CMYK)
+    const baseSharp = sharp(bytes, { limitInputPixels: 268402689 })
+      .rotate()
+      .toColorspace("srgb");
+
     if (isJpeg) {
-      // Preserve 100% original JPEG quality without inflating into 30MB uncompressed PNG!
-      const processedJpeg = await sharp(bytes, { limitInputPixels: 268402689 })
-        .rotate()
-        .jpeg({ quality: 100, chromaSubsampling: "4:4:4" })
-        .toBuffer();
+      const [processedJpeg, previewBuf] = await Promise.all([
+        baseSharp.clone().jpeg({ quality: 95, chromaSubsampling: "4:4:4" }).toBuffer(),
+        baseSharp
+          .clone()
+          .resize({ width: 1200, height: 1600, fit: "inside", withoutEnlargement: true })
+          .jpeg({ quality: 80 })
+          .toBuffer(),
+      ]);
       embeddedImage = await pdf.embedJpg(processedJpeg);
-      previewImage = await sharp(bytes, { limitInputPixels: 268402689 })
-        .rotate()
-        .resize({ width: 1200, height: 1600, fit: "inside", withoutEnlargement: true })
-        .jpeg({ quality: 80, mozjpeg: true })
-        .toBuffer();
+      previewImage = previewBuf;
       previewMime = "image/jpeg";
     } else if (isPng) {
-      const processedPng = await sharp(bytes, { limitInputPixels: 268402689 }).rotate().png().toBuffer();
+      const [processedPng, previewBuf] = await Promise.all([
+        baseSharp.clone().png().toBuffer(),
+        baseSharp
+          .clone()
+          .resize({ width: 1200, height: 1600, fit: "inside", withoutEnlargement: true })
+          .jpeg({ quality: 80 })
+          .toBuffer(),
+      ]);
       embeddedImage = await pdf.embedPng(processedPng);
-      previewImage = await sharp(bytes, { limitInputPixels: 268402689 })
-        .rotate()
-        .resize({ width: 1200, height: 1600, fit: "inside", withoutEnlargement: true })
-        .jpeg({ quality: 80, mozjpeg: true })
-        .toBuffer();
+      previewImage = previewBuf;
       previewMime = "image/jpeg";
     } else {
-      // Other formats (WebP, GIF, BMP, TIFF) -> lossless PNG
-      const png = await sharp(bytes, { limitInputPixels: 268402689 })
-        .rotate()
-        .flatten({ background: "white" })
-        .png()
-        .toBuffer();
-      embeddedImage = await pdf.embedPng(png);
-      previewImage = await sharp(bytes, { limitInputPixels: 268402689 })
-        .rotate()
-        .flatten({ background: "white" })
-        .resize({ width: 1200, height: 1600, fit: "inside", withoutEnlargement: true })
-        .jpeg({ quality: 80, mozjpeg: true })
-        .toBuffer();
+      // Other formats (HEIC, HEIF, AVIF, WebP, GIF, BMP, TIFF, SVG) -> flatten on white & lossless PNG for PDF
+      const flattenedSharp = baseSharp.clone().flatten({ background: "white" });
+      const [processedPng, previewBuf] = await Promise.all([
+        flattenedSharp.clone().png().toBuffer(),
+        flattenedSharp
+          .clone()
+          .resize({ width: 1200, height: 1600, fit: "inside", withoutEnlargement: true })
+          .jpeg({ quality: 80 })
+          .toBuffer(),
+      ]);
+      embeddedImage = await pdf.embedPng(processedPng);
+      previewImage = previewBuf;
       previewMime = "image/jpeg";
     }
 
@@ -223,7 +247,7 @@ async function countPdfPages(bytes: Buffer, filename: string): Promise<number> {
  * Converts a Word/Office file to PDF using LibreOffice (headless).
  * Requires LibreOffice installed on the server, or LIBREOFFICE_PATH env var set.
  */
-async function convertWithLibreOffice(file: File, extension: string, bytes: Buffer): Promise<Buffer> {
+async function convertWithLibreOffice(file: { name: string }, extension: string, bytes: Buffer): Promise<Buffer> {
   const directory = await fs.mkdtemp(path.join(os.tmpdir(), "printiva-convert-"));
   try {
     const inputExt = extension === ".md" ? ".txt" : extension;

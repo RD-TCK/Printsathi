@@ -11,7 +11,7 @@ const DEFAULT_CONFIG: AgentConfig = {
   agentToken: null,
   agentName: `Windows Agent (${os.hostname() || "Local"})`,
   selectedPrinter: null,
-  version: "1.7.7",
+  version: "1.7.8",
   pollIntervalMs: 900000,
   heartbeatIntervalMs: 900000,
 };
@@ -28,6 +28,66 @@ export function getConfigDirectory(): string {
 
 export function getConfigFilePath(): string {
   return path.join(getConfigDirectory(), "config.json");
+}
+
+export function getDocumentCacheDirectory(): string {
+  const dir = path.join(getConfigDirectory(), "document_cache");
+  if (!fs.existsSync(dir)) {
+    fs.mkdirSync(dir, { recursive: true });
+  }
+  return dir;
+}
+
+export function cleanDocumentCache(
+  maxAgeMs = 48 * 3600 * 1000, // 48 hours TTL
+  maxTotalBytes = 5 * 1024 * 1024 * 1024, // 5 GB max cache size
+): void {
+  try {
+    const dir = getDocumentCacheDirectory();
+    const files = fs.readdirSync(dir);
+    const now = Date.now();
+    const statsList: Array<{ filePath: string; mtimeMs: number; size: number }> = [];
+
+    let totalSize = 0;
+    for (const file of files) {
+      try {
+        const filePath = path.join(dir, file);
+        const stat = fs.statSync(filePath);
+        if (!stat.isFile()) continue;
+
+        // Purge if older than maxAge
+        if (now - stat.mtimeMs > maxAgeMs) {
+          try {
+            fs.unlinkSync(filePath);
+          } catch {
+            // ignore
+          }
+          continue;
+        }
+
+        statsList.push({ filePath, mtimeMs: stat.mtimeMs, size: stat.size });
+        totalSize += stat.size;
+      } catch {
+        // ignore
+      }
+    }
+
+    // If still exceeds max capacity, prune oldest files first (FIFO)
+    if (totalSize > maxTotalBytes) {
+      statsList.sort((a, b) => a.mtimeMs - b.mtimeMs);
+      for (const item of statsList) {
+        if (totalSize <= maxTotalBytes) break;
+        try {
+          fs.unlinkSync(item.filePath);
+          totalSize -= item.size;
+        } catch {
+          // ignore
+        }
+      }
+    }
+  } catch {
+    // ignore
+  }
 }
 
 export function loadConfig(): AgentConfig {

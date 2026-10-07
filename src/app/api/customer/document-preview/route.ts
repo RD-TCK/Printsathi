@@ -14,7 +14,20 @@ const QuerySchema = z.object({
   w: z.coerce.number().min(60).max(2000).optional(),
 });
 
-const imageExtensions = new Set([".jpg", ".jpeg", ".png", ".webp", ".gif", ".bmp", ".tif", ".tiff"]);
+const imageExtensions = new Set([
+  ".jpg",
+  ".jpeg",
+  ".png",
+  ".webp",
+  ".gif",
+  ".bmp",
+  ".tif",
+  ".tiff",
+  ".heic",
+  ".heif",
+  ".avif",
+  ".svg",
+]);
 
 async function optimizePreviewImage(
   rawBuffer: Buffer,
@@ -86,7 +99,9 @@ export async function GET(request: Request) {
   const isImageDoc = imageExtensions.has(ext) || Boolean(doc.original_filename.match(/^(photo_|image_)/i));
 
   // 1. First, check if a direct preview.jpg exists for this document in storage
-  const previewPath = doc.storage_path.replace(/source\.pdf$/, "preview.jpg");
+  const standardPreviewPath = `shops/${order.shop_id}/orders/${orderId}/documents/${documentId}/preview.jpg`;
+  const legacyPreviewPath = doc.storage_path.replace(/source\.pdf$/, "preview.jpg");
+  const previewPath = doc.storage_path.startsWith("local://") ? standardPreviewPath : legacyPreviewPath;
   const { data: previewBlob } = await client.storage.from("print-documents").download(previewPath);
 
   if (previewBlob && previewBlob.size > 0) {
@@ -105,7 +120,12 @@ export async function GET(request: Request) {
     });
   }
 
-  // 2. Otherwise download the stored document file (source.pdf)
+  // If the document is stored strictly locally on the shop PC and has no preview image
+  if (doc.storage_path.startsWith("local://")) {
+    return NextResponse.json({ error: "Preview not available for this local document." }, { status: 404 });
+  }
+
+  // 2. Otherwise download the stored document file (source.pdf) from cloud
   const { data: fileBlob, error: downloadError } = await client.storage
     .from("print-documents")
     .download(doc.storage_path);

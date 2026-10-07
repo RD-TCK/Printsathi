@@ -3,7 +3,7 @@ import net from "node:net";
 import path from "node:path";
 import os from "node:os";
 import type { AgentConfig, AgentStatusSnapshot, ClaimedJob, DiscoveredPrinter } from "./types";
-import { clearConfig, isConfigPaired, loadConfig, saveConfig } from "./config";
+import { clearConfig, isConfigPaired, loadConfig, saveConfig, getDocumentCacheDirectory, cleanDocumentCache } from "./config";
 import { AgentApiClient } from "./client";
 import { discoverWindowsPrinters, findBestPrinterForJob, findDefaultPrinter } from "./printer-discovery";
 import { prepareAndPrintDocument } from "./print-executor";
@@ -75,8 +75,11 @@ export class AgentDaemon {
       logger.warn("Initial printer discovery failed:", { err });
     }
 
+    cleanDocumentCache();
+
     this.discoveryTimer = setInterval(async () => {
       if (this.discovering) return;
+      cleanDocumentCache();
       
       await this.refreshPrinters();
       const currentSignature = JSON.stringify(
@@ -515,18 +518,47 @@ export class AgentDaemon {
         }
       }
 
-      // Download document
-      const tempDir = path.join(os.tmpdir(), "printsaathi_downloads");
-      if (!fs.existsSync(tempDir)) {
-        fs.mkdirSync(tempDir, { recursive: true });
+      // Check local document cache first (Local-First WhatsApp orders)
+      let printFilePath: string = "";
+      let isLocalCacheHit = false;
+
+      try {
+        const localCacheDir = typeof getDocumentCacheDirectory === "function" ? getDocumentCacheDirectory() : "";
+        if (localCacheDir) {
+          const localCacheFile = path.join(localCacheDir, `doc_${job.document.id}.pdf`);
+          const localDirectFile = path.join(localCacheDir, `${job.document.id}.pdf`);
+
+          if (fs.existsSync(localCacheFile) && fs.statSync(localCacheFile).size > 0) {
+            printFilePath = localCacheFile;
+            isLocalCacheHit = true;
+          } else if (fs.existsSync(localDirectFile) && fs.statSync(localDirectFile).size > 0) {
+            printFilePath = localDirectFile;
+            isLocalCacheHit = true;
+          }
+        }
+      } catch {
+        isLocalCacheHit = false;
       }
 
-      const tempFilePath = path.join(tempDir, `doc_${job.document.id}_${Date.now()}.pdf`);
+      if (!isLocalCacheHit) {
+        // Fallback: Download from cloud (Web portal orders)
+        const tempDir = path.join(os.tmpdir(), "printsaathi_downloads");
+        if (!fs.existsSync(tempDir)) {
+          fs.mkdirSync(tempDir, { recursive: true });
+        }
+        printFilePath = path.join(tempDir, `doc_${job.document.id}_${Date.now()}.pdf`);
+      }
 
       let submissionStarted = false;
       try {
-        logger.info(`Downloading document "${job.document.originalFilename}" (${job.document.pageCount} pages)...`);
-        await this.client.downloadDocument(job.document.id, job.id, tempFilePath);
+        if (isLocalCacheHit) {
+          logger.info(
+            `⚡ Instant Local Hit: Using cached document for "${job.document.originalFilename}" (${job.document.pageCount} pages, 0s download).`,
+          );
+        } else {
+          logger.info(`Downloading document "${job.document.originalFilename}" (${job.document.pageCount} pages)...`);
+          await this.client.downloadDocument(job.document.id, job.id, printFilePath);
+        }
 
         // Persist the no-retry boundary BEFORE invoking the renderer.
         // Also tells the server which printer and duplex step is handling this job.
@@ -540,7 +572,7 @@ export class AgentDaemon {
           logger.info(
             `Submitting to printer "${printerName}" for Job #${job.id.slice(0, 8)} (${job.duplexStep || "full"})...`,
           );
-          const result = await prepareAndPrintDocument(tempFilePath, job, printerName, part.ranges);
+          const result = await prepareAndPrintDocument(printFilePath, job, printerName, part.ranges);
           if (!result.success)
             throw new Error(
               result.errorMessage || "Windows print submission failed. Check for partial output before retrying.",
@@ -594,10 +626,10 @@ export class AgentDaemon {
           }
         }
 
-        // Clean up download file
-        if (fs.existsSync(tempFilePath)) {
+        // Clean up temporary download file (do NOT delete persistent local cache file!)
+        if (!isLocalCacheHit && fs.existsSync(printFilePath)) {
           try {
-            fs.unlinkSync(tempFilePath);
+            fs.unlinkSync(printFilePath);
           } catch {
             // Ignore cleanup failure
           }

@@ -1,4 +1,4 @@
-import { app, BrowserWindow, Menu, Tray, nativeImage, shell } from "electron";
+import { app, BrowserWindow, Menu, Tray, nativeImage, shell, powerSaveBlocker } from "electron";
 import { agentDaemon } from "./daemon";
 import { AgentWebServer } from "./ui";
 import { logger } from "./logger";
@@ -32,6 +32,25 @@ app.on("second-instance", () => {
 async function startDesktopAgent() {
   await app.whenReady();
   app.setAppUserModelId("com.printiva.agent");
+
+  // Prevent Windows from suspending the background agent when idle
+  try {
+    powerSaveBlocker.start("prevent-app-suspension");
+  } catch (psbErr) {
+    logger.debug("Could not start powerSaveBlocker:", { error: String(psbErr) });
+  }
+
+  // Register with Windows to automatically start on boot
+  if (app.isPackaged) {
+    try {
+      app.setLoginItemSettings({
+        openAtLogin: true,
+        args: ["--hidden"],
+      });
+    } catch (startupErr) {
+      logger.debug("Could not set login item settings:", { error: String(startupErr) });
+    }
+  }
 
   try {
     await agentDaemon.start();

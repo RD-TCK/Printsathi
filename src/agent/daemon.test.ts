@@ -6,12 +6,15 @@ const mocks = vi.hoisted(() => ({
   submit: vi.fn(),
   failure: vi.fn(),
   print: vi.fn(),
+  cacheFileExists: false,
 }));
 vi.mock("./config", () => ({
   loadConfig: () => ({ serverUrl: "http://localhost:3000", agentToken: "test", selectedPrinter: null }),
   isConfigPaired: () => true,
   saveConfig: vi.fn(),
   clearConfig: vi.fn(),
+  getDocumentCacheDirectory: () => "C:\\fake\\cache",
+  cleanDocumentCache: vi.fn(),
 }));
 vi.mock("./logger", () => ({ logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn() } }));
 vi.mock("./client", () => ({
@@ -28,7 +31,17 @@ vi.mock("./printer-discovery", () => ({
   findBestPrinterForJob: () => ({ name: "Test physical printer" }),
 }));
 vi.mock("./print-executor", () => ({ prepareAndPrintDocument: mocks.print }));
-vi.mock("node:fs", () => ({ default: { existsSync: () => true, mkdirSync: vi.fn(), unlinkSync: vi.fn() } }));
+vi.mock("node:fs", () => ({
+  default: {
+    existsSync: (p: string) => {
+      if (typeof p === "string" && p.includes("cache")) return mocks.cacheFileExists;
+      return true;
+    },
+    statSync: () => ({ size: 1024 }),
+    mkdirSync: () => {},
+    unlinkSync: () => {},
+  },
+}));
 import { AgentDaemon } from "./daemon";
 
 async function processJob() {
@@ -40,6 +53,7 @@ async function processJob() {
 describe("automatic dispatch safety", () => {
   beforeEach(() => {
     vi.resetAllMocks();
+    mocks.cacheFileExists = false;
     mocks.claim.mockResolvedValue({
       id: "job-123456",
       orderId: "order-123456",
@@ -82,4 +96,13 @@ describe("automatic dispatch safety", () => {
     expect(mocks.print).not.toHaveBeenCalled();
     expect(mocks.failure).toHaveBeenCalledWith("job-123456", "Download failed", true);
   });
+
+  it("prints directly from local cache when present without cloud download", async () => {
+    mocks.cacheFileExists = true;
+    await processJob();
+    expect(mocks.download).not.toHaveBeenCalled();
+    expect(mocks.submit).toHaveBeenCalled();
+    expect(mocks.print).toHaveBeenCalled();
+  });
 });
+

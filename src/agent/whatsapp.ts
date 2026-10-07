@@ -21,6 +21,7 @@ import makeWASocket, {
 import QRCode from "qrcode";
 import { loadConfig, getConfigDirectory } from "./config";
 import { logger } from "./logger";
+import { processAndCacheDocument } from "./local-doc-processor";
 
 export interface WhatsAppEvent {
   id: string;
@@ -225,7 +226,7 @@ export class WhatsAppAgentService {
         version,
         auth: authState,
         printQRInTerminal: false,
-        browser: Browsers.windows("Printiva Desktop"),
+        browser: Browsers.windows("Desktop"),
         syncFullHistory: false,
         markOnlineOnConnect: true,
         connectTimeoutMs: 60000,
@@ -704,41 +705,176 @@ export class WhatsAppAgentService {
 
       for (let chunkIdx = 0; chunkIdx < chunks.length; chunkIdx++) {
         const chunk = chunks[chunkIdx];
-        const formData = new FormData();
-        for (const att of chunk) {
-          const blob = new Blob([att.mediaBuffer as unknown as BlobPart], { type: att.mimetype });
-          formData.append("files", blob, att.filename);
+        let chunkResult: {
+          configUrl: string;
+          documents: Array<{ id: string; filename: string; pageCount: number }>;
+        } | null = null;
+
+        // 1. Local-First Processing (Zero Cloud Upload, Instant SSD Print Execution)
+        try {
+          const processedDocs = await Promise.all(
+            chunk.map((att) => processAndCacheDocument(att.mediaBuffer, att.filename, att.mimetype)),
+          );
+
+          const registerUrl = `${serverUrl}/api/agent/whatsapp-upload/register-local`;
+          const registerRes = await fetch(registerUrl, {
+            method: "POST",
+            headers: {
+              "x-agent-token": config.agentToken,
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify({
+              customerPhone: senderPhone,
+              customerName: senderName,
+              documents: processedDocs.map((d) => ({
+                id: d.id,
+                filename: d.filename,
+                pageCount: d.pageCount,
+                sizeBytes: d.sizeBytes,
+                previewBase64: d.previewBase64,
+              })),
+            }),
+          });
+
+          if (registerRes.ok) {
+            const regData = await registerRes.json();
+            chunkResult = {
+              configUrl: regData.configUrl,
+              documents: regData.documents || [],
+            };
+            logger.info(
+              `⚡ Local-First Success: Registered ${processedDocs.length} file(s) locally. Zero cloud bandwidth used.`,
+            );
+          } else {
+            logger.warn(`register-local returned HTTP ${registerRes.status}, falling back to cloud upload...`);
+          }
+        } catch (localErr) {
+          logger.warn("Local-first processing attempt failed, trying cloud upload fallback:", { error: localErr });
         }
-        formData.append("customerPhone", senderPhone);
-        formData.append("customerName", senderName);
 
-        const tmpRes = new Response(formData);
-        const bodyBuffer = await tmpRes.arrayBuffer();
-        const contentType = tmpRes.headers.get("Content-Type") || "multipart/form-data";
+        // 2. Direct Presigned Supabase Storage upload fallback (if local registration failed)
+        if (!chunkResult) {
+          try {
+            const presignUrl = `${serverUrl}/api/agent/whatsapp-upload/presign`;
+            const presignRes = await fetch(presignUrl, {
+              method: "POST",
+              headers: {
+                "x-agent-token": config.agentToken,
+                "Content-Type": "application/json",
+              },
+              body: JSON.stringify({
+                customerPhone: senderPhone,
+                customerName: senderName,
+                files: chunk.map((att) => ({
+                  filename: att.filename,
+                  sizeBytes: att.mediaBuffer.length,
+                  mimetype: att.mimetype,
+                })),
+              }),
+            });
 
-        const response = await fetch(uploadUrl, {
-          method: "POST",
-          headers: {
-            "x-agent-token": config.agentToken,
-            "Content-Type": contentType,
-            "Content-Length": bodyBuffer.byteLength.toString(),
-          },
-          body: bodyBuffer,
-        });
+          if (presignRes.ok) {
+            const presignData = await presignRes.json();
+            const { orderId, guestToken, uploads } = presignData;
 
-        if (!response.ok) {
-          const errJson = await response.json().catch(() => ({}));
-          throw new Error(errJson.error || `Server returned HTTP ${response.status}`);
+            if (Array.isArray(uploads) && uploads.length === chunk.length) {
+              // Upload each binary attachment directly to Supabase Storage signed URL in parallel
+              await Promise.all(
+                chunk.map(async (att, idx) => {
+                  const uploadInfo = uploads[idx];
+                  const uploadRes = await fetch(uploadInfo.signedUrl, {
+                    method: "PUT",
+                    headers: {
+                      "Content-Type": att.mimetype || "application/octet-stream",
+                    },
+                    body: new Uint8Array(att.mediaBuffer),
+                  });
+
+                  if (!uploadRes.ok) {
+                    throw new Error(`Storage upload failed for ${att.filename} (HTTP ${uploadRes.status})`);
+                  }
+                }),
+              );
+
+              // Finalize document processing & page counting on server
+              const completeUrl = `${serverUrl}/api/agent/whatsapp-upload/complete`;
+              const completeRes = await fetch(completeUrl, {
+                method: "POST",
+                headers: {
+                  "x-agent-token": config.agentToken,
+                  "Content-Type": "application/json",
+                },
+                body: JSON.stringify({
+                  orderId,
+                  guestToken,
+                  customerPhone: senderPhone,
+                  customerName: senderName,
+                  documents: uploads.map(
+                    (u: { documentId: string; filename: string; storagePath: string }, idx: number) => ({
+                      id: u.documentId,
+                      filename: u.filename,
+                      storagePath: u.storagePath,
+                      mimetype: chunk[idx]?.mimetype || "application/octet-stream",
+                    }),
+                  ),
+                }),
+              });
+
+              if (completeRes.ok) {
+                const compData = await completeRes.json();
+                chunkResult = {
+                  configUrl: compData.configUrl,
+                  documents: compData.documents || [],
+                };
+              }
+            }
+          }
+          } catch (presignErr) {
+            logger.warn("Presigned direct storage upload attempt failed, trying multipart fallback:", {
+              error: presignErr,
+            });
+          }
         }
 
-        const result = await response.json();
-        const configUrl = result.configUrl;
-        const docs: Array<{ id: string; filename: string; pageCount: number }> =
-          result.documents || (result.document ? [result.document] : []);
+        // 3. Fallback to standard multipart upload if presign was not available
+        if (!chunkResult) {
+          const formData = new FormData();
+          for (const att of chunk) {
+            const blob = new Blob([att.mediaBuffer as unknown as BlobPart], { type: att.mimetype });
+            formData.append("files", blob, att.filename);
+          }
+          formData.append("customerPhone", senderPhone);
+          formData.append("customerName", senderName);
 
-        chunkResults.push({ configUrl, documents: docs });
+          const tmpRes = new Response(formData);
+          const bodyBuffer = await tmpRes.arrayBuffer();
+          const contentType = tmpRes.headers.get("Content-Type") || "multipart/form-data";
 
-        for (const d of docs) {
+          const response = await fetch(uploadUrl, {
+            method: "POST",
+            headers: {
+              "x-agent-token": config.agentToken,
+              "Content-Type": contentType,
+              "Content-Length": bodyBuffer.byteLength.toString(),
+            },
+            body: bodyBuffer,
+          });
+
+          if (!response.ok) {
+            const errJson = await response.json().catch(() => ({}));
+            throw new Error(errJson.error || `Server returned HTTP ${response.status}`);
+          }
+
+          const result = await response.json();
+          chunkResult = {
+            configUrl: result.configUrl,
+            documents: result.documents || (result.document ? [result.document] : []),
+          };
+        }
+
+        chunkResults.push(chunkResult);
+
+        for (const d of chunkResult.documents) {
           this.recentEvents.unshift({
             id: crypto.randomUUID(),
             timestamp: new Date().toLocaleTimeString(),
@@ -746,7 +882,7 @@ export class WhatsAppAgentService {
             senderName,
             filename: d.filename,
             pageCount: d.pageCount,
-            configUrl,
+            configUrl: chunkResult.configUrl,
             status: "success",
           });
         }
@@ -807,14 +943,20 @@ export class WhatsAppAgentService {
           `\n\n_Tap each link to customize copies/color and collect your tokens._`;
       }
 
-      // Anti-ban measure: Simulate realistic typing presence
+      // Add mutual contact trust booster
+      replyText += `\n\n💡 _Tip: Save this number as "Print Shop" to send files anytime!_`;
+
+      // Anti-ban protections:
+      // 1. Send blue tick read-receipt so Meta telemetry sees the message was opened
+      // 2. Simulate natural human reading and typing presence with randomized jitter delay (1.5s - 3.5s)
       if (this.socket) {
         try {
-          const baseDelay = Math.min(3500, Math.max(1500, (replyText.length / 8) * 1000));
-          const jitter = Math.random() * 800;
-
+          if (lastMessage?.key) {
+            await this.socket.readMessages([lastMessage.key]);
+          }
           await this.socket.sendPresenceUpdate("composing", remoteJid);
-          await new Promise((resolve) => setTimeout(resolve, baseDelay + jitter));
+          const humanDelay = Math.floor(Math.random() * 2000) + 1500;
+          await new Promise((resolve) => setTimeout(resolve, humanDelay));
           await this.socket.sendPresenceUpdate("paused", remoteJid);
         } catch {
           // ignore
@@ -851,10 +993,24 @@ export class WhatsAppAgentService {
 
       if (this.socket) {
         try {
-          const fallbackText = `⚠️ *Printiva Notice:* We received your file(s), but could not process them (${errorMsg}). Please send PDF, Word documents, or clear images.`;
+          let fallbackText = `⚠️ *Printiva Notice:* We received your file(s), but could not process them. Please send a PDF, photo (JPG/PNG/HEIC), or Word document (.docx).`;
 
+          if (errorMsg.includes("password") || errorMsg.includes("encrypted") || errorMsg.includes("damaged")) {
+            fallbackText = `🔒 *Printiva Notice:* Your document is password-protected or encrypted. Please unlock/remove the password and send it again.`;
+          } else if (errorMsg.includes("unsupported file type")) {
+            fallbackText = `⚠️ *Printiva Notice:* This file type is not supported for printing. Please send a PDF, photo (JPG/PNG/HEIC), or Word document (.docx).`;
+          } else if (errorMsg.includes("413") || errorMsg.includes("Payload Too Large")) {
+            fallbackText = `⚠️ *Printiva Notice:* The file is too large for cloud transfer. Please send a file under 50 MB or a PDF/image.`;
+          } else if (errorMsg.includes("Word") || errorMsg.includes("DOCX") || errorMsg.includes("export your Word")) {
+            fallbackText = `⚠️ *Printiva Notice:* Could not convert this document. Please export your Word document as a PDF and send it again.`;
+          }
+
+          if (lastMessage?.key) {
+            await this.socket.readMessages([lastMessage.key]);
+          }
           await this.socket.sendPresenceUpdate("composing", remoteJid);
-          await new Promise((resolve) => setTimeout(resolve, 1500));
+          const errDelay = Math.floor(Math.random() * 1500) + 1200;
+          await new Promise((resolve) => setTimeout(resolve, errDelay));
           await this.socket.sendPresenceUpdate("paused", remoteJid);
 
           await this.socket.sendMessage(remoteJid, { text: fallbackText }, { quoted: lastMessage });
