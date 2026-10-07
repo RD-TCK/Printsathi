@@ -40,13 +40,16 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Storage service unavailable." }, { status: 503 });
   }
 
-  // Normalize all documents (PDF, Word, or Image) in parallel
-  let normalizedDocs: NormalizedDocumentResult[];
-  try {
-    normalizedDocs = await Promise.all(files.map((file) => normalizeDocument(file)));
-  } catch (err) {
-    const message = err instanceof Error ? err.message : "Document normalization failed.";
-    return NextResponse.json({ error: message }, { status: 400 });
+  // Normalize all documents (PDF, Word, or Image)
+  const normalizedDocs: NormalizedDocumentResult[] = [];
+  for (const file of files) {
+    try {
+      const norm = await normalizeDocument(file);
+      normalizedDocs.push(norm);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "Document normalization failed.";
+      return NextResponse.json({ error: message }, { status: 400 });
+    }
   }
 
   // Create unified draft order for all documents
