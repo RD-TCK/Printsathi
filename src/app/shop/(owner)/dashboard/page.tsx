@@ -67,7 +67,7 @@ export default async function ShopDashboardPage() {
   const agentConnected = agent.data?.status === "online" && isHeartbeatFresh(agent.data?.last_heartbeat_at);
   const printerReady =
     agentConnected &&
-    isHeartbeatFresh(printer.data?.last_seen_at, 30000) &&
+    isHeartbeatFresh(printer.data?.last_seen_at, 960000) &&
     ["online", "printing"].includes(printer.data?.status ?? "") &&
     !/onenote|pdf|xps|fax/i.test(printer.data?.name || "");
   const subscriptionValid = hasSubscriptionAccess(subscription.data);

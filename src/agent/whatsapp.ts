@@ -712,12 +712,18 @@ export class WhatsAppAgentService {
         formData.append("customerPhone", senderPhone);
         formData.append("customerName", senderName);
 
+        const tmpRes = new Response(formData);
+        const bodyBuffer = await tmpRes.arrayBuffer();
+        const contentType = tmpRes.headers.get("Content-Type") || "multipart/form-data";
+
         const response = await fetch(uploadUrl, {
           method: "POST",
           headers: {
             "x-agent-token": config.agentToken,
+            "Content-Type": contentType,
+            "Content-Length": bodyBuffer.byteLength.toString(),
           },
-          body: formData,
+          body: bodyBuffer,
         });
 
         if (!response.ok) {

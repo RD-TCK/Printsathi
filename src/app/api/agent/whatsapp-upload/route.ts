@@ -18,8 +18,10 @@ export async function POST(request: Request) {
   let form: FormData;
   try {
     form = await request.formData();
-  } catch {
-    return NextResponse.json({ error: "Invalid multipart form data." }, { status: 400 });
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    console.error("formData parse error:", err);
+    return NextResponse.json({ error: "Invalid multipart form data.", details: msg }, { status: 400 });
   }
 
   const rawFiles = form.getAll("files").filter((value): value is File => value instanceof File);

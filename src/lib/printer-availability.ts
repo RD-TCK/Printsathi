@@ -1,4 +1,4 @@
-export const PRINTER_FRESHNESS_MS = 30000;
+export const PRINTER_FRESHNESS_MS = 960000;
 export function isFresh(timestamp: string | null | undefined, now = Date.now()): boolean {
   const age = now - new Date(timestamp || "").getTime();
   return Number.isFinite(age) && age >= -5000 && age < PRINTER_FRESHNESS_MS;

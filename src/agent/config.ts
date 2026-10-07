@@ -12,8 +12,8 @@ const DEFAULT_CONFIG: AgentConfig = {
   agentName: `Windows Agent (${os.hostname() || "Local"})`,
   selectedPrinter: null,
   version: "1.7.6",
-  pollIntervalMs: 30000,
-  heartbeatIntervalMs: 45000,
+  pollIntervalMs: 900000,
+  heartbeatIntervalMs: 900000,
 };
 
 export function getConfigDirectory(): string {
@@ -46,8 +46,8 @@ export function loadConfig(): AgentConfig {
       ...parsed,
       serverUrl,
       version: DEFAULT_CONFIG.version,
-      pollIntervalMs: 30000,
-      heartbeatIntervalMs: 45000,
+      pollIntervalMs: 900000,
+      heartbeatIntervalMs: 900000,
     };
   } catch {
     return { ...DEFAULT_CONFIG };

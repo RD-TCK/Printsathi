@@ -66,7 +66,7 @@ export function formatStatus(value: string | null | undefined) {
   return (value ?? "unknown").replaceAll("_", " ").toUpperCase();
 }
 
-export function isHeartbeatFresh(lastHeartbeatAt: string | null | undefined, thresholdMs = 30000): boolean {
+export function isHeartbeatFresh(lastHeartbeatAt: string | null | undefined, thresholdMs = 960000): boolean {
   if (!lastHeartbeatAt) return false;
   const heartbeatTime = new Date(lastHeartbeatAt).getTime();
   const currentTime = new Date().getTime();

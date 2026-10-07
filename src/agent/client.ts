@@ -221,6 +221,31 @@ export class AgentApiClient {
     return true;
   }
 
+  async getRealtimeConfig(): Promise<{ success: boolean; supabaseUrl: string; supabaseAnonKey: string }> {
+    if (!this.token) {
+      throw new Error("Agent is not authenticated.");
+    }
+
+    const url = `${this.serverUrl}/api/agent/realtime-config`;
+    const response = await fetch(url, {
+      method: "GET",
+      headers: this.getHeaders(),
+    });
+
+    let data;
+    try {
+      data = await response.json();
+    } catch (err) {
+      throw new Error(`Server returned non-JSON response (status ${response.status}). The server may need to be updated to support Realtime configuration.`);
+    }
+
+    if (!response.ok || !data.success) {
+      throw new Error(data.error || `Failed to fetch realtime config with status ${response.status}`);
+    }
+
+    return data;
+  }
+
   async reportFailure(jobId: string, reason: string, isRetryable: boolean = true): Promise<boolean> {
     if (!this.token) {
       throw new Error("Agent is not authenticated.");

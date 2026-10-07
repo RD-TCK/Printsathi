@@ -25,5 +25,5 @@ export function agentOnline(
   now: number,
 ) {
   const age = now - Date.parse(agent.last_heartbeat_at || "");
-  return !agent.is_revoked && agent.status === "online" && age >= 0 && age < 30000;
+  return !agent.is_revoked && agent.status === "online" && age >= 0 && age < 960000;
 }

@@ -17,6 +17,6 @@ it("does not treat revoked or stale devices as connected", () => {
   const agent = { status: "online", is_revoked: false, last_heartbeat_at: new Date(now - 1000).toISOString() };
   expect(agentOnline(agent, now)).toBe(true);
   expect(agentOnline({ ...agent, is_revoked: true }, now)).toBe(false);
-  expect(agentOnline({ ...agent, last_heartbeat_at: new Date(now - 30000).toISOString() }, now)).toBe(false);
+  expect(agentOnline({ ...agent, last_heartbeat_at: new Date(now - 960000).toISOString() }, now)).toBe(false);
   expect(agentOnline({ ...agent, last_heartbeat_at: null }, now)).toBe(false);
 });

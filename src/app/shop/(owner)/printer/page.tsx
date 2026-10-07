@@ -175,7 +175,7 @@ export default async function PrinterPage({ searchParams }: PrinterPageProps) {
 
           <div className="grid gap-5">
             {activeAgents.map((agent) => {
-              const isFresh = isHeartbeatFresh(agent.last_heartbeat_at, 30000) && agent.status === "online";
+              const isFresh = isHeartbeatFresh(agent.last_heartbeat_at, 960000) && agent.status === "online";
               const hostname = (agent.machine_info?.hostname as string) || "Windows Machine";
               const osPlatform = (agent.machine_info?.platform as string) || "Windows";
 
@@ -231,7 +231,7 @@ export default async function PrinterPage({ searchParams }: PrinterPageProps) {
                     <div>
                       <span className="text-muted">Heartbeat Health:</span>{" "}
                       <span className={isFresh ? "text-emerald-700 font-semibold" : "text-amber-700 font-semibold"}>
-                        {isFresh ? "Healthy (<30s)" : "Stale / Offline"}
+                        {isFresh ? "Healthy (<16m)" : "Stale / Offline"}
                       </span>
                     </div>
                   </div>

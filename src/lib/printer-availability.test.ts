@@ -15,9 +15,9 @@ describe("live physical printer availability", () => {
   it("requires both a fresh device and its own fresh agent", () => {
     expect(availablePrinters([printer], agents, now)).toHaveLength(1);
     expect(availablePrinters([printer], [{ ...agents[0], id: "other" }], now)).toHaveLength(0);
-    expect(availablePrinters([printer], agents, now + 31000)).toHaveLength(0);
+    expect(availablePrinters([printer], agents, now + 961000)).toHaveLength(0);
     expect(
-      availablePrinters([{ ...printer, last_seen_at: new Date(now - 31000).toISOString() }], agents, now),
+      availablePrinters([{ ...printer, last_seen_at: new Date(now - 961000).toISOString() }], agents, now),
     ).toHaveLength(0);
   });
   it("never treats offline, errored, revoked, or virtual printers as available", () => {

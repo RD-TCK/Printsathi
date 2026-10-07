@@ -9,6 +9,7 @@ import { discoverWindowsPrinters, findBestPrinterForJob, findDefaultPrinter } fr
 import { prepareAndPrintDocument } from "./print-executor";
 import { logger } from "./logger";
 import { whatsAppAgent } from "./whatsapp";
+import { createClient, SupabaseClient, RealtimeChannel } from "@supabase/supabase-js";
 
 export class AgentDaemon {
   private instanceLock: net.Server | null = null;
@@ -20,6 +21,8 @@ export class AgentDaemon {
   private discoveredPrinters: DiscoveredPrinter[] = [];
   private lastHeartbeatTime: string | null = null;
   private isConnected: boolean = false;
+  private supabaseClient: SupabaseClient | null = null;
+  private jobsChannel: RealtimeChannel | null = null;
 
   // Multi-printer tracking and duplex reservation maps
   private activePrintingPrinters: Set<string> = new Set();
@@ -72,8 +75,23 @@ export class AgentDaemon {
       logger.warn("Initial printer discovery failed:", { err });
     }
 
-    this.discoveryTimer = setInterval(() => {
-      void this.refreshPrinters();
+    this.discoveryTimer = setInterval(async () => {
+      if (this.discovering) return;
+      
+      await this.refreshPrinters();
+      const currentSignature = JSON.stringify(
+        this.discoveredPrinters.map((p) => ({
+          name: p.name,
+          status: p.status,
+          isDefault: p.isDefault,
+          driver: p.driverName,
+        })),
+      );
+      
+      if (this.lastSentPrintersSignature && this.lastSentPrintersSignature !== currentSignature && this.isConnected) {
+        logger.info("Printer state change detected locally. Triggering immediate heartbeat.");
+        void this.sendHeartbeat();
+      }
     }, 30000);
     // Start background intervals
     this.startHeartbeatLoop();
@@ -90,6 +108,10 @@ export class AgentDaemon {
     if (this.discoveryTimer) clearInterval(this.discoveryTimer);
     if (this.heartbeatTimer) clearInterval(this.heartbeatTimer);
     if (this.pollTimer) clearInterval(this.pollTimer);
+    if (this.jobsChannel && this.supabaseClient) {
+      void this.supabaseClient.removeChannel(this.jobsChannel);
+      this.jobsChannel = null;
+    }
     whatsAppAgent.stop();
     logger.info("Printiva Windows Desktop Agent stopped.");
   }
@@ -187,6 +209,11 @@ export class AgentDaemon {
     this.activePrintingPrinters.clear();
     this.reservedDuplexPrinters.clear();
     this.orderToReservedPrinter.clear();
+    
+    if (this.jobsChannel && this.supabaseClient) {
+      void this.supabaseClient.removeChannel(this.jobsChannel);
+      this.jobsChannel = null;
+    }
   }
 
   setServerUrl(value: string): void {
@@ -279,6 +306,10 @@ export class AgentDaemon {
       this.lastHeartbeatTime = result.timestamp;
       this.isConnected = true;
       logger.debug("Heartbeat acknowledged by server.", { timestamp: result.timestamp });
+
+      if (!this.supabaseClient) {
+        void this.setupRealtimeSubscription();
+      }
     } catch (error) {
       if (error instanceof Error && error.message === "AGENT_UNAUTHORIZED_OR_REVOKED") {
         logger.error("Agent token has been revoked by shop or server. Clearing pairing state.");
@@ -293,6 +324,55 @@ export class AgentDaemon {
       this.heartbeatBusy = false;
     }
   }
+  private async setupRealtimeSubscription() {
+    if (!this.isRunning || !isConfigPaired(this.config) || !this.isConnected) return;
+    
+    try {
+      if (!this.supabaseClient) {
+        const { supabaseUrl, supabaseAnonKey } = await this.client.getRealtimeConfig();
+        if (!supabaseUrl || !supabaseAnonKey) {
+          logger.warn("Supabase Realtime not configured on server.");
+          return;
+        }
+        this.supabaseClient = createClient(supabaseUrl, supabaseAnonKey);
+      }
+
+      if (this.jobsChannel) {
+        await this.supabaseClient.removeChannel(this.jobsChannel);
+      }
+
+      logger.info(`Subscribing to realtime job events for shop ${this.config.shopId}`);
+      this.jobsChannel = this.supabaseClient.channel(`jobs-${this.config.shopId}`)
+        .on(
+          'postgres_changes',
+          { event: 'INSERT', schema: 'public', table: 'print_jobs', filter: `shop_id=eq.${this.config.shopId}` },
+          () => {
+             logger.info("Realtime event received: new print job");
+             void this.triggerPoll();
+          }
+        )
+        .on(
+          'postgres_changes',
+          { event: 'UPDATE', schema: 'public', table: 'print_jobs', filter: `shop_id=eq.${this.config.shopId}` },
+          (payload) => {
+             if (payload.new && payload.new.status === 'pending') {
+                 logger.info("Realtime event received: print job updated to pending");
+                 void this.triggerPoll();
+             }
+          }
+        )
+        .subscribe((status) => {
+           if (status === 'SUBSCRIBED') {
+             logger.debug("Realtime subscription active.");
+           } else if (status === 'CHANNEL_ERROR') {
+             logger.warn("Realtime subscription error.");
+           }
+        });
+
+    } catch (err) {
+      logger.error("Failed to setup realtime subscription:", { error: err instanceof Error ? err.message : String(err) });
+    }
+  }
 
   private startJobPollingLoop(): void {
     const runPoll = async () => {
@@ -300,6 +380,7 @@ export class AgentDaemon {
       await this.pollAndProcessNextJob();
     };
 
+    void runPoll();
     this.pollTimer = setInterval(runPoll, this.config.pollIntervalMs);
   }
 
