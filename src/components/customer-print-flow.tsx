@@ -1727,15 +1727,13 @@ function UploadStep({
           }}
         />
 
-        {/* Drag & Drop Upload Zone */}
+        {/* Drag & Drop Upload Zone - Clicking anywhere opens file selector */}
         <div
           onDragOver={handleDragOver}
           onDragLeave={handleDragLeave}
           onDrop={handleDrop}
           onClick={() => {
-            if (selectedFiles.length === 0) {
-              fileInputRef.current?.click();
-            }
+            fileInputRef.current?.click();
           }}
           className={cn(
             "group relative flex min-h-48 cursor-pointer flex-col items-center justify-center rounded-2xl sm:rounded-3xl border-2 border-dashed p-6 text-center transition-all duration-300",
@@ -2453,7 +2451,13 @@ function ConfigureAllDocsSideBySidePreviewSection({
             return (
               <div
                 key={doc.id || idx}
-                onClick={() => onFocusThisDoc(idx)}
+                onClick={() => {
+                  if (isActive) {
+                    onOpenFullscreen(idx, 1);
+                  } else {
+                    onFocusThisDoc(idx);
+                  }
+                }}
                 className={cn(
                   "group relative flex flex-col justify-between rounded-xl border-2 p-1.5 sm:p-2 transition-all duration-150 select-none shrink-0 snap-start w-[115px] sm:w-[135px] cursor-pointer",
                   isActive
@@ -2482,7 +2486,7 @@ function ConfigureAllDocsSideBySidePreviewSection({
                 <div
                   onClick={(e) => {
                     e.stopPropagation();
-                    if (doc.pageCount === 1 || doc.isImage) {
+                    if (isActive) {
                       onOpenFullscreen(idx, 1);
                     } else {
                       onFocusThisDoc(idx);
@@ -2504,10 +2508,19 @@ function ConfigureAllDocsSideBySidePreviewSection({
                     fallback={<FileText className="size-6 text-slate-300 group-hover:text-emerald-500 transition-colors" />}
                   />
 
-                  {/* Zoom Overlay Hint */}
+                  {/* Active Indicator: Tap again to zoom */}
+                  {isActive && (
+                    <div className="pointer-events-none absolute bottom-1 inset-x-0.5 flex items-center justify-center">
+                      <span className="rounded bg-emerald-700/90 text-white px-1 py-0.5 text-[7.5px] sm:text-[8px] font-bold shadow-xs flex items-center gap-0.5 backdrop-blur-xs">
+                        <ZoomIn className="size-2" /> Click to zoom
+                      </span>
+                    </div>
+                  )}
+
+                  {/* Zoom Overlay Hint on Hover */}
                   <div className="pointer-events-none absolute inset-0 flex items-center justify-center bg-black/20 opacity-0 group-hover:opacity-100 transition-opacity rounded-lg">
                     <span className="rounded bg-white/95 px-1.5 py-0.5 text-[8.5px] font-bold text-slate-800 shadow-xs flex items-center gap-0.5 backdrop-blur-xs">
-                      <ZoomIn className="size-2.5 text-emerald-600" /> Zoom
+                      <ZoomIn className="size-2.5 text-emerald-600" /> {isActive ? "Zoom in" : "Configure"}
                     </span>
                   </div>
                 </div>
@@ -2532,22 +2545,35 @@ function ConfigureAllDocsSideBySidePreviewSection({
                     </span>
                   </div>
 
-                  {/* Quick Select Button */}
+                  {/* Quick Select & Zoom Button */}
                   <button
                     type="button"
                     onClick={(e) => {
                       e.stopPropagation();
-                      onFocusThisDoc(idx);
+                      if (isActive) {
+                        onOpenFullscreen(idx, 1);
+                      } else {
+                        onFocusThisDoc(idx);
+                      }
                     }}
                     className={cn(
                       "mt-0.5 w-full flex items-center justify-center gap-1 rounded-md border py-0.5 text-[9px] font-bold transition shadow-2xs cursor-pointer",
                       isActive
-                        ? "bg-emerald-600 text-white border-emerald-600 shadow-2xs"
+                        ? "bg-emerald-600 text-white border-emerald-600 hover:bg-emerald-700 shadow-2xs"
                         : "border-slate-200 bg-slate-50 text-slate-700 hover:bg-emerald-50 hover:border-emerald-300 hover:text-emerald-800",
                     )}
                   >
-                    <Eye className={cn("size-2.5", isActive ? "text-white" : "text-emerald-600")} />
-                    <span>{isActive ? "Configuring" : "Configure"}</span>
+                    {isActive ? (
+                      <>
+                        <ZoomIn className="size-2.5 text-white" />
+                        <span>Click again to zoom</span>
+                      </>
+                    ) : (
+                      <>
+                        <Eye className="size-2.5 text-emerald-600" />
+                        <span>Configure</span>
+                      </>
+                    )}
                   </button>
                 </div>
               </div>
