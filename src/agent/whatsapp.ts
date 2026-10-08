@@ -21,7 +21,7 @@ import makeWASocket, {
 import QRCode from "qrcode";
 import { loadConfig, getConfigDirectory } from "./config";
 import { logger } from "./logger";
-import { processAndCacheDocument } from "./local-doc-processor";
+import { processAndCacheDocument, type ProcessedLocalDocument } from "./local-doc-processor";
 
 export interface WhatsAppEvent {
   id: string;
@@ -124,12 +124,14 @@ export class WhatsAppAgentService {
 
   // Anti-ban safety: track timestamps of replies to prevent rapid multi-burst spam
   private lastReplyTimeBySender: Map<string, number> = new Map();
+  private lastTextReplyBySender: Map<string, number> = new Map();
   private processedMessageIds: Set<string> = new Set();
 
   private customAuthDir?: string;
 
   constructor(customAuthDir?: string) {
     this.customAuthDir = customAuthDir;
+    this.loadPendingBatchesFromDisk();
   }
 
   private getAuthDirectory(): string {
@@ -138,6 +140,109 @@ export class WhatsAppAgentService {
       fs.mkdirSync(dir, { recursive: true });
     }
     return dir;
+  }
+
+  private getBatchesDirectory(): string {
+    const dir = path.join(this.getAuthDirectory(), "pending_retries");
+    if (!fs.existsSync(dir)) {
+      fs.mkdirSync(dir, { recursive: true });
+    }
+    return dir;
+  }
+
+  private saveBatchToDisk(batch: PendingSenderBatch): void {
+    try {
+      const dir = this.getBatchesDirectory();
+      const safeId = batch.remoteJid.replace(/[^a-zA-Z0-9_-]/g, "_");
+      const batchDir = path.join(dir, safeId);
+      if (!fs.existsSync(batchDir)) {
+        fs.mkdirSync(batchDir, { recursive: true });
+      }
+
+      const meta = {
+        senderPhone: batch.senderPhone,
+        senderName: batch.senderName,
+        remoteJid: batch.remoteJid,
+        firstQueuedAt: batch.firstQueuedAt,
+        retryCount: batch.retryCount || 0,
+        nextRetryAt: batch.nextRetryAt || 0,
+        attachments: batch.attachments.map((att, idx) => {
+          const bufferFile = `att_${idx}.bin`;
+          fs.writeFileSync(path.join(batchDir, bufferFile), att.mediaBuffer);
+          return {
+            filename: att.filename,
+            mimetype: att.mimetype,
+            bufferFile,
+          };
+        }),
+      };
+
+      fs.writeFileSync(path.join(batchDir, "meta.json"), JSON.stringify(meta), "utf8");
+    } catch (err) {
+      logger.warn("Could not save pending batch to disk:", { err });
+    }
+  }
+
+  private deleteBatchFromDisk(remoteJid: string): void {
+    try {
+      const dir = this.getBatchesDirectory();
+      const safeId = remoteJid.replace(/[^a-zA-Z0-9_-]/g, "_");
+      const batchDir = path.join(dir, safeId);
+      if (fs.existsSync(batchDir)) {
+        fs.rmSync(batchDir, { recursive: true, force: true });
+      }
+    } catch {
+      // non-fatal
+    }
+  }
+
+  private loadPendingBatchesFromDisk(): void {
+    try {
+      const dir = this.getBatchesDirectory();
+      if (!fs.existsSync(dir)) return;
+      const entries = fs.readdirSync(dir, { withFileTypes: true });
+      for (const entry of entries) {
+        if (!entry.isDirectory()) continue;
+        const batchDir = path.join(dir, entry.name);
+        const metaPath = path.join(batchDir, "meta.json");
+        if (!fs.existsSync(metaPath)) continue;
+        try {
+          const meta = JSON.parse(fs.readFileSync(metaPath, "utf8"));
+          const attachments: PendingWhatsAppAttachment[] = [];
+          for (const att of meta.attachments || []) {
+            const bufPath = path.join(batchDir, att.bufferFile);
+            if (fs.existsSync(bufPath)) {
+              attachments.push({
+                msg: {} as WAMessage,
+                mediaBuffer: fs.readFileSync(bufPath),
+                filename: att.filename,
+                mimetype: att.mimetype,
+              });
+            }
+          }
+          if (attachments.length > 0 && meta.remoteJid) {
+            this.retryBatches.set(meta.remoteJid, {
+              senderPhone: meta.senderPhone,
+              senderName: meta.senderName,
+              remoteJid: meta.remoteJid,
+              attachments,
+              lastMessage: {} as WAMessage,
+              firstQueuedAt: meta.firstQueuedAt || Date.now(),
+              retryCount: meta.retryCount || 0,
+              nextRetryAt: Date.now() + 2000,
+            });
+            logger.info(`Loaded pending offline batch for ${meta.remoteJid} from disk.`);
+          }
+        } catch {
+          // ignore corrupted batch
+        }
+      }
+      if (this.retryBatches.size > 0) {
+        this.scheduleRetryQueue();
+      }
+    } catch (err) {
+      logger.warn("Could not load pending batches from disk:", { err });
+    }
   }
 
   public hasSavedSession(): boolean {
@@ -584,20 +689,6 @@ export class WhatsAppAgentService {
       getNested(rawMsg, "viewOnceMessageV2", "message", "imageMessage") ||
       getNested(currentContainer, "imageMessage")) as { mimetype?: string } | undefined;
 
-    if (!documentMsg && !imageMsg) {
-      logger.debug(`Skipping WhatsApp message ${msgId}: not a document or image`);
-      return;
-    }
-
-    // Mark as processed so we never duplicate
-    this.processedMessageIds.add(msgId);
-    if (this.processedMessageIds.size > 1000) {
-      const firstEntries = Array.from(this.processedMessageIds).slice(0, 300);
-      for (const id of firstEntries) {
-        this.processedMessageIds.delete(id);
-      }
-    }
-
     let senderPhone = "";
     if (
       msg.key.participant &&
@@ -611,6 +702,34 @@ export class WhatsAppAgentService {
     }
 
     const senderName = msg.pushName || "Customer";
+
+    if (!documentMsg && !imageMsg) {
+      const textContent = (
+        (normalizedContent?.conversation as string) ||
+        ((normalizedContent?.extendedTextMessage as { text?: string })?.text) ||
+        (rawMsg?.conversation as string) ||
+        ((rawMsg?.extendedTextMessage as { text?: string })?.text) ||
+        ""
+      ).trim();
+
+      if (textContent) {
+        this.processedMessageIds.add(msgId);
+        await this.handleIncomingTextMessage(remoteJid, senderPhone, senderName, textContent, msg);
+      } else {
+        logger.debug(`Skipping WhatsApp message ${msgId}: not a document, image, or text`);
+      }
+      return;
+    }
+
+    // Mark as processed so we never duplicate
+    this.processedMessageIds.add(msgId);
+    if (this.processedMessageIds.size > 1000) {
+      const firstEntries = Array.from(this.processedMessageIds).slice(0, 300);
+      for (const id of firstEntries) {
+        this.processedMessageIds.delete(id);
+      }
+    }
+
     const rawFilename =
       documentMsg?.fileName ||
       (imageMsg ? `photo_${Date.now()}_${Math.floor(Math.random() * 1000)}.jpg` : "document.pdf");
@@ -707,6 +826,60 @@ export class WhatsAppAgentService {
   }
 
   /**
+   * Handles plain text messages (greetings, inquiries, "bhaiya print karna hai").
+   * Provides helpful shop instructions and pending links with a 15-minute anti-spam throttle.
+   */
+  private async handleIncomingTextMessage(
+    remoteJid: string,
+    senderPhone: string,
+    senderName: string,
+    _textContent: string,
+    msg: WAMessage,
+  ): Promise<void> {
+    if (
+      remoteJid.endsWith("@g.us") ||
+      remoteJid.endsWith("@broadcast") ||
+      remoteJid === "status@broadcast"
+    ) {
+      return;
+    }
+
+    // Anti-spam safety: limit automatic text replies to once every 15 minutes per customer
+    const lastReply = this.lastTextReplyBySender.get(senderPhone) || 0;
+    if (Date.now() - lastReply < 15 * 60 * 1000) {
+      logger.debug(`Skipping auto text reply for +${senderPhone}: rate limit cooldown active`);
+      return;
+    }
+
+    this.lastTextReplyBySender.set(senderPhone, Date.now());
+
+    // Check if customer has an existing successful upload in recent events
+    const recentSuccess = this.recentEvents.find(
+      (ev) => ev.senderPhone === `+${senderPhone}` && ev.status === "success" && ev.configUrl,
+    );
+
+    let replyText = "";
+    if (recentSuccess && recentSuccess.configUrl) {
+      replyText =
+        `Namaste ${senderName}! 🙏\n\n` +
+        `👉 *Here is your print setup link:*\n` +
+        `${recentSuccess.configUrl}\n\n` +
+        `_Tap the link to choose B&W or Color, set number of copies, and collect your token._\n\n` +
+        `🖨️ *To print more files:* Send the PDF, Word document, or photos directly in this chat!`;
+    } else {
+      const config = loadConfig();
+      const shopTitle = config.shopName ? `*${config.shopName}*` : "*Printiva Print Shop*";
+      replyText =
+        `Namaste ${senderName}! 🙏 Welcome to ${shopTitle}.\n\n` +
+        `🖨️ *To print your documents:*\n` +
+        `Please send your *PDF, Word document (.docx), or photos* directly in this chat.\n\n` +
+        `⚡ You'll instantly receive a link on your phone to configure copies, choose B&W/Color, preview your pages, and collect your prints!`;
+    }
+
+    await this.sendOrQueueReply(remoteJid, senderPhone, replyText, msg);
+  }
+
+  /**
    * Flushes the batched documents for a sender: uploads all files into ONE draft order
    * and sends a single clean configuration link.
    */
@@ -765,6 +938,7 @@ export class WhatsAppAgentService {
       }> = [];
 
       let globalDocNumber = 1;
+      const skippedFiles: Array<{ filename: string; reason: string }> = [];
 
       for (let chunkIdx = 0; chunkIdx < chunks.length; chunkIdx++) {
         const chunk = chunks[chunkIdx];
@@ -775,41 +949,63 @@ export class WhatsAppAgentService {
 
         // 1. Local-First Processing (Zero Cloud Upload, Instant SSD Print Execution)
         try {
-          const processedDocs = await Promise.all(
+          const settledResults = await Promise.allSettled(
             chunk.map((att) => processAndCacheDocument(att.mediaBuffer, att.filename, att.mimetype)),
           );
 
-          const registerUrl = `${serverUrl}/api/agent/whatsapp-upload/register-local`;
-          const registerRes = await fetch(registerUrl, {
-            method: "POST",
-            headers: {
-              "x-agent-token": config.agentToken,
-              "Content-Type": "application/json",
-            },
-            body: JSON.stringify({
-              customerPhone: senderPhone,
-              customerName: senderName,
-              documents: processedDocs.map((d) => ({
-                id: d.id,
-                filename: d.filename,
-                pageCount: d.pageCount,
-                sizeBytes: d.sizeBytes,
-                previewBase64: d.previewBase64,
-              })),
-            }),
+          const successfulDocs: ProcessedLocalDocument[] = [];
+          settledResults.forEach((res, idx) => {
+            if (res.status === "fulfilled") {
+              successfulDocs.push(res.value);
+            } else {
+              const err = res.reason;
+              const msg = (err instanceof Error ? err.message : String(err)).toLowerCase();
+              let reason = "File damaged or format not supported";
+              if (msg.includes("password") || msg.includes("encrypted")) {
+                reason = "Password-protected (please unlock before sending)";
+              } else if (msg.includes("unsupported")) {
+                reason = "Unsupported format (send PDF, Word, or photo)";
+              } else if (msg.includes("too large") || msg.includes("413")) {
+                reason = "File too large";
+              }
+              skippedFiles.push({ filename: chunk[idx].filename, reason });
+              logger.warn(`Skipping unprocessable file "${chunk[idx].filename}": ${reason}`);
+            }
           });
 
-          if (registerRes.ok) {
-            const regData = await registerRes.json();
-            chunkResult = {
-              configUrl: regData.configUrl,
-              documents: regData.documents || [],
-            };
-            logger.info(
-              `⚡ Local-First Success: Registered ${processedDocs.length} file(s) locally. Zero cloud bandwidth used.`,
-            );
-          } else {
-            logger.warn(`register-local returned HTTP ${registerRes.status}, falling back to cloud upload...`);
+          if (successfulDocs.length > 0) {
+            const registerUrl = `${serverUrl}/api/agent/whatsapp-upload/register-local`;
+            const registerRes = await fetch(registerUrl, {
+              method: "POST",
+              headers: {
+                "x-agent-token": config.agentToken,
+                "Content-Type": "application/json",
+              },
+              body: JSON.stringify({
+                customerPhone: senderPhone,
+                customerName: senderName,
+                documents: successfulDocs.map((d) => ({
+                  id: d.id,
+                  filename: d.filename,
+                  pageCount: d.pageCount,
+                  sizeBytes: d.sizeBytes,
+                  previewBase64: d.previewBase64,
+                })),
+              }),
+            });
+
+            if (registerRes.ok) {
+              const regData = await registerRes.json();
+              chunkResult = {
+                configUrl: regData.configUrl,
+                documents: regData.documents || [],
+              };
+              logger.info(
+                `⚡ Local-First Success: Registered ${successfulDocs.length} file(s) locally. Zero cloud bandwidth used.`,
+              );
+            } else {
+              logger.warn(`register-local returned HTTP ${registerRes.status}, falling back to cloud upload...`);
+            }
           }
         } catch (localErr) {
           if (isNetworkError(localErr)) {
@@ -970,8 +1166,37 @@ export class WhatsAppAgentService {
         }
       }
 
-      // Successful batch processing - remove from retryBatches if it was there
+      // If none of the files in any chunk succeeded:
+      if (chunkResults.length === 0) {
+        let failureText = `⚠️ *Printiva Notice — Could not process your file(s):*\n\n`;
+        for (const f of skippedFiles) {
+          failureText += `• *${f.filename}*: ${f.reason}\n`;
+        }
+        failureText += `\n_Please send an unlocked PDF, photo (JPG/PNG), or Word file (.docx)._`;
+        this.retryBatches.delete(remoteJid);
+        this.deleteBatchFromDisk(remoteJid);
+
+        for (const f of skippedFiles) {
+          this.recentEvents.unshift({
+            id: crypto.randomUUID(),
+            timestamp: new Date().toLocaleTimeString(),
+            senderPhone: `+${senderPhone}`,
+            senderName,
+            filename: f.filename,
+            pageCount: 0,
+            configUrl: "",
+            status: "error",
+            errorMessage: f.reason,
+          });
+        }
+
+        await this.sendOrQueueReply(remoteJid, senderPhone, failureText, lastMessage);
+        return;
+      }
+
+      // Successful batch processing - remove from retryBatches and disk
       this.retryBatches.delete(remoteJid);
+      this.deleteBatchFromDisk(remoteJid);
 
       // Build customer WhatsApp reply text
       let replyText = "";
@@ -1028,6 +1253,28 @@ export class WhatsAppAgentService {
           `\n\n_Tap each link to customize copies/color and collect your tokens._`;
       }
 
+      if (skippedFiles.length > 0) {
+        replyText += `\n\n⚠️ *Notice:* ${skippedFiles.length} file(s) could not be included:\n`;
+        for (const f of skippedFiles) {
+          replyText += `• *${f.filename}* — ${f.reason}\n`;
+        }
+        replyText += `_You can still configure and print the other files via the link above!_`;
+
+        for (const f of skippedFiles) {
+          this.recentEvents.unshift({
+            id: crypto.randomUUID(),
+            timestamp: new Date().toLocaleTimeString(),
+            senderPhone: `+${senderPhone}`,
+            senderName,
+            filename: f.filename,
+            pageCount: 0,
+            configUrl: "",
+            status: "error",
+            errorMessage: f.reason,
+          });
+        }
+      }
+
       // Add mutual contact trust booster
       replyText += `\n\n💡 _Tip: Save this number as "Print Shop" to send files anytime!_`;
 
@@ -1045,6 +1292,7 @@ export class WhatsAppAgentService {
           const backoffDelay = Math.min(3000 * Math.pow(1.4, batch.retryCount), 30000);
           batch.nextRetryAt = Date.now() + backoffDelay;
           this.retryBatches.set(remoteJid, batch);
+          this.saveBatchToDisk(batch);
 
           // Update recentEvents to show "Retrying (Offline)"
           for (const att of attachments) {
@@ -1084,6 +1332,7 @@ export class WhatsAppAgentService {
 
       // Permanent failure or max retries exceeded
       this.retryBatches.delete(remoteJid);
+      this.deleteBatchFromDisk(remoteJid);
 
       for (const att of attachments) {
         const existingEvent = this.recentEvents.find(

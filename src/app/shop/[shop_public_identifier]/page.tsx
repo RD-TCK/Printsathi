@@ -24,12 +24,14 @@ async function getInitialDraftOrder(orderId: string | null, accessToken: string 
     const tokenHash = hashGuestOrderToken(accessToken);
     const { data: order } = await client
       .from("orders")
-      .select("id, public_id, status, shop_id")
+      .select(
+        "id, public_id, status, shop_id, token_number, total_amount, total_pages, color_pages, black_and_white_pages, expires_at, payment_mode",
+      )
       .eq("id", orderId)
       .eq("guest_access_token_hash", tokenHash)
       .maybeSingle();
 
-    if (!order || order.status !== "draft") return null;
+    if (!order) return null;
 
     const { data: docs } = await client
       .from("documents")
@@ -42,6 +44,15 @@ async function getInitialDraftOrder(orderId: string | null, accessToken: string 
     return {
       orderId: order.id,
       orderPublicId: order.public_id,
+      status: order.status,
+      isAlreadySubmitted: order.status !== "draft",
+      tokenNumber: order.token_number,
+      totalAmount: order.total_amount,
+      totalPages: order.total_pages,
+      colorPages: order.color_pages,
+      blackAndWhitePages: order.black_and_white_pages,
+      expiresAt: order.expires_at,
+      paymentMode: order.payment_mode,
       accessToken,
       documents: docs.map((doc) => ({
         id: doc.id,

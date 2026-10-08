@@ -83,6 +83,15 @@ type Props = {
     orderId: string;
     orderPublicId: string;
     accessToken: string;
+    status?: string;
+    isAlreadySubmitted?: boolean;
+    tokenNumber?: number | null;
+    totalAmount?: number;
+    totalPages?: number;
+    colorPages?: number;
+    blackAndWhitePages?: number;
+    expiresAt?: string | null;
+    paymentMode?: string | null;
     documents: Array<{
       id: string;
       filename: string;
@@ -473,7 +482,8 @@ export function CustomerPrintFlow({
   }, [identifier]);
 
   // Step 0: Upload, Step 1: Configure & Crop, Step 2: Print Preview & Review, Step 3: Payment Online, Step 4: Counter Token
-  const [step, setStep] = useState(() => (isDirectDraft ? 1 : 0));
+  const isAlreadySubmittedOnMount = Boolean(initialDraftOrder?.isAlreadySubmitted && initialDraftOrder?.tokenNumber);
+  const [step, setStep] = useState(() => (isAlreadySubmittedOnMount ? 4 : isDirectDraft ? 1 : 0));
   const [documents, setDocuments] = useState<CustomerDocument[]>(initialDocs);
   const [activeDocument, setActiveDocument] = useState(0);
   const [orderId, setOrderId] = useState<string | null>(initialDraftOrder?.orderId || initialOrderId);
@@ -512,7 +522,20 @@ export function CustomerPrintFlow({
   const [uploadProgress, setUploadProgress] = useState<number | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [failedFiles, setFailedFiles] = useState<Record<string, string>>({});
-  const [tokenDetails, setTokenDetails] = useState<TokenDetails | null>(null);
+  const [tokenDetails, setTokenDetails] = useState<TokenDetails | null>(() => {
+    if (isAlreadySubmittedOnMount && initialDraftOrder?.tokenNumber) {
+      return {
+        tokenNumber: initialDraftOrder.tokenNumber,
+        publicOrderId: initialDraftOrder.orderPublicId,
+        totalAmount: initialDraftOrder.totalAmount || 0,
+        totalPages: initialDraftOrder.totalPages || 0,
+        colorPages: initialDraftOrder.colorPages || 0,
+        blackAndWhitePages: initialDraftOrder.blackAndWhitePages || 0,
+        expiresAt: initialDraftOrder.expiresAt || new Date(Date.now() + 4 * 3600 * 1000).toISOString(),
+      };
+    }
+    return null;
+  });
   const [resumedFromWhatsApp, setResumedFromWhatsApp] = useState(() => isDirectDraft);
   // Stable snapshot of current time — initialized once per mount
   const [nowSnapshot] = useState(() => Date.now());
@@ -778,6 +801,21 @@ export function CustomerPrintFlow({
         setOrderId(data.orderId);
         setAccessToken(data.accessToken);
         setDocuments(docs);
+
+        if (data.isAlreadySubmitted && data.tokenNumber) {
+          setTokenDetails({
+            tokenNumber: data.tokenNumber,
+            publicOrderId: data.orderPublicId,
+            totalAmount: data.totalAmount || 0,
+            totalPages: data.totalPages || 0,
+            colorPages: data.colorPages || 0,
+            blackAndWhitePages: data.blackAndWhitePages || 0,
+            expiresAt: data.expiresAt || new Date(Date.now() + 4 * 3600 * 1000).toISOString(),
+          });
+          setStep(4);
+          return;
+        }
+
         setActiveDocument(0);
         setResumedFromWhatsApp(true);
         setStep(1);

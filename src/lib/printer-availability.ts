@@ -38,8 +38,10 @@ export function availablePrinters(
   );
 }
 export function supportsPrint(printer: InventoryPrinter, color: string, paper: string): boolean {
+  // If customer requested color, printer MUST support color.
+  // If customer requested black & white, ANY printer (monochrome OR color in monochrome mode) can print B&W!
   const matchesColor =
-    color === "color" ? printer.capabilities?.colorSupport === true : !printer.capabilities?.colorSupport;
+    color === "color" ? printer.capabilities?.colorSupport === true : true;
   return (
     matchesColor &&
     (printer.capabilities?.paperSizes || ["A4"]).some((size) => size.toLowerCase().includes(paper.toLowerCase()))

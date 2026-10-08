@@ -29,6 +29,7 @@ vi.mock("./printer-discovery", () => ({
   discoverWindowsPrinters: async () => [{ name: "Test physical printer", status: "online" }],
   findDefaultPrinter: () => ({ name: "Test physical printer" }),
   findBestPrinterForJob: () => ({ name: "Test physical printer" }),
+  isPhysicalPrinter: () => true,
 }));
 vi.mock("./print-executor", () => ({ prepareAndPrintDocument: mocks.print }));
 vi.mock("node:fs", () => ({

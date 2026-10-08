@@ -78,6 +78,29 @@ export async function POST(request: Request) {
     .maybeSingle();
 
   if (!order || !["draft", "awaiting_payment"].includes(order.status)) {
+    if (order && ["in_queue", "printing", "completed"].includes(order.status)) {
+      const { data: fullOrder } = await client
+        .from("orders")
+        .select("id, public_id, status, token_number, total_amount, total_pages, color_pages, black_and_white_pages, expires_at")
+        .eq("id", orderId)
+        .eq("shop_id", shop.id)
+        .maybeSingle();
+
+      if (fullOrder?.token_number) {
+        return NextResponse.json({
+          success: true,
+          orderId: fullOrder.id,
+          publicOrderId: fullOrder.public_id,
+          tokenNumber: fullOrder.token_number,
+          expiresAt: fullOrder.expires_at || new Date(Date.now() + 60 * 60 * 1000).toISOString(),
+          totalAmount: fullOrder.total_amount || 0,
+          totalPages: fullOrder.total_pages || 0,
+          colorPages: fullOrder.color_pages || 0,
+          blackAndWhitePages: fullOrder.black_and_white_pages || 0,
+          alreadySubmitted: true,
+        });
+      }
+    }
     return NextResponse.json({ error: "Order is no longer configurable." }, { status: 409 });
   }
 

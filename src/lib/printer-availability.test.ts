@@ -35,5 +35,14 @@ describe("live physical printer availability", () => {
     expect(supportsPrint(printer, "black_and_white", "a4")).toBe(true);
     expect(supportsPrint(printer, "color", "a4")).toBe(false);
     expect(supportsPrint(printer, "black_and_white", "a3")).toBe(false);
+
+    const colorPrinter: InventoryPrinter = {
+      ...printer,
+      name: "Epson L3150 Color",
+      capabilities: { colorSupport: true, paperSizes: ["A4", "Letter"] },
+    };
+    expect(supportsPrint(colorPrinter, "black_and_white", "a4")).toBe(true);
+    expect(supportsPrint(colorPrinter, "color", "a4")).toBe(true);
+    expect(supportsPrint(colorPrinter, "color", "a3")).toBe(false);
   });
 });

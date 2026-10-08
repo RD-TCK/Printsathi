@@ -5,7 +5,7 @@ import os from "node:os";
 import type { AgentConfig, AgentStatusSnapshot, ClaimedJob, DiscoveredPrinter } from "./types";
 import { clearConfig, isConfigPaired, loadConfig, saveConfig, getDocumentCacheDirectory, cleanDocumentCache } from "./config";
 import { AgentApiClient } from "./client";
-import { discoverWindowsPrinters, findBestPrinterForJob, findDefaultPrinter } from "./printer-discovery";
+import { discoverWindowsPrinters, findBestPrinterForJob, findDefaultPrinter, isPhysicalPrinter } from "./printer-discovery";
 import { prepareAndPrintDocument } from "./print-executor";
 import { logger } from "./logger";
 import { whatsAppAgent } from "./whatsapp";
@@ -474,6 +474,10 @@ export class AgentDaemon {
         busyPrinters.delete(reservedPrinterForJob.toLowerCase());
       }
 
+      const hasPhysicalMonoPrinter = this.discoveredPrinters.some(
+        (p) => isPhysicalPrinter(p) && !p.capabilities?.colorSupport,
+      );
+
       const plan = groups.map((ranges) => {
         const printer = findBestPrinterForJob(this.discoveredPrinters, {
           colorMode: ranges[0].colorMode,
@@ -482,6 +486,7 @@ export class AgentDaemon {
           requiredPrinterName: isDuplexEvenStep ? reservedPrinterForJob : null,
           requiresDuplex: isDoubleSided && !isDuplexEvenStep,
           busyPrinters,
+          allowColorFallbackForMono: !hasPhysicalMonoPrinter,
         });
         return { ranges, printer };
       });

@@ -34,6 +34,9 @@ export async function discoverWindowsPrinters(): Promise<DiscoveredPrinter[]> {
   try {
     const printerScript = `
 [Console]::OutputEncoding = [System.Text.UTF8Encoding]::new()
+try {
+  Get-Printer -ErrorAction SilentlyContinue | Where-Object { $_.WorkOffline -eq $true } | Set-Printer -WorkOffline $false -ErrorAction SilentlyContinue
+} catch {}
 $printers = Get-CimInstance Win32_Printer -ErrorAction SilentlyContinue
 if (-not $printers) {
   $printers = Get-WmiObject Win32_Printer -ErrorAction SilentlyContinue
@@ -270,6 +273,7 @@ export function findBestPrinterForJob(
     requiredPrinterName?: string | null;
     requiresDuplex?: boolean;
     busyPrinters?: Set<string> | string[];
+    allowColorFallbackForMono?: boolean;
   },
 ): DiscoveredPrinter | null {
   const busySet = new Set(
@@ -308,16 +312,16 @@ export function findBestPrinterForJob(
     return null;
   }
 
-  // If user requested a preferred printer and it matches strict color mode, use it
+  // If user requested a preferred printer and it satisfies capabilities, use it
   if (options.preferredName) {
     const matched = compatiblePrinters.find((p) => p.name.toLowerCase() === options.preferredName!.toLowerCase());
     if (matched) {
       const satisfiesDuplex = !options.requiresDuplex || matched.capabilities?.duplexSupport === true;
       if (satisfiesDuplex) {
-        if (options.colorMode === "color" && matched.capabilities?.colorSupport === true) {
-          return matched;
-        }
-        if (options.colorMode === "black_and_white" && !matched.capabilities?.colorSupport) {
+        if (options.colorMode === "color") {
+          if (matched.capabilities?.colorSupport === true) return matched;
+        } else {
+          // Any printer (dedicated mono or color in monochrome mode) can handle B&W
           return matched;
         }
       }
@@ -341,21 +345,39 @@ export function findBestPrinterForJob(
     return defaultColor || colorPrinters[0] || null;
   }
 
-  // STRICT B&W ROUTING:
-  // Must find a dedicated monochrome/B&W printer (!colorSupport).
-  // NEVER divert or fall back Black & White jobs to a Color printer.
+  // B&W ROUTING:
+  // 1. Prefer a dedicated monochrome/B&W printer (!colorSupport) if one exists.
   const monoPrinters = compatiblePrinters.filter((p) => !p.capabilities?.colorSupport);
-  if (monoPrinters.length === 0) return null;
+  if (monoPrinters.length > 0) {
+    if (options.requiresDuplex) {
+      const duplexMono =
+        monoPrinters.find((p) => p.capabilities?.duplexSupport === true && p.isDefault) ||
+        monoPrinters.find((p) => p.capabilities?.duplexSupport === true);
+      if (duplexMono) return duplexMono;
+    }
 
-  if (options.requiresDuplex) {
-    const duplexMono =
-      monoPrinters.find((p) => p.capabilities?.duplexSupport === true && p.isDefault) ||
-      monoPrinters.find((p) => p.capabilities?.duplexSupport === true);
-    if (duplexMono) return duplexMono;
+    const defaultMono = monoPrinters.find((p) => p.isDefault);
+    return defaultMono || monoPrinters[0] || null;
   }
 
-  const defaultMono = monoPrinters.find((p) => p.isDefault);
-  return defaultMono || monoPrinters[0] || null;
+  // 2. Strict separation: B&W requests do NOT automatically route to Color printers
+  // unless explicitly permitted via allowColorFallbackForMono or when preferredName is matched.
+  if (options.allowColorFallbackForMono) {
+    const colorPrinters = compatiblePrinters.filter((p) => p.capabilities?.colorSupport === true);
+    if (colorPrinters.length > 0) {
+      if (options.requiresDuplex) {
+        const duplexColor =
+          colorPrinters.find((p) => p.capabilities?.duplexSupport === true && p.isDefault) ||
+          colorPrinters.find((p) => p.capabilities?.duplexSupport === true);
+        if (duplexColor) return duplexColor;
+      }
+
+      const defaultColor = colorPrinters.find((p) => p.isDefault);
+      return defaultColor || colorPrinters[0] || null;
+    }
+  }
+
+  return null;
 }
 
 export function findDefaultPrinter(

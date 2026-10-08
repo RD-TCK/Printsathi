@@ -101,4 +101,73 @@ describe("WhatsApp Agent Service", () => {
 
     if (fs.existsSync(testDir)) fs.rmSync(testDir, { recursive: true, force: true });
   });
+
+  it("handles incoming customer text messages politely without throwing", async () => {
+    const testDir = path.join(os.tmpdir(), "wa_test_auth_" + (Date.now() + 6));
+    fs.mkdirSync(testDir, { recursive: true });
+
+    const service = new WhatsAppAgentService(testDir);
+    const textMsg = {
+      key: {
+        remoteJid: "919876543210@s.whatsapp.net",
+        fromMe: false,
+        id: "msg_text_1",
+      },
+      message: {
+        conversation: "Hi bhaiya print nikalna hai",
+      },
+      messageTimestamp: Math.floor(Date.now() / 1000),
+      pushName: "Rohan Kumar",
+    };
+
+    // Calling handleIncomingMessage directly on text should not throw and should be processed
+    await (service as unknown as { handleIncomingMessage(m: unknown): Promise<void> }).handleIncomingMessage(textMsg);
+
+    // Repeated message from same sender within cooldown is safely ignored
+    await (service as unknown as { handleIncomingMessage(m: unknown): Promise<void> }).handleIncomingMessage({
+      ...textMsg,
+      key: { ...textMsg.key, id: "msg_text_2" },
+      message: { conversation: "Hello?" },
+    });
+
+    if (fs.existsSync(testDir)) fs.rmSync(testDir, { recursive: true, force: true });
+  });
+
+  it("persists pending offline batches to disk and reloads them on next startup", () => {
+    const testDir = path.join(os.tmpdir(), "wa_test_auth_" + (Date.now() + 7));
+    fs.mkdirSync(testDir, { recursive: true });
+
+    const service1 = new WhatsAppAgentService(testDir);
+    const testBatch = {
+      senderPhone: "919876543210",
+      senderName: "Customer A",
+      remoteJid: "919876543210@s.whatsapp.net",
+      attachments: [
+        {
+          msg: {} as never,
+          mediaBuffer: Buffer.from("fake pdf content"),
+          filename: "test.pdf",
+          mimetype: "application/pdf",
+        },
+      ],
+      lastMessage: {} as never,
+      firstQueuedAt: Date.now(),
+      retryCount: 1,
+    };
+
+    (service1 as unknown as { saveBatchToDisk(b: unknown): void }).saveBatchToDisk(testBatch);
+
+    // Initialize fresh service instance on the same directory (simulating agent restart)
+    const service2 = new WhatsAppAgentService(testDir);
+    const retryBatches = (service2 as unknown as { retryBatches: Map<string, typeof testBatch> }).retryBatches;
+
+    expect(retryBatches.has("919876543210@s.whatsapp.net")).toBe(true);
+    const loaded = retryBatches.get("919876543210@s.whatsapp.net");
+    expect(loaded?.senderPhone).toBe("919876543210");
+    expect(loaded?.attachments[0].filename).toBe("test.pdf");
+    expect(loaded?.attachments[0].mediaBuffer.toString()).toBe("fake pdf content");
+
+    (service2 as unknown as { deleteBatchFromDisk(j: string): void }).deleteBatchFromDisk("919876543210@s.whatsapp.net");
+    if (fs.existsSync(testDir)) fs.rmSync(testDir, { recursive: true, force: true });
+  });
 });
