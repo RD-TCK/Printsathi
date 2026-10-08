@@ -4,6 +4,8 @@ import { Printer, QrCode, ShieldCheck, Sparkles, FileText } from "lucide-react";
 import { notFound } from "next/navigation";
 import { getPublicPricing, getPublicShop } from "@/lib/shops/public-lookup";
 import { CustomerPrintFlow } from "@/components/customer-print-flow";
+import { createSupabaseAdminClient } from "@/lib/supabase/admin";
+import { hashGuestOrderToken } from "@/lib/guest-order";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 
@@ -12,6 +14,46 @@ type ShopPageProps = {
   searchParams?: Promise<{ orderId?: string; token?: string; accessToken?: string }>;
 };
 export const dynamic = "force-dynamic";
+
+async function getInitialDraftOrder(orderId: string | null, accessToken: string | null) {
+  if (!orderId || !accessToken) return null;
+  try {
+    const client = createSupabaseAdminClient();
+    if (!client) return null;
+
+    const tokenHash = hashGuestOrderToken(accessToken);
+    const { data: order } = await client
+      .from("orders")
+      .select("id, public_id, status, shop_id")
+      .eq("id", orderId)
+      .eq("guest_access_token_hash", tokenHash)
+      .maybeSingle();
+
+    if (!order || order.status !== "draft") return null;
+
+    const { data: docs } = await client
+      .from("documents")
+      .select("id, original_filename, page_count, size_bytes")
+      .eq("order_id", orderId)
+      .order("created_at", { ascending: true });
+
+    if (!docs || docs.length === 0) return null;
+
+    return {
+      orderId: order.id,
+      orderPublicId: order.public_id,
+      accessToken,
+      documents: docs.map((doc) => ({
+        id: doc.id,
+        filename: doc.original_filename,
+        pageCount: doc.page_count,
+        sizeBytes: doc.size_bytes,
+      })),
+    };
+  } catch {
+    return null;
+  }
+}
 
 export async function generateMetadata({ params }: ShopPageProps): Promise<Metadata> {
   const { shop_public_identifier: identifier } = await params;
@@ -28,7 +70,11 @@ export default async function PublicShopPage({ params, searchParams }: ShopPageP
   const initialOrderId = search.orderId || null;
   const initialAccessToken = search.token || search.accessToken || null;
 
-  const [shopResult, pricing] = await Promise.all([getPublicShop(identifier), getPublicPricing(identifier)]);
+  const [shopResult, pricing, initialDraftOrder] = await Promise.all([
+    getPublicShop(identifier),
+    getPublicPricing(identifier),
+    getInitialDraftOrder(initialOrderId, initialAccessToken),
+  ]);
   const { shop, configured } = shopResult;
   if (!configured) return <ShopLookupUnavailable />;
   if (!shop) notFound();
@@ -168,6 +214,7 @@ export default async function PublicShopPage({ params, searchParams }: ShopPageP
               initialPricingRules={pricing}
               initialOrderId={initialOrderId}
               initialAccessToken={initialAccessToken}
+              initialDraftOrder={initialDraftOrder}
             />
 
             {/* Bottom Info Section: Shop Pricing Slabs */}

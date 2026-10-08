@@ -74,15 +74,26 @@ export async function POST(request: Request) {
         const buffer = Buffer.from(matches[2], "base64");
         const previewStoragePath = `shops/${shop.id}/orders/${orderId}/documents/${doc.id}/preview.jpg`;
 
-        const { error: uploadErr } = await client.storage
-          .from("print-documents")
-          .upload(previewStoragePath, buffer, {
-            contentType: mimeType || "image/jpeg",
-            upsert: true,
-          });
+        let uploadSucceeded = false;
+        for (let attempt = 1; attempt <= 3; attempt++) {
+          const { error: uploadErr } = await client.storage
+            .from("print-documents")
+            .upload(previewStoragePath, buffer, {
+              contentType: mimeType || "image/jpeg",
+              upsert: true,
+            });
 
-        if (!uploadErr) {
-          storedPreviewPaths.push(previewStoragePath);
+          if (!uploadErr) {
+            storedPreviewPaths.push(previewStoragePath);
+            uploadSucceeded = true;
+            break;
+          }
+          if (attempt < 3) {
+            await new Promise((r) => setTimeout(r, 250 * attempt));
+          }
+        }
+        if (!uploadSucceeded) {
+          console.warn(`Failed to upload preview thumbnail for document ${doc.id} after 3 attempts`);
         }
       }),
     );

@@ -123,8 +123,8 @@ export async function processAndCacheDocument(
       if (extracted?.buffer) {
         previewBuffer = await sharp(extracted.buffer, { limitInputPixels: 268402689 })
           .rotate()
-          .resize({ width: 800, height: 1100, fit: "inside", withoutEnlargement: true })
-          .jpeg({ quality: 80 })
+          .resize({ width: 640, height: 900, fit: "inside", withoutEnlargement: true })
+          .jpeg({ quality: 75, mozjpeg: true })
           .toBuffer();
       }
     } catch {
@@ -137,13 +137,13 @@ export async function processAndCacheDocument(
       .toColorspace("srgb")
       .flatten({ background: "white" });
 
-    // Generate high-quality JPEG for PDF embedding & thumbnail for mobile preview in parallel
+    // Generate high-quality JPEG for PDF embedding & compact thumbnail for mobile preview in parallel
     const [processedJpeg, thumbBuf] = await Promise.all([
       baseSharp.clone().jpeg({ quality: 95, chromaSubsampling: "4:4:4" }).toBuffer(),
       baseSharp
         .clone()
-        .resize({ width: 800, height: 1100, fit: "inside", withoutEnlargement: true })
-        .jpeg({ quality: 80 })
+        .resize({ width: 640, height: 900, fit: "inside", withoutEnlargement: true })
+        .jpeg({ quality: 75, mozjpeg: true })
         .toBuffer(),
     ]);
 
@@ -301,8 +301,8 @@ export async function processAndCacheDocument(
       if (extracted?.buffer) {
         previewBuffer = await sharp(extracted.buffer, { limitInputPixels: 268402689 })
           .rotate()
-          .resize({ width: 800, height: 1100, fit: "inside", withoutEnlargement: true })
-          .jpeg({ quality: 80 })
+          .resize({ width: 640, height: 900, fit: "inside", withoutEnlargement: true })
+          .jpeg({ quality: 75, mozjpeg: true })
           .toBuffer();
       }
     } catch {

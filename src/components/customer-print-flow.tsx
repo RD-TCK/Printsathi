@@ -79,6 +79,17 @@ type Props = {
   initialPricingRules?: PublicPricingRule[];
   initialOrderId?: string | null;
   initialAccessToken?: string | null;
+  initialDraftOrder?: {
+    orderId: string;
+    orderPublicId: string;
+    accessToken: string;
+    documents: Array<{
+      id: string;
+      filename: string;
+      pageCount: number;
+      sizeBytes?: number;
+    }>;
+  } | null;
 };
 export type TokenDetails = {
   tokenNumber: number;
@@ -380,6 +391,7 @@ export function CustomerPrintFlow({
   initialPricingRules = [],
   initialOrderId = null,
   initialAccessToken = null,
+  initialDraftOrder = null,
 }: Props) {
   const [shop, setShop] = useState(initialShop);
   const [pricingRules, setPricingRules] = useState<PricingRule[]>(() =>
@@ -390,6 +402,37 @@ export function CustomerPrintFlow({
       is_active: true,
     })),
   );
+
+  const isDirectDraft = Boolean(initialDraftOrder || (initialOrderId && initialAccessToken));
+
+  const initialDocs = useMemo<CustomerDocument[]>(() => {
+    if (!initialDraftOrder?.documents || initialDraftOrder.documents.length === 0) return [];
+    return initialDraftOrder.documents.map((d) => {
+      const isImg = Boolean(d.filename.match(/\.(jpg|jpeg|png|webp|gif|bmp)$/i));
+      const previewUrl = isImg
+        ? `/api/customer/document-preview?documentId=${d.id}&orderId=${initialDraftOrder.orderId}&token=${initialDraftOrder.accessToken}`
+        : undefined;
+
+      return {
+        id: d.id,
+        filename: d.filename,
+        pageCount: d.pageCount,
+        sizeBytes: d.sizeBytes || 0,
+        isImage: isImg,
+        previewUrl,
+        ranges: [
+          {
+            startPage: 1,
+            endPage: d.pageCount,
+            colorMode: "black_and_white",
+            paperSize: "a4",
+            sideMode: "single_sided",
+            copies: 1,
+          },
+        ],
+      };
+    });
+  }, [initialDraftOrder]);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -430,19 +473,47 @@ export function CustomerPrintFlow({
   }, [identifier]);
 
   // Step 0: Upload, Step 1: Configure & Crop, Step 2: Print Preview & Review, Step 3: Payment Online, Step 4: Counter Token
-  const [step, setStep] = useState(0);
-  const [documents, setDocuments] = useState<CustomerDocument[]>([]);
+  const [step, setStep] = useState(() => (isDirectDraft ? 1 : 0));
+  const [documents, setDocuments] = useState<CustomerDocument[]>(initialDocs);
   const [activeDocument, setActiveDocument] = useState(0);
-  const [orderId, setOrderId] = useState<string | null>(null);
-  const [accessToken, setAccessToken] = useState<string | null>(null);
-  const [estimate, setEstimate] = useState<Estimate | null>(null);
+  const [orderId, setOrderId] = useState<string | null>(initialDraftOrder?.orderId || initialOrderId);
+  const [accessToken, setAccessToken] = useState<string | null>(initialDraftOrder?.accessToken || initialAccessToken);
+  const [estimate, setEstimate] = useState<Estimate | null>(() => {
+    if (initialDocs.length > 0 && initialPricingRules && initialPricingRules.length > 0) {
+      try {
+        const rules = initialPricingRules.map((r) => ({
+          ...r,
+          side_mode: r.side_mode ?? "single_sided",
+          price_per_page: Number(r.price_per_page),
+          is_active: true,
+        }));
+        const instant = calculatePricing(
+          initialDocs.flatMap((d) => d.ranges),
+          rules,
+          "customer_fee",
+        );
+        return {
+          total: instant.total,
+          subtotal: instant.subtotal,
+          platformFee: instant.platformFee,
+          currency: "INR",
+          totalPages: instant.totalPages,
+          colorPages: instant.colorPages,
+          blackAndWhitePages: instant.blackAndWhitePages,
+        };
+      } catch {
+        return null;
+      }
+    }
+    return null;
+  });
   const [busy, setBusy] = useState(false);
   const [uploadStatus, setUploadStatus] = useState<string | null>(null);
   const [uploadProgress, setUploadProgress] = useState<number | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [failedFiles, setFailedFiles] = useState<Record<string, string>>({});
   const [tokenDetails, setTokenDetails] = useState<TokenDetails | null>(null);
-  const [resumedFromWhatsApp, setResumedFromWhatsApp] = useState(false);
+  const [resumedFromWhatsApp, setResumedFromWhatsApp] = useState(() => isDirectDraft);
   // Stable snapshot of current time — initialized once per mount
   const [nowSnapshot] = useState(() => Date.now());
 
@@ -651,7 +722,7 @@ export function CustomerPrintFlow({
     }
   }, [step]);
 
-  const loadedDraftOrderIdRef = useRef<string | null>(null);
+  const loadedDraftOrderIdRef = useRef<string | null>(initialDraftOrder?.orderId || null);
 
   // Auto-resume draft order created via WhatsApp
   useEffect(() => {
@@ -1442,6 +1513,14 @@ export function CustomerPrintFlow({
       ) : null}
 
       {/* Stage 1: Configure & Crop Options */}
+      {step === 1 && !current ? (
+        <div className="flex flex-col items-center justify-center py-16 px-4 text-center rounded-2xl border border-slate-200/80 bg-white shadow-xs">
+          <div className="size-10 sm:size-12 rounded-full border-3 border-emerald-600 border-t-transparent animate-spin mb-4" />
+          <p className="text-sm font-bold text-slate-800">Opening your WhatsApp order...</p>
+          <p className="text-xs text-slate-500 mt-1">Preparing your documents and preview...</p>
+        </div>
+      ) : null}
+
       {step === 1 && current ? (
         <>
           {resumedFromWhatsApp && (
@@ -2020,6 +2099,18 @@ function LazyPreviewImage({
     return () => observer.disconnect();
   }, [src]);
 
+  const [retryCount, setRetryCount] = useState(0);
+
+  const handleImageError = () => {
+    if (retryCount < 2) {
+      setTimeout(() => {
+        setRetryCount((prev) => prev + 1);
+      }, 500);
+    } else {
+      setHasError(true);
+    }
+  };
+
   if (!src || hasError) {
     return <>{fallback || <FileText className="size-8 text-slate-300" />}</>;
   }
@@ -2035,12 +2126,13 @@ function LazyPreviewImage({
       {isVisible && (
         // eslint-disable-next-line @next/next/no-img-element
         <img
+          key={retryCount}
           src={src}
           alt={alt}
           loading="lazy"
           decoding="async"
           onLoad={() => setIsLoaded(true)}
-          onError={() => setHasError(true)}
+          onError={handleImageError}
           className={cn(
             className,
             "transition-opacity duration-200",

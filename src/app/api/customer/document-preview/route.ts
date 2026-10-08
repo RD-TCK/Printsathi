@@ -102,7 +102,16 @@ export async function GET(request: Request) {
   const standardPreviewPath = `shops/${order.shop_id}/orders/${orderId}/documents/${documentId}/preview.jpg`;
   const legacyPreviewPath = doc.storage_path.replace(/source\.pdf$/, "preview.jpg");
   const previewPath = doc.storage_path.startsWith("local://") ? standardPreviewPath : legacyPreviewPath;
-  const { data: previewBlob } = await client.storage.from("print-documents").download(previewPath);
+  let { data: previewBlob } = await client.storage.from("print-documents").download(previewPath);
+
+  if (!previewBlob || previewBlob.size === 0) {
+    // Retry once in case of storage replication or upload concurrency
+    await new Promise((r) => setTimeout(r, 200));
+    const { data: secondTry } = await client.storage.from("print-documents").download(previewPath);
+    if (secondTry && secondTry.size > 0) {
+      previewBlob = secondTry;
+    }
+  }
 
   if (previewBlob && previewBlob.size > 0) {
     const rawBuffer = Buffer.from(await previewBlob.arrayBuffer());

@@ -1295,24 +1295,30 @@ export class AgentWebServer {
           badge.className = 'badge badge-online';
           badge.innerHTML = '<span class="status-dot"></span> Active (' + escapeHtml(data.connectedPhone || 'Linked') + ')';
 
-          let eventsHtml = '';
-          if (data.recentEvents && data.recentEvents.length > 0) {
-            eventsHtml = '<div style="margin-top:14px; border-top:1px solid #e2e8f0; padding-top:8px;">' +
+          var renderEventsHtml = function(events) {
+            if (!events || events.length === 0) return '';
+            return '<div style="margin-top:14px; border-top:1px solid #e2e8f0; padding-top:8px;">' +
               '<p style="font-size:11px; font-weight:700; color:#475569; text-transform:uppercase; margin-bottom:8px;">Recent WhatsApp Orders</p>' +
               '<div style="max-height:160px; overflow-y:auto; display:flex; flex-direction:column; gap:6px;">' +
-              data.recentEvents.map(function(e) {
+              events.map(function(e) {
+                var actionHtml = e.configUrl
+                  ? '<a href="' + escapeHtml(e.configUrl) + '" target="_blank" style="font-size:11px; color:#059669; font-weight:600; text-decoration:underline;">Open Config</a>'
+                  : (e.status === 'retrying'
+                    ? '<span style="color:#d97706; font-size:11px; font-weight:600; display:flex; align-items:center; gap:3px;">🔄 Retrying (Offline)</span>'
+                    : '<span style="color:#ef4444; font-size:11px;">Failed</span>');
+
                 return '<div style="display:flex; justify-content:space-between; align-items:center; background:#f8fafc; border:1px solid #e2e8f0; border-radius:8px; padding:6px 10px; font-size:12px;">' +
                   '<div>' +
-                    '<b>' + escapeHtml(e.senderName) + '</b> (' + escapeHtml(e.senderPhone) + ') · <span style="color:#059669; font-weight:600;">' + escapeHtml(e.filename) + '</span> (' + e.pageCount + 'p)' +
+                    '<b>' + escapeHtml(e.senderName) + '</b> (' + escapeHtml(e.senderPhone) + ') · <span style="color:#059669; font-weight:600;">' + escapeHtml(e.filename) + '</span> (' + (e.pageCount || 0) + 'p)' +
                   '</div>' +
                   '<div style="display:flex; align-items:center; gap:8px;">' +
                     '<span style="font-size:11px; color:#64748b;">' + escapeHtml(e.timestamp) + '</span>' +
-                    (e.configUrl ? '<a href="' + escapeHtml(e.configUrl) + '" target="_blank" style="font-size:11px; color:#059669; font-weight:600; text-decoration:underline;">Open Config</a>' : '<span style="color:#ef4444; font-size:11px;">Failed</span>') +
+                    actionHtml +
                   '</div>' +
                 '</div>';
               }).join('') +
               '</div></div>';
-          }
+          };
 
           body.innerHTML = [
             '<div style="background:#f0fdf4; border:1px solid #bbf7d0; border-radius:10px; padding:12px; font-size:13px; color:#14532d; display:flex; justify-content:space-between; align-items:center;">',
@@ -1322,13 +1328,38 @@ export class AgentWebServer {
               '</div>',
               '<button type="button" class="btn-secondary" style="font-size:11px; color:#b91c1c; border-color:#fca5a5;" onclick="disconnectWhatsApp(false)">Unlink</button>',
             '</div>',
-            eventsHtml
+            renderEventsHtml(data.recentEvents)
           ].join('');
         } else if (data.isSavedSession || data.connectedPhone) {
           badge.className = 'badge';
           badge.style.background = '#fef3c7';
           badge.style.color = '#92400e';
           badge.innerHTML = '<span class="status-dot pulse-dot" style="background:#f59e0b;"></span> Reconnecting (' + escapeHtml(data.connectedPhone || 'Saved') + ')';
+
+          var renderEventsHtmlOffline = function(events) {
+            if (!events || events.length === 0) return '';
+            return '<div style="margin-top:14px; border-top:1px solid #e2e8f0; padding-top:8px;">' +
+              '<p style="font-size:11px; font-weight:700; color:#475569; text-transform:uppercase; margin-bottom:8px;">Recent WhatsApp Orders</p>' +
+              '<div style="max-height:160px; overflow-y:auto; display:flex; flex-direction:column; gap:6px;">' +
+              events.map(function(e) {
+                var actionHtml = e.configUrl
+                  ? '<a href="' + escapeHtml(e.configUrl) + '" target="_blank" style="font-size:11px; color:#059669; font-weight:600; text-decoration:underline;">Open Config</a>'
+                  : (e.status === 'retrying'
+                    ? '<span style="color:#d97706; font-size:11px; font-weight:600; display:flex; align-items:center; gap:3px;">🔄 Retrying (Offline)</span>'
+                    : '<span style="color:#ef4444; font-size:11px;">Failed</span>');
+
+                return '<div style="display:flex; justify-content:space-between; align-items:center; background:#f8fafc; border:1px solid #e2e8f0; border-radius:8px; padding:6px 10px; font-size:12px;">' +
+                  '<div>' +
+                    '<b>' + escapeHtml(e.senderName) + '</b> (' + escapeHtml(e.senderPhone) + ') · <span style="color:#059669; font-weight:600;">' + escapeHtml(e.filename) + '</span> (' + (e.pageCount || 0) + 'p)' +
+                  '</div>' +
+                  '<div style="display:flex; align-items:center; gap:8px;">' +
+                    '<span style="font-size:11px; color:#64748b;">' + escapeHtml(e.timestamp) + '</span>' +
+                    actionHtml +
+                  '</div>' +
+                '</div>';
+              }).join('') +
+              '</div></div>';
+          };
 
           body.innerHTML = [
             '<div style="background:#fffbeb; border:1px solid #fde68a; border-radius:10px; padding:12px; display:flex; justify-content:space-between; align-items:center;">',
@@ -1344,7 +1375,8 @@ export class AgentWebServer {
                 '<button type="button" class="btn-secondary" style="font-size:11px;" onclick="connectWhatsApp()">🔄 Retry Now</button>',
                 '<button type="button" class="btn-secondary" style="font-size:11px; color:#b91c1c; border-color:#fca5a5;" onclick="disconnectWhatsApp(false)">Unlink</button>',
               '</div>',
-            '</div>'
+            '</div>',
+            renderEventsHtmlOffline(data.recentEvents)
           ].join('');
         } else if (data.state === 'qr_ready' && data.qrCodeDataUrl) {
           badge.className = 'badge';
@@ -1422,10 +1454,24 @@ export class AgentWebServer {
     }
 
     refreshStatus(true);
+    refreshCounterQueue();
     refreshWhatsApp();
-    setInterval(() => refreshStatus(false), 3000);
-    setInterval(() => refreshCounterQueue(), 2500);
-    setInterval(() => refreshWhatsApp(), 2500);
+
+    if (typeof document !== 'undefined' && typeof document.addEventListener === 'function') {
+      document.addEventListener('visibilitychange', () => {
+        if (!document.hidden) {
+          refreshStatus(false);
+          refreshCounterQueue();
+          refreshWhatsApp();
+        }
+      });
+    }
+
+    // Smart polling: only poll when the window is visible to the shopkeeper
+    // Reduced from 2.5s/3s to 10s/25s to cut database load by >80%
+    setInterval(() => { if (!document.hidden) refreshCounterQueue(); }, 10000);
+    setInterval(() => { if (!document.hidden) refreshStatus(false); }, 25000);
+    setInterval(() => { if (!document.hidden) refreshWhatsApp(); }, 6000);
   </script>
 </body>
 </html>`;

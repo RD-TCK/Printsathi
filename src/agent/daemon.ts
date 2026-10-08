@@ -333,11 +333,13 @@ export class AgentDaemon {
     try {
       if (!this.supabaseClient) {
         const { supabaseUrl, supabaseAnonKey } = await this.client.getRealtimeConfig();
-        if (!supabaseUrl || !supabaseAnonKey) {
+        const cleanUrl = (supabaseUrl || "").trim();
+        const cleanKey = (supabaseAnonKey || "").trim();
+        if (!cleanUrl || !cleanKey) {
           logger.warn("Supabase Realtime not configured on server.");
           return;
         }
-        this.supabaseClient = createClient(supabaseUrl, supabaseAnonKey);
+        this.supabaseClient = createClient(cleanUrl, cleanKey);
       }
 
       if (this.jobsChannel) {

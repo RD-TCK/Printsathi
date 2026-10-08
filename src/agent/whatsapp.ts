@@ -31,7 +31,7 @@ export interface WhatsAppEvent {
   filename: string;
   pageCount: number;
   configUrl: string;
-  status: "success" | "error";
+  status: "success" | "error" | "retrying";
   errorMessage?: string;
 }
 
@@ -56,9 +56,50 @@ interface PendingSenderBatch {
   senderName: string;
   remoteJid: string;
   attachments: PendingWhatsAppAttachment[];
-  timer: NodeJS.Timeout;
+  timer?: NodeJS.Timeout;
   lastMessage: WAMessage;
   firstQueuedAt: number;
+  retryCount?: number;
+  nextRetryAt?: number;
+}
+
+interface PendingReply {
+  remoteJid: string;
+  senderPhone: string;
+  replyText: string;
+  lastMessage?: WAMessage;
+}
+
+function isNetworkError(err: unknown): boolean {
+  if (!err) return false;
+  const msg = (err instanceof Error ? err.message : String(err)).toLowerCase();
+  const code = (err as { code?: string })?.code?.toLowerCase() || "";
+  const cause = (err as { cause?: { code?: string; message?: string } })?.cause;
+  const causeMsg = (cause?.message || "").toLowerCase();
+  const causeCode = (cause?.code || "").toLowerCase();
+
+  return (
+    msg.includes("fetch failed") ||
+    msg.includes("network") ||
+    msg.includes("enotfound") ||
+    msg.includes("econnreset") ||
+    msg.includes("econnrefused") ||
+    msg.includes("etimedout") ||
+    msg.includes("ehostunreach") ||
+    msg.includes("socket hang up") ||
+    msg.includes("und_err_connect_timeout") ||
+    msg.includes("timeout") ||
+    msg.includes("502") ||
+    msg.includes("503") ||
+    msg.includes("504") ||
+    code === "enotfound" ||
+    code === "econnreset" ||
+    code === "econnrefused" ||
+    code === "etimedout" ||
+    causeMsg.includes("enotfound") ||
+    causeMsg.includes("econnrefused") ||
+    causeCode === "enotfound"
+  );
 }
 
 export class WhatsAppAgentService {
@@ -75,6 +116,11 @@ export class WhatsAppAgentService {
   // Multi-document batching: group rapid consecutive photos/PDFs from the same sender into ONE order
   private pendingBatches: Map<string, PendingSenderBatch> = new Map();
   private activeFlushes: Set<string> = new Set();
+
+  // Resilient offline retry queue: automatically retries batches when internet or socket reconnects
+  private retryBatches: Map<string, PendingSenderBatch> = new Map();
+  private retryTimer: NodeJS.Timeout | null = null;
+  private pendingRepliesQueue: PendingReply[] = [];
 
   // Anti-ban safety: track timestamps of replies to prevent rapid multi-burst spam
   private lastReplyTimeBySender: Map<string, number> = new Map();
@@ -275,6 +321,9 @@ export class WhatsAppAgentService {
           const phone = userJid.split(":")[0]?.replace("@s.whatsapp.net", "") || userJid;
           this.connectedPhone = phone;
           logger.info(`WhatsApp agent connected successfully as ${this.connectedPhone}`);
+
+          // Automatically process any offline queued batches or deliver pending replies upon network restoration!
+          void this.processRetryQueue(true);
         }
 
         if (connection === "close") {
@@ -610,11 +659,14 @@ export class WhatsAppAgentService {
       // 2. Queue into sender batch with debounce window (4.0s) to bundle multiple images/PDFs into ONE order
       const DEBOUNCE_MS = 4000;
       const MAX_BATCH_WAIT_MS = 25000;
-      const existingBatch = this.pendingBatches.get(remoteJid);
+      const existingBatch = this.pendingBatches.get(remoteJid) || this.retryBatches.get(remoteJid);
       const now = Date.now();
 
       if (existingBatch) {
-        clearTimeout(existingBatch.timer);
+        if (existingBatch.timer) {
+          clearTimeout(existingBatch.timer);
+        }
+        this.retryBatches.delete(remoteJid);
         existingBatch.attachments.push({ msg, mediaBuffer, filename, mimetype });
         existingBatch.lastMessage = msg;
         existingBatch.senderName = senderName;
@@ -627,6 +679,7 @@ export class WhatsAppAgentService {
         existingBatch.timer = setTimeout(() => {
           void this.flushBatch(remoteJid);
         }, delay);
+        this.pendingBatches.set(remoteJid, existingBatch);
         logger.info(
           `Added "${filename}" to pending batch for +${senderPhone} (${existingBatch.attachments.length} files queued, waiting ${delay}ms).`,
         );
@@ -673,13 +726,23 @@ export class WhatsAppAgentService {
     this.pendingBatches.delete(remoteJid);
     this.activeFlushes.add(remoteJid);
 
+    await this.executeBatchUpload(batch);
+  }
+
+  /**
+   * Executes the upload and registration for a batch.
+   * If a transient network outage occurs (e.g. internet down for 1 min),
+   * this method queues the batch in `retryBatches` instead of marking it failed.
+   */
+  private async executeBatchUpload(batch: PendingSenderBatch): Promise<void> {
+    const { senderPhone, senderName, remoteJid, attachments, lastMessage } = batch;
     const config = loadConfig();
+
     if (!config.agentToken || !config.serverUrl) {
       this.activeFlushes.delete(remoteJid);
+      logger.warn(`Cannot process WhatsApp batch from +${senderPhone}: Agent is not registered with Printiva server.`);
       return;
     }
-
-    const { senderPhone, senderName, attachments, lastMessage } = batch;
 
     try {
       const serverUrl = config.serverUrl.replace(/\/+$/, "");
@@ -749,6 +812,10 @@ export class WhatsAppAgentService {
             logger.warn(`register-local returned HTTP ${registerRes.status}, falling back to cloud upload...`);
           }
         } catch (localErr) {
+          if (isNetworkError(localErr)) {
+            // Rethrow network errors so the batch retry mechanism captures this outage
+            throw localErr;
+          }
           logger.warn("Local-first processing attempt failed, trying cloud upload fallback:", { error: localErr });
         }
 
@@ -773,63 +840,66 @@ export class WhatsAppAgentService {
               }),
             });
 
-          if (presignRes.ok) {
-            const presignData = await presignRes.json();
-            const { orderId, guestToken, uploads } = presignData;
+            if (presignRes.ok) {
+              const presignData = await presignRes.json();
+              const { orderId, guestToken, uploads } = presignData;
 
-            if (Array.isArray(uploads) && uploads.length === chunk.length) {
-              // Upload each binary attachment directly to Supabase Storage signed URL in parallel
-              await Promise.all(
-                chunk.map(async (att, idx) => {
-                  const uploadInfo = uploads[idx];
-                  const uploadRes = await fetch(uploadInfo.signedUrl, {
-                    method: "PUT",
-                    headers: {
-                      "Content-Type": att.mimetype || "application/octet-stream",
-                    },
-                    body: new Uint8Array(att.mediaBuffer),
-                  });
+              if (Array.isArray(uploads) && uploads.length === chunk.length) {
+                // Upload each binary attachment directly to Supabase Storage signed URL in parallel
+                await Promise.all(
+                  chunk.map(async (att, idx) => {
+                    const uploadInfo = uploads[idx];
+                    const uploadRes = await fetch(uploadInfo.signedUrl, {
+                      method: "PUT",
+                      headers: {
+                        "Content-Type": att.mimetype || "application/octet-stream",
+                      },
+                      body: new Uint8Array(att.mediaBuffer),
+                    });
 
-                  if (!uploadRes.ok) {
-                    throw new Error(`Storage upload failed for ${att.filename} (HTTP ${uploadRes.status})`);
-                  }
-                }),
-              );
+                    if (!uploadRes.ok) {
+                      throw new Error(`Storage upload failed for ${att.filename} (HTTP ${uploadRes.status})`);
+                    }
+                  }),
+                );
 
-              // Finalize document processing & page counting on server
-              const completeUrl = `${serverUrl}/api/agent/whatsapp-upload/complete`;
-              const completeRes = await fetch(completeUrl, {
-                method: "POST",
-                headers: {
-                  "x-agent-token": config.agentToken,
-                  "Content-Type": "application/json",
-                },
-                body: JSON.stringify({
-                  orderId,
-                  guestToken,
-                  customerPhone: senderPhone,
-                  customerName: senderName,
-                  documents: uploads.map(
-                    (u: { documentId: string; filename: string; storagePath: string }, idx: number) => ({
-                      id: u.documentId,
-                      filename: u.filename,
-                      storagePath: u.storagePath,
-                      mimetype: chunk[idx]?.mimetype || "application/octet-stream",
-                    }),
-                  ),
-                }),
-              });
+                // Finalize document processing & page counting on server
+                const completeUrl = `${serverUrl}/api/agent/whatsapp-upload/complete`;
+                const completeRes = await fetch(completeUrl, {
+                  method: "POST",
+                  headers: {
+                    "x-agent-token": config.agentToken,
+                    "Content-Type": "application/json",
+                  },
+                  body: JSON.stringify({
+                    orderId,
+                    guestToken,
+                    customerPhone: senderPhone,
+                    customerName: senderName,
+                    documents: uploads.map(
+                      (u: { documentId: string; filename: string; storagePath: string }, idx: number) => ({
+                        id: u.documentId,
+                        filename: u.filename,
+                        storagePath: u.storagePath,
+                        mimetype: chunk[idx]?.mimetype || "application/octet-stream",
+                      }),
+                    ),
+                  }),
+                });
 
-              if (completeRes.ok) {
-                const compData = await completeRes.json();
-                chunkResult = {
-                  configUrl: compData.configUrl,
-                  documents: compData.documents || [],
-                };
+                if (completeRes.ok) {
+                  const compData = await completeRes.json();
+                  chunkResult = {
+                    configUrl: compData.configUrl,
+                    documents: compData.documents || [],
+                  };
+                }
               }
             }
-          }
           } catch (presignErr) {
+            if (isNetworkError(presignErr)) {
+              throw presignErr;
+            }
             logger.warn("Presigned direct storage upload attempt failed, trying multipart fallback:", {
               error: presignErr,
             });
@@ -875,18 +945,33 @@ export class WhatsAppAgentService {
         chunkResults.push(chunkResult);
 
         for (const d of chunkResult.documents) {
-          this.recentEvents.unshift({
-            id: crypto.randomUUID(),
-            timestamp: new Date().toLocaleTimeString(),
-            senderPhone: `+${senderPhone}`,
-            senderName,
-            filename: d.filename,
-            pageCount: d.pageCount,
-            configUrl: chunkResult.configUrl,
-            status: "success",
-          });
+          // If this file had a 'retrying' event in recentEvents, update it in place to 'success'
+          const existingEvent = this.recentEvents.find(
+            (ev) => ev.senderPhone === `+${senderPhone}` && ev.filename === d.filename && ev.status === "retrying",
+          );
+          if (existingEvent) {
+            existingEvent.status = "success";
+            existingEvent.configUrl = chunkResult.configUrl;
+            existingEvent.pageCount = d.pageCount;
+            existingEvent.timestamp = new Date().toLocaleTimeString();
+            existingEvent.errorMessage = undefined;
+          } else {
+            this.recentEvents.unshift({
+              id: crypto.randomUUID(),
+              timestamp: new Date().toLocaleTimeString(),
+              senderPhone: `+${senderPhone}`,
+              senderName,
+              filename: d.filename,
+              pageCount: d.pageCount,
+              configUrl: chunkResult.configUrl,
+              status: "success",
+            });
+          }
         }
       }
+
+      // Successful batch processing - remove from retryBatches if it was there
+      this.retryBatches.delete(remoteJid);
 
       // Build customer WhatsApp reply text
       let replyText = "";
@@ -946,78 +1031,96 @@ export class WhatsAppAgentService {
       // Add mutual contact trust booster
       replyText += `\n\n💡 _Tip: Save this number as "Print Shop" to send files anytime!_`;
 
-      // Anti-ban protections:
-      // 1. Send blue tick read-receipt so Meta telemetry sees the message was opened
-      // 2. Simulate natural human reading and typing presence with randomized jitter delay (1.5s - 3.5s)
-      if (this.socket) {
-        try {
-          if (lastMessage?.key) {
-            await this.socket.readMessages([lastMessage.key]);
-          }
-          await this.socket.sendPresenceUpdate("composing", remoteJid);
-          const humanDelay = Math.floor(Math.random() * 2000) + 1500;
-          await new Promise((resolve) => setTimeout(resolve, humanDelay));
-          await this.socket.sendPresenceUpdate("paused", remoteJid);
-        } catch {
-          // ignore
-        }
-      }
-
-      if (this.socket) {
-        try {
-          await this.socket.sendMessage(remoteJid, { text: replyText }, { quoted: lastMessage });
-          logger.info(`Sent Printiva unified batch config link to +${senderPhone} (quoted)`);
-        } catch (sendErr) {
-          logger.warn(`Quoted reply failed, trying direct reply to ${remoteJid}:`, { error: sendErr });
-          await this.socket.sendMessage(remoteJid, { text: replyText });
-          logger.info(`Sent Printiva unified batch config link to +${senderPhone} (direct)`);
-        }
-      }
+      // Dispatch reply or queue it if socket is momentarily disconnected
+      await this.sendOrQueueReply(remoteJid, senderPhone, replyText, lastMessage);
     } catch (err) {
       const errorMsg = err instanceof Error ? err.message : "Upload processing failed";
-      logger.error(`Failed to process WhatsApp batch from +${senderPhone}:`, { error: errorMsg });
+      const isTransientNetwork = isNetworkError(err);
+
+      if (isTransientNetwork) {
+        batch.retryCount = (batch.retryCount || 0) + 1;
+        const maxRetries = 15;
+
+        if (batch.retryCount <= maxRetries) {
+          const backoffDelay = Math.min(3000 * Math.pow(1.4, batch.retryCount), 30000);
+          batch.nextRetryAt = Date.now() + backoffDelay;
+          this.retryBatches.set(remoteJid, batch);
+
+          // Update recentEvents to show "Retrying (Offline)"
+          for (const att of attachments) {
+            const existingEvent = this.recentEvents.find(
+              (ev) => ev.senderPhone === `+${senderPhone}` && ev.filename === att.filename,
+            );
+            if (existingEvent) {
+              existingEvent.status = "retrying";
+              existingEvent.errorMessage = "Internet connection dropped. Auto-retrying when back online...";
+            } else {
+              this.recentEvents.unshift({
+                id: crypto.randomUUID(),
+                timestamp: new Date().toLocaleTimeString(),
+                senderPhone: `+${senderPhone}`,
+                senderName,
+                filename: att.filename,
+                pageCount: 0,
+                configUrl: "",
+                status: "retrying",
+                errorMessage: "Internet connection dropped. Auto-retrying when back online...",
+              });
+            }
+          }
+
+          logger.warn(
+            `Temporary network drop while registering files for +${senderPhone}. Batch saved locally on SSD. Will retry in ${Math.round(backoffDelay / 1000)}s (attempt ${batch.retryCount}/${maxRetries}).`,
+          );
+
+          this.scheduleRetryQueue();
+          return;
+        }
+
+        logger.error(`Max network retries (${maxRetries}) reached for +${senderPhone}. Marking batch as failed.`);
+      } else {
+        logger.error(`Failed to process WhatsApp batch from +${senderPhone} (permanent error):`, { error: errorMsg });
+      }
+
+      // Permanent failure or max retries exceeded
+      this.retryBatches.delete(remoteJid);
 
       for (const att of attachments) {
-        this.recentEvents.unshift({
-          id: crypto.randomUUID(),
-          timestamp: new Date().toLocaleTimeString(),
-          senderPhone: `+${senderPhone}`,
-          senderName,
-          filename: att.filename,
-          pageCount: 0,
-          configUrl: "",
-          status: "error",
-          errorMessage: errorMsg,
-        });
-      }
-
-      if (this.socket) {
-        try {
-          let fallbackText = `⚠️ *Printiva Notice:* We received your file(s), but could not process them. Please send a PDF, photo (JPG/PNG/HEIC), or Word document (.docx).`;
-
-          if (errorMsg.includes("password") || errorMsg.includes("encrypted") || errorMsg.includes("damaged")) {
-            fallbackText = `🔒 *Printiva Notice:* Your document is password-protected or encrypted. Please unlock/remove the password and send it again.`;
-          } else if (errorMsg.includes("unsupported file type")) {
-            fallbackText = `⚠️ *Printiva Notice:* This file type is not supported for printing. Please send a PDF, photo (JPG/PNG/HEIC), or Word document (.docx).`;
-          } else if (errorMsg.includes("413") || errorMsg.includes("Payload Too Large")) {
-            fallbackText = `⚠️ *Printiva Notice:* The file is too large for cloud transfer. Please send a file under 50 MB or a PDF/image.`;
-          } else if (errorMsg.includes("Word") || errorMsg.includes("DOCX") || errorMsg.includes("export your Word")) {
-            fallbackText = `⚠️ *Printiva Notice:* Could not convert this document. Please export your Word document as a PDF and send it again.`;
-          }
-
-          if (lastMessage?.key) {
-            await this.socket.readMessages([lastMessage.key]);
-          }
-          await this.socket.sendPresenceUpdate("composing", remoteJid);
-          const errDelay = Math.floor(Math.random() * 1500) + 1200;
-          await new Promise((resolve) => setTimeout(resolve, errDelay));
-          await this.socket.sendPresenceUpdate("paused", remoteJid);
-
-          await this.socket.sendMessage(remoteJid, { text: fallbackText }, { quoted: lastMessage });
-        } catch {
-          // ignore
+        const existingEvent = this.recentEvents.find(
+          (ev) => ev.senderPhone === `+${senderPhone}` && ev.filename === att.filename,
+        );
+        if (existingEvent) {
+          existingEvent.status = "error";
+          existingEvent.errorMessage = errorMsg;
+        } else {
+          this.recentEvents.unshift({
+            id: crypto.randomUUID(),
+            timestamp: new Date().toLocaleTimeString(),
+            senderPhone: `+${senderPhone}`,
+            senderName,
+            filename: att.filename,
+            pageCount: 0,
+            configUrl: "",
+            status: "error",
+            errorMessage: errorMsg,
+          });
         }
       }
+
+      let fallbackText = `⚠️ *Printiva Notice:* We received your file(s), but could not process them. Please send a PDF, photo (JPG/PNG/HEIC), or Word document (.docx).`;
+      if (errorMsg.includes("password") || errorMsg.includes("encrypted") || errorMsg.includes("damaged")) {
+        fallbackText = `🔒 *Printiva Notice:* Your document is password-protected or encrypted. Please unlock/remove the password and send it again.`;
+      } else if (errorMsg.includes("unsupported file type")) {
+        fallbackText = `⚠️ *Printiva Notice:* This file type is not supported for printing. Please send a PDF, photo (JPG/PNG/HEIC), or Word document (.docx).`;
+      } else if (errorMsg.includes("413") || errorMsg.includes("Payload Too Large")) {
+        fallbackText = `⚠️ *Printiva Notice:* The file is too large for cloud transfer. Please send a file under 50 MB or a PDF/image.`;
+      } else if (errorMsg.includes("Word") || errorMsg.includes("DOCX") || errorMsg.includes("export your Word")) {
+        fallbackText = `⚠️ *Printiva Notice:* Could not convert this document. Please export your Word document as a PDF and send it again.`;
+      } else if (isTransientNetwork) {
+        fallbackText = `⚠️ *Printiva Notice:* Internet connection was temporarily interrupted while processing your document. Please re-send or inform the counter.`;
+      }
+
+      await this.sendOrQueueReply(remoteJid, senderPhone, fallbackText, lastMessage);
     } finally {
       this.activeFlushes.delete(remoteJid);
       // If new attachments arrived while uploading, schedule flush
@@ -1029,6 +1132,128 @@ export class WhatsAppAgentService {
         }
       }
     }
+  }
+
+  /**
+   * Sends a WhatsApp reply immediately if socket is connected,
+   * or enqueues it to be sent the moment the socket re-establishes connection.
+   */
+  private async sendOrQueueReply(
+    remoteJid: string,
+    senderPhone: string,
+    replyText: string,
+    lastMessage?: WAMessage,
+  ): Promise<void> {
+    if (!this.socket || this.state !== "connected") {
+      logger.info(`WhatsApp socket offline; queued reply for +${senderPhone} for delivery upon reconnect.`);
+      this.pendingRepliesQueue.push({ remoteJid, senderPhone, replyText, lastMessage });
+      return;
+    }
+
+    try {
+      // Anti-ban protections:
+      // 1. Send blue tick read-receipt so Meta telemetry sees the message was opened
+      // 2. Simulate natural human reading and typing presence with randomized jitter delay (1.2s - 2.8s)
+      if (lastMessage?.key) {
+        try {
+          await this.socket.readMessages([lastMessage.key]);
+        } catch {
+          // ignore
+        }
+      }
+      try {
+        await this.socket.sendPresenceUpdate("composing", remoteJid);
+        const humanDelay = Math.floor(Math.random() * 1600) + 1200;
+        await new Promise((resolve) => setTimeout(resolve, humanDelay));
+        await this.socket.sendPresenceUpdate("paused", remoteJid);
+      } catch {
+        // ignore
+      }
+
+      try {
+        await this.socket.sendMessage(remoteJid, { text: replyText }, { quoted: lastMessage });
+        logger.info(`Sent Printiva reply to +${senderPhone} (quoted)`);
+      } catch (sendErr) {
+        logger.warn(`Quoted reply failed, trying direct reply to ${remoteJid}:`, { error: sendErr });
+        await this.socket.sendMessage(remoteJid, { text: replyText });
+        logger.info(`Sent Printiva reply to +${senderPhone} (direct)`);
+      }
+    } catch (socketErr) {
+      logger.warn(`Failed to dispatch WhatsApp message to +${senderPhone} (socket drop); queued for reconnect retry:`, {
+        error: socketErr,
+      });
+      this.pendingRepliesQueue.push({ remoteJid, senderPhone, replyText, lastMessage });
+    }
+  }
+
+  /**
+   * Schedules the next run of processRetryQueue based on earliest nextRetryAt.
+   */
+  private scheduleRetryQueue(): void {
+    if (this.retryTimer) {
+      clearTimeout(this.retryTimer);
+      this.retryTimer = null;
+    }
+
+    if (this.retryBatches.size === 0) return;
+
+    let earliest = Infinity;
+    for (const batch of this.retryBatches.values()) {
+      if (batch.nextRetryAt && batch.nextRetryAt < earliest) {
+        earliest = batch.nextRetryAt;
+      }
+    }
+
+    const waitMs = Math.max(1000, earliest - Date.now());
+    this.retryTimer = setTimeout(() => {
+      this.retryTimer = null;
+      void this.processRetryQueue();
+    }, waitMs);
+  }
+
+  /**
+   * Drains the pending reply queue and retries any offline batches.
+   * Called on timer or immediately when WhatsApp / network connects ('connection === open').
+   */
+  public async processRetryQueue(forceNow = false): Promise<void> {
+    // 1. Drain pending replies if socket is ready
+    if (this.socket && this.state === "connected" && this.pendingRepliesQueue.length > 0) {
+      logger.info(`Delivering ${this.pendingRepliesQueue.length} queued offline WhatsApp reply message(s)...`);
+      const queuedReplies = [...this.pendingRepliesQueue];
+      this.pendingRepliesQueue = [];
+
+      for (const item of queuedReplies) {
+        try {
+          await this.sendOrQueueReply(item.remoteJid, item.senderPhone, item.replyText, item.lastMessage);
+        } catch {
+          // sendOrQueueReply handles re-queueing if socket dropped again
+        }
+      }
+    }
+
+    // 2. Process retryBatches
+    if (this.retryBatches.size === 0) return;
+
+    const now = Date.now();
+    const batchesToRun: PendingSenderBatch[] = [];
+
+    for (const [remoteJid, batch] of Array.from(this.retryBatches.entries())) {
+      if (this.activeFlushes.has(remoteJid)) continue;
+      if (forceNow || !batch.nextRetryAt || now >= batch.nextRetryAt) {
+        batchesToRun.push(batch);
+      }
+    }
+
+    for (const batch of batchesToRun) {
+      if (this.activeFlushes.has(batch.remoteJid)) continue;
+      this.activeFlushes.add(batch.remoteJid);
+      logger.info(
+        `Retrying offline batch for +${batch.senderPhone} (${batch.attachments.length} files, attempt #${batch.retryCount || 1})...`,
+      );
+      void this.executeBatchUpload(batch);
+    }
+
+    this.scheduleRetryQueue();
   }
 }
 

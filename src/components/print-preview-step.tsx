@@ -113,6 +113,18 @@ function LazyPreviewImage({
     return () => observer.disconnect();
   }, [src]);
 
+  const [retryCount, setRetryCount] = useState(0);
+
+  const handleImageError = () => {
+    if (retryCount < 2) {
+      setTimeout(() => {
+        setRetryCount((prev) => prev + 1);
+      }, 500);
+    } else {
+      setHasError(true);
+    }
+  };
+
   if (!src || hasError) {
     return <>{fallback || <FileText className="size-8 text-slate-300" />}</>;
   }
@@ -128,12 +140,13 @@ function LazyPreviewImage({
       {isVisible && (
         // eslint-disable-next-line @next/next/no-img-element
         <img
+          key={retryCount}
           src={src}
           alt={alt}
           loading="lazy"
           decoding="async"
           onLoad={() => setIsLoaded(true)}
-          onError={() => setHasError(true)}
+          onError={handleImageError}
           className={cn(
             className,
             "transition-opacity duration-200",
