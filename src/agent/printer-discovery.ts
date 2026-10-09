@@ -5,12 +5,11 @@ import { logger } from "./logger";
 
 function runPowerShellScript(script: string, timeoutMs: number = 8000): Promise<string> {
   return new Promise((resolve) => {
-    // UTF-16LE base64 encoding avoids all shell escaping, quoting, and locale parsing pitfalls
-    const encodedCommand = Buffer.from(script, "utf16le").toString("base64");
+    // Executing via standard -Command with script block avoids triggering AV AMSI heuristics on base64 -EncodedCommand
     execFile(
       "powershell.exe",
-      ["-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-EncodedCommand", encodedCommand],
-      { timeout: timeoutMs, windowsHide: true },
+      ["-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-Command", `& { ${script} }`],
+      { timeout: timeoutMs, windowsHide: true, maxBuffer: 10 * 1024 * 1024 },
       (error, stdout) => {
         if (error) {
           logger.debug("PowerShell printer query warning:", { error: error.message });

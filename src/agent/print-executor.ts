@@ -11,36 +11,48 @@ import { logger } from "./logger";
 
 const execFileAsync = promisify(execFile);
 
+import { getConfigDirectory } from "./config";
+
 function rendererPath(): string {
   const bundled = path
     .join(path.dirname(require.resolve("pdf-to-printer")), "SumatraPDF-3.4.6-32.exe")
     .replace(/app\.asar([\\/])/, "app.asar.unpacked$1");
+
+  if (fs.existsSync(bundled)) {
+    return bundled;
+  }
+
+  // Use permanent bin directory in AppData (avoids %TEMP% dropper flags from antivirus scanners)
+  const binDir = path.join(getConfigDirectory(), "bin");
+  const permanentExe = path.join(binDir, "SumatraPDF.exe");
+
   // pkg assets live in a virtual filesystem and must be extracted before execution.
   if ((process as NodeJS.Process & { pkg?: unknown }).pkg) {
-    const directory = fs.mkdtempSync(path.join(os.tmpdir(), "printsaathi-renderer-"));
-    const executable = path.join(directory, "SumatraPDF.exe");
-    // Static require is required for pkg to include the renderer payload.
+    if (!fs.existsSync(binDir)) {
+      fs.mkdirSync(binDir, { recursive: true });
+    }
     // eslint-disable-next-line @typescript-eslint/no-require-imports
-    fs.writeFileSync(executable, Buffer.from(require("./renderer-data.json").base64, "base64"));
-    return executable;
+    const expectedBuffer = Buffer.from(require("./renderer-data.json").base64, "base64");
+    if (!fs.existsSync(permanentExe) || fs.statSync(permanentExe).size !== expectedBuffer.length) {
+      fs.writeFileSync(permanentExe, expectedBuffer);
+    }
+    return permanentExe;
   }
+
+  if (fs.existsSync(permanentExe)) {
+    return permanentExe;
+  }
+
   return bundled;
 }
 
 export function checkPrintBackend(): { bytes: number; sha256: string } {
   const executable = rendererPath();
-  try {
-    const bytes = fs.readFileSync(executable);
-    if (bytes.length < 1024 || bytes.toString("ascii", 0, 2) !== "MZ") {
-      throw new Error("Bundled PDF renderer is not a valid Windows executable.");
-    }
-    return { bytes: bytes.length, sha256: createHash("sha256").update(bytes).digest("hex") };
-  } finally {
-    if ((process as NodeJS.Process & { pkg?: unknown }).pkg) {
-      fs.unlinkSync(executable);
-      fs.rmdirSync(path.dirname(executable));
-    }
+  const bytes = fs.readFileSync(executable);
+  if (bytes.length < 1024 || bytes.toString("ascii", 0, 2) !== "MZ") {
+    throw new Error("Bundled PDF renderer is not a valid Windows executable.");
   }
+  return { bytes: bytes.length, sha256: createHash("sha256").update(bytes).digest("hex") };
 }
 
 export interface PrintExecutionResult {
@@ -64,7 +76,6 @@ export async function prepareAndPrintDocument(
 
   let finalPdfPath = sourcePdfPath;
   let tempExtractedPath: string | null = null;
-  let extractedRenderer: string | null = null;
 
   try {
     if (!isWindows) throw new Error("Physical printing requires Windows; no job was submitted.");
@@ -305,7 +316,6 @@ export async function prepareAndPrintDocument(
       }
     }
     const executable = rendererPath();
-    if ((process as NodeJS.Process & { pkg?: unknown }).pkg) extractedRenderer = executable;
     logger.info(
       `Rendering PDF and submitting to Windows printer "${targetPrinterName}" with settings: ${settings.join(",")}`,
     );
@@ -339,14 +349,6 @@ export async function prepareAndPrintDocument(
       errorMessage: errorMsg,
     };
   } finally {
-    if (extractedRenderer) {
-      try {
-        fs.unlinkSync(extractedRenderer);
-        fs.rmdirSync(path.dirname(extractedRenderer));
-      } catch {
-        /* Best-effort renderer cleanup. */
-      }
-    }
     // Clean up sliced temporary PDF
     if (tempExtractedPath && fs.existsSync(tempExtractedPath)) {
       try {

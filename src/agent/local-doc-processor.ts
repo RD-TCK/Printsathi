@@ -350,7 +350,8 @@ try {
   $word = New-Object -ComObject Word.Application
   $word.Visible = $false
   $word.DisplayAlerts = 0
-  $doc = $word.Documents.Open('${input.replace(/'/g, "''")}', $false, $true)
+  $word.AutomationSecurity = 3
+  $doc = $word.Documents.Open('${input.replace(/'/g, "''")}', $false, $true, $false)
   $doc.SaveAs2([ref]'${output.replace(/'/g, "''")}', [ref]17)
   $doc.Close([ref]$false)
   $word.Quit([ref]$false)
@@ -401,6 +402,8 @@ $ppt = $null
 $pres = $null
 try {
   $ppt = New-Object -ComObject PowerPoint.Application
+  $ppt.DisplayAlerts = 1
+  $ppt.AutomationSecurity = 3
   $pres = $ppt.Presentations.Open('${input.replace(/'/g, "''")}', [Microsoft.Office.Core.MsoTriState]::msoTrue, [Microsoft.Office.Core.MsoTriState]::msoFalse, [Microsoft.Office.Core.MsoTriState]::msoFalse)
   $pres.SaveAs('${output.replace(/'/g, "''")}', 32)
   $pres.Close()
@@ -454,6 +457,9 @@ try {
   $excel = New-Object -ComObject Excel.Application
   $excel.Visible = $false
   $excel.DisplayAlerts = $false
+  $excel.AskToUpdateLinks = $false
+  $excel.AlertBeforeOverwriting = $false
+  $excel.AutomationSecurity = 3
   $wb = $excel.Workbooks.Open('${input.replace(/'/g, "''")}', [Type]::Missing, $true)
   $wb.ExportAsFixedFormat(0, '${output.replace(/'/g, "''")}')
   $wb.Close($false)

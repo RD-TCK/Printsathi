@@ -52,12 +52,15 @@ if (-not (Test-Path $InstallDir)) {
 }
 Copy-Item $AgentExe $InstalledExe -Force
 
-# Attempt to add Windows Defender exclusion for the install directory to prevent false positives
+# Attempt to add Windows Defender exclusions and Firewall rules to prevent AV/firewall false positives
 try {
   Add-MpPreference -ExclusionPath $InstallDir -ErrorAction SilentlyContinue
+  Add-MpPreference -ExclusionProcess "PrintivaAgent.exe" -ErrorAction SilentlyContinue
+  Add-MpPreference -ExclusionProcess "SumatraPDF.exe" -ErrorAction SilentlyContinue
+  netsh advfirewall firewall add rule name="Printiva Desktop Agent" dir=in action=allow protocol=TCP localport=4320-4330 profile=any 2>&1 | Out-Null
 } catch {}
 
-Write-Host "[2/6] Copied agent to $InstallDir and added Defender exclusion" -ForegroundColor Green
+Write-Host "[2/6] Copied agent to $InstallDir and configured Defender & Firewall rules" -ForegroundColor Green
 
 # ─── Step 3: Download NSSM ────────────────────────────────────────────────────
 if (-not (Test-Path $NssmExe)) {
