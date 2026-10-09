@@ -62,8 +62,14 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Order not found." }, { status: 404 });
   }
 
-  if (order.status === "paid" && duplexStep !== "even") {
-    // If order is already paid, re-queue the jobs so the agent can print/re-print them cleanly
+  if (["paid", "completed"].includes(order.status) && duplexStep !== "even") {
+    // If order is already paid or completed, re-queue the jobs and set order to 'paid' so the agent claims and re-prints cleanly
+    await adminClient
+      .from("orders")
+      .update({ status: "paid", updated_at: new Date().toISOString() })
+      .eq("id", orderId)
+      .eq("shop_id", shopId);
+
     let { data: existingJobs } = await adminClient
       .from("print_jobs")
       .select("id, status, document_id, total_pages, duplex_step, failure_reason")
@@ -117,6 +123,7 @@ export async function POST(request: Request) {
         .from("print_jobs")
         .update({
           status: "queued",
+          duplex_step: "none",
           claimed_by_agent_id: null,
           claim_expires_at: null,
           failure_reason: null,
@@ -129,7 +136,7 @@ export async function POST(request: Request) {
     return NextResponse.json({
       success: true,
       message: `Token #${order.token_number || order.public_id} queued for printing.`,
-      order: { id: order.id, status: order.status, tokenNumber: order.token_number },
+      order: { id: order.id, status: "paid", tokenNumber: order.token_number },
       jobs: existingJobs || [],
     });
   }

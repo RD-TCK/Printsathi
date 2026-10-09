@@ -420,7 +420,9 @@ export class AgentDaemon {
   private async pollAndProcessNextJob(): Promise<void> {
     this.isProcessingJob = true;
     try {
-      await this.refreshPrinters();
+      if (this.discoveredPrinters.length === 0) {
+        await this.refreshPrinters();
+      }
       const defaultPrinter = findDefaultPrinter(this.discoveredPrinters, this.config.selectedPrinter, true);
       if (!defaultPrinter) {
         logger.warn(
@@ -434,10 +436,6 @@ export class AgentDaemon {
       }
 
       const jobKey = `${job.id}:${job.duplexStep || "standard"}`;
-      if (this.processedJobIds.has(jobKey)) {
-        logger.debug(`Job ${jobKey} already processed by this agent session, skipping duplicate print.`);
-        return;
-      }
       this.processedJobIds.add(jobKey);
       if (this.processedJobIds.size > 500) {
         const firstKey = this.processedJobIds.values().next().value;
