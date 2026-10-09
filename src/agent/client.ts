@@ -152,25 +152,49 @@ export class AgentApiClient {
       documentId,
     )}&jobId=${encodeURIComponent(jobId)}`;
 
-    const response = await fetch(url, {
-      method: "GET",
-      headers: this.getHeaders(),
-    });
+    let lastError: Error | null = null;
+    const maxRetries = 3;
 
-    if (!response.ok) {
-      let errorMsg = `Download failed with HTTP status ${response.status}`;
+    for (let attempt = 1; attempt <= maxRetries; attempt++) {
       try {
-        const json = await response.json();
-        errorMsg = json.error || errorMsg;
-      } catch {
-        // Not JSON
+        const controller = new AbortController();
+        const timeout = setTimeout(() => controller.abort(), 60000); // 60s timeout
+
+        const response = await fetch(url, {
+          method: "GET",
+          headers: this.getHeaders(),
+          signal: controller.signal,
+        });
+
+        clearTimeout(timeout);
+
+        if (!response.ok) {
+          let errorMsg = `Download failed with HTTP status ${response.status}`;
+          try {
+            const json = await response.json();
+            errorMsg = json.error || errorMsg;
+          } catch {
+            // Not JSON
+          }
+          throw new Error(errorMsg);
+        }
+
+        const arrayBuffer = await response.arrayBuffer();
+        const buffer = Buffer.from(arrayBuffer);
+        fs.writeFileSync(destinationFilePath, buffer);
+        return; // Download succeeded
+      } catch (err: any) {
+        lastError = err instanceof Error ? err : new Error(String(err));
+        logger.warn(
+          `Document download attempt ${attempt}/${maxRetries} for Job #${jobId.slice(0, 8)} failed: ${lastError.message}`,
+        );
+        if (attempt < maxRetries) {
+          await new Promise((resolve) => setTimeout(resolve, 1500 * attempt));
+        }
       }
-      throw new Error(errorMsg);
     }
 
-    const arrayBuffer = await response.arrayBuffer();
-    const buffer = Buffer.from(arrayBuffer);
-    fs.writeFileSync(destinationFilePath, buffer);
+    throw lastError || new Error("Failed to download document after retries");
   }
 
   async reportSubmit(
@@ -289,67 +313,42 @@ export class AgentApiClient {
       return { queue: [], pendingCount: 0 };
     }
 
-    const candidateUrls = [this.serverUrl];
-    if (!this.serverUrl.includes("localhost") && !this.serverUrl.includes("127.0.0.1")) {
-      candidateUrls.push("http://localhost:3000", "http://127.0.0.1:3000");
-    }
-
-    let lastError: Error | null = null;
-    for (const baseUrl of candidateUrls) {
-      try {
-        const url = `${baseUrl}/api/shop/counter-queue`;
-        const response = await fetch(url, {
-          method: "GET",
-          headers: this.getHeaders(),
-        });
-        if (response.ok) {
-          if (baseUrl !== this.serverUrl) {
-            this.serverUrl = baseUrl;
-          }
-          return await response.json();
-        }
-        lastError = new Error(`Server at ${baseUrl} returned HTTP ${response.status}`);
-      } catch (err) {
-        lastError = err instanceof Error ? err : new Error(String(err));
+    try {
+      const url = `${this.serverUrl}/api/shop/counter-queue`;
+      const response = await fetch(url, {
+        method: "GET",
+        headers: this.getHeaders(),
+      });
+      if (response.ok) {
+        return await response.json();
       }
+      throw new Error(`Failed to fetch counter queue: HTTP ${response.status}`);
+    } catch (err) {
+      throw err instanceof Error ? err : new Error(String(err));
     }
-
-    throw lastError || new Error("Failed to fetch counter queue");
   }
 
-  async approveCounterOrder(orderId: string): Promise<{ success: boolean; message: string }> {
+  async approveCounterOrder(
+    orderId: string,
+    duplexStep?: "odd" | "even" | "all",
+  ): Promise<{ success: boolean; message: string; order?: any; jobs?: any[] }> {
     if (!this.token) {
       throw new Error("Agent is not authenticated.");
     }
 
-    const candidateUrls = [this.serverUrl];
-    if (!this.serverUrl.includes("localhost") && !this.serverUrl.includes("127.0.0.1")) {
-      candidateUrls.push("http://localhost:3000", "http://127.0.0.1:3000");
+    const url = `${this.serverUrl}/api/shop/counter-order/approve`;
+    const response = await fetch(url, {
+      method: "POST",
+      headers: this.getHeaders(),
+      body: JSON.stringify({ orderId, duplexStep: duplexStep || "all" }),
+    });
+
+    const data = await response.json().catch(() => ({}));
+    if (response.ok && data.success) {
+      return data;
     }
 
-    let lastError: Error | null = null;
-    for (const baseUrl of candidateUrls) {
-      try {
-        const url = `${baseUrl}/api/shop/counter-order/approve`;
-        const response = await fetch(url, {
-          method: "POST",
-          headers: this.getHeaders(),
-          body: JSON.stringify({ orderId }),
-        });
-        const data = await response.json();
-        if (response.ok && data.success) {
-          if (baseUrl !== this.serverUrl) {
-            this.serverUrl = baseUrl;
-          }
-          return data;
-        }
-        lastError = new Error(data.error || `Approval failed with HTTP ${response.status} at ${baseUrl}`);
-      } catch (err) {
-        lastError = err instanceof Error ? err : new Error(String(err));
-      }
-    }
-
-    throw lastError || new Error("Counter approval failed");
+    throw new Error(data.error || `Approval failed with HTTP ${response.status}`);
   }
 
   async cancelCounterOrder(orderId: string): Promise<{ success: boolean; message: string }> {
@@ -357,33 +356,18 @@ export class AgentApiClient {
       throw new Error("Agent is not authenticated.");
     }
 
-    const candidateUrls = [this.serverUrl];
-    if (!this.serverUrl.includes("localhost") && !this.serverUrl.includes("127.0.0.1")) {
-      candidateUrls.push("http://localhost:3000", "http://127.0.0.1:3000");
+    const url = `${this.serverUrl}/api/shop/counter-order/cancel`;
+    const response = await fetch(url, {
+      method: "POST",
+      headers: this.getHeaders(),
+      body: JSON.stringify({ orderId }),
+    });
+
+    const data = await response.json().catch(() => ({}));
+    if (response.ok && data.success) {
+      return data;
     }
 
-    let lastError: Error | null = null;
-    for (const baseUrl of candidateUrls) {
-      try {
-        const url = `${baseUrl}/api/shop/counter-order/cancel`;
-        const response = await fetch(url, {
-          method: "POST",
-          headers: this.getHeaders(),
-          body: JSON.stringify({ orderId }),
-        });
-        const data = await response.json();
-        if (response.ok && data.success) {
-          if (baseUrl !== this.serverUrl) {
-            this.serverUrl = baseUrl;
-          }
-          return data;
-        }
-        lastError = new Error(data.error || `Cancellation failed with HTTP ${response.status} at ${baseUrl}`);
-      } catch (err) {
-        lastError = err instanceof Error ? err : new Error(String(err));
-      }
-    }
-
-    throw lastError || new Error("Counter cancellation failed");
+    throw new Error(data.error || `Cancellation failed with HTTP ${response.status}`);
   }
 }

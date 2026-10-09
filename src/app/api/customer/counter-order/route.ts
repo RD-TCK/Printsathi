@@ -176,9 +176,17 @@ export async function POST(request: Request) {
   // 5. Replace draft print jobs
   await client.from("print_jobs").delete().eq("order_id", orderId);
 
+  let insertedJobCount = 0;
+  const allocatedDocIds = new Set<string>();
+
   for (const configuration of parsed.data.configurations) {
-    const document = documentMap.get(configuration.documentId);
+    let document = documentMap.get(configuration.documentId);
+    // If exact ID not found (e.g. crop replaced the document ID right before token submit), match by unallocated order document
+    if (!document && documents && documents.length > 0) {
+      document = documents.find((d) => !allocatedDocIds.has(d.id)) || documents[0];
+    }
     if (!document || document.order_id !== orderId) continue;
+    allocatedDocIds.add(document.id);
 
     const jobId = crypto.randomUUID();
     const jobPrintedPages = configuration.ranges.reduce(
@@ -218,6 +226,37 @@ export async function POST(request: Request) {
         copies: range.copies ?? 1,
       })),
     );
+    insertedJobCount++;
+  }
+
+  // Fallback safety: If 0 jobs were inserted but documents exist, create default jobs
+  if (insertedJobCount === 0 && documents && documents.length > 0) {
+    for (const doc of documents) {
+      const jobId = crypto.randomUUID();
+      const pageCount = doc.page_count || 1;
+      await client.from("print_jobs").insert({
+        id: jobId,
+        order_id: orderId,
+        shop_id: shop.id,
+        customer_id: order.customer_id,
+        document_id: doc.id,
+        status: "awaiting_payment",
+        total_pages: pageCount,
+        total_amount: pricing.total,
+        idempotency_key: crypto.randomUUID(),
+      });
+      await client.from("print_job_pages").insert([
+        {
+          print_job_id: jobId,
+          start_page: 1,
+          end_page: pageCount,
+          color_mode: (pricing.colorPages || 0) > 0 ? "color" : "black_and_white",
+          paper_size: "a4",
+          side_mode: "single_sided",
+          copies: 1,
+        },
+      ]);
+    }
   }
 
   // 6. Update order with 1-hour expiry and token number

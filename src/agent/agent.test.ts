@@ -224,6 +224,137 @@ describe("Phase 8: Windows Desktop Agent Subsystem", () => {
 
       expect(step2Printer?.name).toBe("Canon LBP2900 (Duplex Pass 1 Printer)");
     });
+
+    it("Option B: holds double-sided job when hardware duplex printer is busy instead of diverting to simplex", () => {
+      const simplexPrinter: DiscoveredPrinter = {
+        name: "HP LaserJet M1005 (Simplex)",
+        systemIdentifier: "hp_m1005",
+        status: "online",
+        isDefault: true,
+        capabilities: { colorSupport: false, duplexSupport: false, paperSizes: ["A4"] },
+      };
+
+      const duplexPrinter: DiscoveredPrinter = {
+        name: "Brother HL-L2321D (Hardware Duplex)",
+        systemIdentifier: "brother_duplex",
+        status: "online",
+        isDefault: false,
+        capabilities: { colorSupport: false, duplexSupport: true, paperSizes: ["A4"] },
+      };
+
+      // 1. When duplex printer is busy, double-sided job MUST NOT divert to simplex; it holds (returns null)
+      const heldDuplexJob = findBestPrinterForJob([simplexPrinter, duplexPrinter], {
+        colorMode: "black_and_white",
+        requiresDuplex: true,
+        busyPrinters: [duplexPrinter.name],
+      });
+      expect(heldDuplexJob).toBeNull();
+
+      // 2. While duplex printer is busy, a single-sided job CAN divert to the simplex printer immediately
+      const singleSidedJob = findBestPrinterForJob([simplexPrinter, duplexPrinter], {
+        colorMode: "black_and_white",
+        requiresDuplex: false,
+        busyPrinters: [duplexPrinter.name],
+      });
+      expect(singleSidedJob?.name).toBe("HP LaserJet M1005 (Simplex)");
+
+      // 3. When duplex printer is free, double-sided job routes to it directly
+      const freeDuplexJob = findBestPrinterForJob([simplexPrinter, duplexPrinter], {
+        colorMode: "black_and_white",
+        requiresDuplex: true,
+        busyPrinters: [],
+      });
+      expect(freeDuplexJob?.name).toBe("Brother HL-L2321D (Hardware Duplex)");
+
+      // 4. When shop has ONLY simplex printers (no hardware duplex in shop), double-sided NEVER goes to simplex
+      const onlySimplexShop = findBestPrinterForJob([simplexPrinter], {
+        colorMode: "black_and_white",
+        requiresDuplex: true,
+        busyPrinters: [],
+      });
+      expect(onlySimplexShop).toBeNull();
+    });
+
+    it("enforces strict isolation: B&W jobs NEVER route to Color printers, even if preferred or default", () => {
+      const colorPrinter: DiscoveredPrinter = {
+        name: "Epson L805 Color (Default)",
+        systemIdentifier: "epson_color",
+        status: "online",
+        isDefault: true,
+        capabilities: { colorSupport: true, duplexSupport: true, paperSizes: ["A4"] },
+      };
+
+      const monoPrinter: DiscoveredPrinter = {
+        name: "HP LaserJet M1005 (Mono)",
+        systemIdentifier: "hp_mono",
+        status: "online",
+        isDefault: false,
+        capabilities: { colorSupport: false, duplexSupport: false, paperSizes: ["A4"] },
+      };
+
+      // 1. Only color printer exists in shop -> B&W job returns null (never prints B&W on color)
+      expect(
+        findBestPrinterForJob([colorPrinter], {
+          colorMode: "black_and_white",
+        }),
+      ).toBeNull();
+
+      // 2. Preferred printer is set to Color printer -> B&W job ignores preference and uses Mono printer
+      const bwWithColorPreferred = findBestPrinterForJob([colorPrinter, monoPrinter], {
+        colorMode: "black_and_white",
+        preferredName: colorPrinter.name,
+      });
+      expect(bwWithColorPreferred?.name).toBe("HP LaserJet M1005 (Mono)");
+
+      // 3. Required printer name is explicitly a color printer -> B&W job returns null (refuses violation)
+      const bwWithColorRequired = findBestPrinterForJob([colorPrinter, monoPrinter], {
+        colorMode: "black_and_white",
+        requiredPrinterName: colorPrinter.name,
+      });
+      expect(bwWithColorRequired).toBeNull();
+    });
+
+    it("enforces strict isolation: Duplex jobs NEVER route to Simplex printers, even if preferred or default", () => {
+      const simplexPrinter: DiscoveredPrinter = {
+        name: "Canon LBP2900 (Simplex Default)",
+        systemIdentifier: "canon_simplex",
+        status: "online",
+        isDefault: true,
+        capabilities: { colorSupport: false, duplexSupport: false, paperSizes: ["A4"] },
+      };
+
+      const duplexPrinter: DiscoveredPrinter = {
+        name: "Brother HL-L2321D (Duplex Secondary)",
+        systemIdentifier: "brother_duplex",
+        status: "online",
+        isDefault: false,
+        capabilities: { colorSupport: false, duplexSupport: true, paperSizes: ["A4"] },
+      };
+
+      // 1. Only simplex printer exists in shop -> Duplex job returns null (never prints duplex on simplex)
+      expect(
+        findBestPrinterForJob([simplexPrinter], {
+          colorMode: "black_and_white",
+          requiresDuplex: true,
+        }),
+      ).toBeNull();
+
+      // 2. Preferred printer is set to Simplex printer -> Duplex job ignores preference and uses Duplex printer
+      const duplexWithSimplexPreferred = findBestPrinterForJob([simplexPrinter, duplexPrinter], {
+        colorMode: "black_and_white",
+        requiresDuplex: true,
+        preferredName: simplexPrinter.name,
+      });
+      expect(duplexWithSimplexPreferred?.name).toBe("Brother HL-L2321D (Duplex Secondary)");
+
+      // 3. Required printer name is explicitly a simplex printer -> Duplex job returns null (refuses violation)
+      const duplexWithSimplexRequired = findBestPrinterForJob([simplexPrinter, duplexPrinter], {
+        colorMode: "black_and_white",
+        requiresDuplex: true,
+        requiredPrinterName: simplexPrinter.name,
+      });
+      expect(duplexWithSimplexRequired).toBeNull();
+    });
   });
 
   describe("Atomic Claiming & Lease Invariant Rules", () => {

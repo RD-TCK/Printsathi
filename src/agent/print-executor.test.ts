@@ -317,4 +317,80 @@ describe("PDF print submission", () => {
     expect(spooledPageCount).toBe(10);
     expect(result.pagesSubmitted).toBe(6);
   });
+
+  describe("Hardware Isolation Enforcement Guards", () => {
+    it("strictly blocks Black & White job from spooling to a Color printer", async () => {
+      const colorPrinterName = "Epson EcoTank Color";
+      mocks.discover.mockResolvedValue([
+        {
+          name: colorPrinterName,
+          status: "online",
+          capabilities: { colorSupport: true, duplexSupport: false, paperSizes: ["A4"] },
+        },
+      ]);
+
+      const bwJob = {
+        id: "job-bw-violator",
+        totalPages: 1,
+        pagesConfig: [{ startPage: 1, endPage: 1, colorMode: "black_and_white", paperSize: "a4" }],
+      } as ClaimedJob;
+
+      const result = await prepareAndPrintDocument(source, bwJob, colorPrinterName);
+      expect(result.success).toBe(false);
+      expect(result.status).toBe("PRINT_FAILED");
+      expect(result.errorMessage).toContain("Hardware Isolation Violation");
+      expect(result.errorMessage).toContain("Black & White job");
+      expect(mocks.execute).not.toHaveBeenCalled();
+    });
+
+    it("strictly blocks Double-Sided job from spooling to a Simplex printer", async () => {
+      const simplexPrinterName = "HP LaserJet 1020 (Simplex)";
+      mocks.discover.mockResolvedValue([
+        {
+          name: simplexPrinterName,
+          status: "online",
+          capabilities: { colorSupport: false, duplexSupport: false, paperSizes: ["A4"] },
+        },
+      ]);
+
+      const duplexJob = {
+        id: "job-duplex-violator",
+        totalPages: 2,
+        pagesConfig: [
+          { startPage: 1, endPage: 2, colorMode: "black_and_white", sideMode: "double_sided", paperSize: "a4" },
+        ],
+      } as ClaimedJob;
+
+      const result = await prepareAndPrintDocument(source, duplexJob, simplexPrinterName);
+      expect(result.success).toBe(false);
+      expect(result.status).toBe("PRINT_FAILED");
+      expect(result.errorMessage).toContain("Hardware Isolation Violation");
+      expect(result.errorMessage).toContain("cannot be sent to Simplex printer");
+      expect(mocks.execute).not.toHaveBeenCalled();
+    });
+
+    it("strictly blocks Color job from spooling to a Monochrome printer", async () => {
+      const monoPrinterName = "HP LaserJet M1005 (Mono)";
+      mocks.discover.mockResolvedValue([
+        {
+          name: monoPrinterName,
+          status: "online",
+          capabilities: { colorSupport: false, duplexSupport: false, paperSizes: ["A4"] },
+        },
+      ]);
+
+      const colorJob = {
+        id: "job-color-violator",
+        totalPages: 1,
+        pagesConfig: [{ startPage: 1, endPage: 1, colorMode: "color", paperSize: "a4" }],
+      } as ClaimedJob;
+
+      const result = await prepareAndPrintDocument(source, colorJob, monoPrinterName);
+      expect(result.success).toBe(false);
+      expect(result.status).toBe("PRINT_FAILED");
+      expect(result.errorMessage).toContain("Hardware Isolation Violation");
+      expect(result.errorMessage).toContain("cannot be sent to Monochrome printer");
+      expect(mocks.execute).not.toHaveBeenCalled();
+    });
+  });
 });

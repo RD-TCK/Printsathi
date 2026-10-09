@@ -360,8 +360,8 @@ export class AgentDaemon {
           'postgres_changes',
           { event: 'UPDATE', schema: 'public', table: 'print_jobs', filter: `shop_id=eq.${this.config.shopId}` },
           (payload) => {
-             if (payload.new && payload.new.status === 'pending') {
-                 logger.info("Realtime event received: print job updated to pending");
+             if (payload.new && (payload.new.status === 'queued' || payload.new.status === 'pending')) {
+                 logger.info(`Realtime event received: print job updated to ${payload.new.status}`);
                  void this.triggerPoll();
              }
           }
@@ -412,11 +412,12 @@ export class AgentDaemon {
         return;
       }
 
-      if (this.processedJobIds.has(job.id)) {
-        logger.debug(`Job ${job.id} already processed by this agent session, skipping duplicate print.`);
+      const jobKey = `${job.id}:${job.duplexStep || "standard"}`;
+      if (this.processedJobIds.has(jobKey)) {
+        logger.debug(`Job ${jobKey} already processed by this agent session, skipping duplicate print.`);
         return;
       }
-      this.processedJobIds.add(job.id);
+      this.processedJobIds.add(jobKey);
       if (this.processedJobIds.size > 500) {
         const firstKey = this.processedJobIds.values().next().value;
         if (firstKey) this.processedJobIds.delete(firstKey);
@@ -474,10 +475,6 @@ export class AgentDaemon {
         busyPrinters.delete(reservedPrinterForJob.toLowerCase());
       }
 
-      const hasPhysicalMonoPrinter = this.discoveredPrinters.some(
-        (p) => isPhysicalPrinter(p) && !p.capabilities?.colorSupport,
-      );
-
       const plan = groups.map((ranges) => {
         const printer = findBestPrinterForJob(this.discoveredPrinters, {
           colorMode: ranges[0].colorMode,
@@ -486,16 +483,28 @@ export class AgentDaemon {
           requiredPrinterName: isDuplexEvenStep ? reservedPrinterForJob : null,
           requiresDuplex: isDoubleSided && !isDuplexEvenStep,
           busyPrinters,
-          allowColorFallbackForMono: !hasPhysicalMonoPrinter,
         });
         return { ranges, printer };
       });
 
       if (plan.some((part) => !part.printer)) {
+        this.processedJobIds.delete(jobKey);
+
         const requiredMode = groups[0]?.[0]?.colorMode || "requested";
+        const hasHardwareDuplexInShop = this.discoveredPrinters.some(
+          (p) => isPhysicalPrinter(p) && p.capabilities?.duplexSupport === true,
+        );
+
         const reason = isDuplexEvenStep
           ? `Reserved printer "${reservedPrinterForJob}" is currently offline or busy. Order will remain on hold for this printer.`
-          : `No free compatible ${requiredMode === "color" ? "Color" : "Black & White"} printer is available (printers busy/reserved). Request stays on hold.`;
+          : isDoubleSided && !hasHardwareDuplexInShop
+            ? `No hardware Duplex printer connected. Double-sided print jobs cannot be sent to Simplex printers.`
+            : isDoubleSided && hasHardwareDuplexInShop
+              ? `Hardware Duplex printer is currently busy printing. Double-sided request is held to print automatically on the duplex printer.`
+              : requiredMode === "black_and_white"
+                ? `No free dedicated Black & White printer is available (B&W jobs are strictly isolated from Color printers). Request stays on hold.`
+                : `No free compatible Color printer is available. Request stays on hold.`;
+
         logger.warn(`Job #${job.id.slice(0, 8)} held: ${reason}`);
         await this.client.reportFailure(job.id, reason, true);
         this.stats.jobsFailed += 1;
@@ -513,8 +522,14 @@ export class AgentDaemon {
           // Printer has hardware duplex unit: print both sides in a single pass
           job.duplexStep = "all";
         } else {
-          // Printer is simplex: perform step 1 (odd) of manual duplex
-          job.duplexStep = "odd";
+          // Strict Safety Guard: Double-sided job reached simplex printer
+          const msg = `Hardware Isolation Violation: Double-sided job #${job.id.slice(0, 8)} cannot be sent to Simplex printer "${firstPrinter?.name}".`;
+          logger.error(msg);
+          this.processedJobIds.delete(jobKey);
+          await this.client.reportFailure(job.id, msg, true);
+          this.stats.jobsFailed += 1;
+          this.currentJob = null;
+          return;
         }
       }
 
@@ -623,6 +638,10 @@ export class AgentDaemon {
       } catch (printErr) {
         const errorMsg = printErr instanceof Error ? printErr.message : "Print execution error";
         logger.error(`Print execution failed for Job #${job.id.slice(0, 8)}: ${errorMsg}`);
+        // If submission didn't start (e.g. network/download failure), allow agent to retry cleanly
+        if (!submissionStarted) {
+          this.processedJobIds.delete(jobKey);
+        }
         await this.client.reportFailure(job.id, errorMsg.slice(0, 500), !submissionStarted);
         this.stats.jobsFailed += 1;
       } finally {
@@ -684,8 +703,18 @@ export class AgentDaemon {
     return await this.client.getCounterQueue();
   }
 
-  async approveCounterOrder(orderId: string) {
-    const result = await this.client.approveCounterOrder(orderId);
+  clearProcessedJob(jobIdOrOrderId: string) {
+    for (const key of Array.from(this.processedJobIds)) {
+      if (key.includes(jobIdOrOrderId)) {
+        this.processedJobIds.delete(key);
+      }
+    }
+  }
+
+  async approveCounterOrder(orderId: string, duplexStep?: "odd" | "even" | "all") {
+    // Clear processed keys for this order so re-approving or printing next side can claim and print fresh
+    this.clearProcessedJob(orderId);
+    const result = await this.client.approveCounterOrder(orderId, duplexStep);
     // Immediately claim and print the newly approved job via agent
     void this.triggerPoll();
     return result;

@@ -257,9 +257,11 @@ export function isPhysicalPrinter(printer: DiscoveredPrinter): boolean {
  * - STRICT COLOR ISOLATION:
  *   - "color" mode MUST route ONLY to printers with colorSupport === true.
  *   - "black_and_white" mode MUST route ONLY to dedicated monochrome/B&W printers (!colorSupport).
- *   - Black & White requests NEVER go to Color printers, and Color requests NEVER go to B&W printers.
- * - DUPLEX ROUTING:
- *   - If requiredPrinterName is provided (e.g. Step 2 "Print Next Side"), forces routing to that exact printer.
+ *   - Black & White requests NEVER go to Color printers under any circumstances (saving expensive color ink/toner).
+ *   - Color requests NEVER go to B&W printers.
+ * - STRICT DUPLEX ISOLATION:
+ *   - Double-sided / duplex requests MUST route ONLY to printers with hardware duplex support (duplexSupport === true).
+ *   - Duplex print requests NEVER go to Simplex printers under any circumstances.
  * - SMART DIVERSION:
  *   - Automatically skips any printers listed in busyPrinters so other jobs divert to other free connected printers.
  */
@@ -291,7 +293,17 @@ export function findBestPrinterForJob(
         (p.status === "online" || p.status === "printing") &&
         p.name.toLowerCase() === options.requiredPrinterName!.toLowerCase(),
     );
-    if (matched) return matched;
+    if (matched) {
+      // STRICT HARDWARE ISOLATION ENFORCEMENT:
+      // 1. Color isolation: B&W jobs NEVER go to Color printers; Color jobs NEVER go to B&W printers.
+      if (options.colorMode === "color" && !matched.capabilities?.colorSupport) return null;
+      if (options.colorMode === "black_and_white" && matched.capabilities?.colorSupport === true) return null;
+
+      // 2. Duplex isolation: Duplex jobs NEVER go to Simplex printers.
+      if (options.requiresDuplex && matched.capabilities?.duplexSupport !== true) return null;
+
+      return matched;
+    }
     return null;
   }
 
@@ -311,72 +323,63 @@ export function findBestPrinterForJob(
     return null;
   }
 
-  // If user requested a preferred printer and it satisfies capabilities, use it
+  // If user requested a preferred printer and it satisfies strict capabilities, use it
   if (options.preferredName) {
     const matched = compatiblePrinters.find((p) => p.name.toLowerCase() === options.preferredName!.toLowerCase());
     if (matched) {
       const satisfiesDuplex = !options.requiresDuplex || matched.capabilities?.duplexSupport === true;
-      if (satisfiesDuplex) {
-        if (options.colorMode === "color") {
-          if (matched.capabilities?.colorSupport === true) return matched;
-        } else {
-          // Any printer (dedicated mono or color in monochrome mode) can handle B&W
-          return matched;
-        }
+      const satisfiesColor =
+        options.colorMode === "color"
+          ? matched.capabilities?.colorSupport === true
+          : !matched.capabilities?.colorSupport;
+
+      if (satisfiesDuplex && satisfiesColor) {
+        return matched;
       }
     }
   }
 
   if (options.colorMode === "color") {
-    // STRICT: Must find an online printer that explicitly supports color.
+    // STRICT COLOR ROUTING:
+    // Must find an online printer that explicitly supports color.
     // NEVER fall back to monochrome/B&W printers for color jobs.
     const colorPrinters = compatiblePrinters.filter((p) => p.capabilities?.colorSupport === true);
     if (colorPrinters.length === 0) return null;
 
     if (options.requiresDuplex) {
+      // STRICT DUPLEX ROUTING:
+      // Must find a color printer that explicitly supports hardware duplex.
+      // NEVER fall back to simplex printers for duplex jobs.
       const duplexColor =
         colorPrinters.find((p) => p.capabilities?.duplexSupport === true && p.isDefault) ||
         colorPrinters.find((p) => p.capabilities?.duplexSupport === true);
-      if (duplexColor) return duplexColor;
+      return duplexColor || null;
     }
 
     const defaultColor = colorPrinters.find((p) => p.isDefault);
     return defaultColor || colorPrinters[0] || null;
   }
 
-  // B&W ROUTING:
-  // 1. Prefer a dedicated monochrome/B&W printer (!colorSupport) if one exists.
+  // STRICT B&W ROUTING:
+  // Must find an online printer that is dedicated monochrome/B&W (!colorSupport).
+  // NEVER fall back to color printers for B&W jobs (saving expensive color ink/toner).
   const monoPrinters = compatiblePrinters.filter((p) => !p.capabilities?.colorSupport);
-  if (monoPrinters.length > 0) {
-    if (options.requiresDuplex) {
-      const duplexMono =
-        monoPrinters.find((p) => p.capabilities?.duplexSupport === true && p.isDefault) ||
-        monoPrinters.find((p) => p.capabilities?.duplexSupport === true);
-      if (duplexMono) return duplexMono;
-    }
-
-    const defaultMono = monoPrinters.find((p) => p.isDefault);
-    return defaultMono || monoPrinters[0] || null;
+  if (monoPrinters.length === 0) {
+    return null;
   }
 
-  // 2. Strict separation: B&W requests do NOT automatically route to Color printers
-  // unless explicitly permitted via allowColorFallbackForMono or when preferredName is matched.
-  if (options.allowColorFallbackForMono) {
-    const colorPrinters = compatiblePrinters.filter((p) => p.capabilities?.colorSupport === true);
-    if (colorPrinters.length > 0) {
-      if (options.requiresDuplex) {
-        const duplexColor =
-          colorPrinters.find((p) => p.capabilities?.duplexSupport === true && p.isDefault) ||
-          colorPrinters.find((p) => p.capabilities?.duplexSupport === true);
-        if (duplexColor) return duplexColor;
-      }
-
-      const defaultColor = colorPrinters.find((p) => p.isDefault);
-      return defaultColor || colorPrinters[0] || null;
-    }
+  if (options.requiresDuplex) {
+    // STRICT DUPLEX ROUTING:
+    // Must find a monochrome printer that explicitly supports hardware duplex.
+    // NEVER fall back to simplex printers for duplex jobs.
+    const duplexMono =
+      monoPrinters.find((p) => p.capabilities?.duplexSupport === true && p.isDefault) ||
+      monoPrinters.find((p) => p.capabilities?.duplexSupport === true);
+    return duplexMono || null;
   }
 
-  return null;
+  const defaultMono = monoPrinters.find((p) => p.isDefault);
+  return defaultMono || monoPrinters[0] || null;
 }
 
 export function findDefaultPrinter(

@@ -53,7 +53,7 @@ export async function POST(request: Request) {
   // Fetch the order
   const { data: order, error: orderError } = await adminClient
     .from("orders")
-    .select("id, public_id, status, total_amount, token_number, expires_at, payment_mode")
+    .select("id, public_id, status, total_amount, token_number, expires_at, payment_mode, color_pages")
     .eq("id", orderId)
     .eq("shop_id", shopId)
     .maybeSingle();
@@ -63,10 +63,74 @@ export async function POST(request: Request) {
   }
 
   if (order.status === "paid" && duplexStep !== "even") {
+    // If order is already paid, re-queue the jobs so the agent can print/re-print them cleanly
+    let { data: existingJobs } = await adminClient
+      .from("print_jobs")
+      .select("id, status, document_id, total_pages, duplex_step, failure_reason")
+      .eq("order_id", orderId)
+      .eq("shop_id", shopId);
+
+    // If no jobs exist, self-heal and create them from documents
+    if (!existingJobs || existingJobs.length === 0) {
+      const { data: orderDocs } = await adminClient
+        .from("documents")
+        .select("id, page_count")
+        .eq("order_id", order.id)
+        .eq("shop_id", shopId);
+
+      if (orderDocs && orderDocs.length > 0) {
+        for (const doc of orderDocs) {
+          const jobId = crypto.randomUUID();
+          const pageCount = doc.page_count || 1;
+          await adminClient.from("print_jobs").insert({
+            id: jobId,
+            order_id: order.id,
+            shop_id: shopId,
+            document_id: doc.id,
+            status: "queued",
+            duplex_step: "none",
+            total_pages: pageCount,
+            total_amount: order.total_amount || 0,
+            idempotency_key: crypto.randomUUID(),
+          });
+          await adminClient.from("print_job_pages").insert([
+            {
+              print_job_id: jobId,
+              start_page: 1,
+              end_page: pageCount,
+              color_mode: (order.color_pages || 0) > 0 ? "color" : "black_and_white",
+              paper_size: "a4",
+              side_mode: "single_sided",
+              copies: 1,
+            },
+          ]);
+        }
+        const refreshed = await adminClient
+          .from("print_jobs")
+          .select("id, status, document_id, total_pages, duplex_step, failure_reason")
+          .eq("order_id", order.id);
+        existingJobs = refreshed.data;
+      }
+    } else {
+      // Re-queue existing jobs so the agent daemon claims and prints them cleanly
+      await adminClient
+        .from("print_jobs")
+        .update({
+          status: "queued",
+          claimed_by_agent_id: null,
+          claim_expires_at: null,
+          failure_reason: null,
+          updated_at: new Date().toISOString(),
+        })
+        .eq("order_id", orderId)
+        .eq("shop_id", shopId);
+    }
+
     return NextResponse.json({
       success: true,
-      message: "Order is already fully approved and printed.",
+      message: `Token #${order.token_number || order.public_id} queued for printing.`,
       order: { id: order.id, status: order.status, tokenNumber: order.token_number },
+      jobs: existingJobs || [],
     });
   }
 
@@ -160,11 +224,53 @@ export async function POST(request: Request) {
     .eq("order_id", order.id)
     .eq("shop_id", shopId);
 
-  // 4. Fetch the jobs for response
-  const { data: jobs } = await adminClient
+  // 4. Fetch the jobs for response and self-heal if missing
+  let { data: jobs } = await adminClient
     .from("print_jobs")
     .select("id, status, document_id, total_pages, duplex_step")
     .eq("order_id", order.id);
+
+  if (!jobs || jobs.length === 0) {
+    const { data: orderDocs } = await adminClient
+      .from("documents")
+      .select("id, page_count")
+      .eq("order_id", order.id)
+      .eq("shop_id", shopId);
+
+    if (orderDocs && orderDocs.length > 0) {
+      for (const doc of orderDocs) {
+        const jobId = crypto.randomUUID();
+        const pageCount = doc.page_count || 1;
+        await adminClient.from("print_jobs").insert({
+          id: jobId,
+          order_id: order.id,
+          shop_id: shopId,
+          document_id: doc.id,
+          status: targetJobStatus,
+          duplex_step: targetDuplexStep,
+          total_pages: pageCount,
+          total_amount: order.total_amount || 0,
+          idempotency_key: crypto.randomUUID(),
+        });
+        await adminClient.from("print_job_pages").insert([
+          {
+            print_job_id: jobId,
+            start_page: 1,
+            end_page: pageCount,
+            color_mode: (order.color_pages || 0) > 0 ? "color" : "black_and_white",
+            paper_size: "a4",
+            side_mode: isOddStep || isEvenStep ? "double_sided" : "single_sided",
+            copies: 1,
+          },
+        ]);
+      }
+      const refreshed = await adminClient
+        .from("print_jobs")
+        .select("id, status, document_id, total_pages, duplex_step")
+        .eq("order_id", order.id);
+      jobs = refreshed.data;
+    }
+  }
 
   const stepMessage = isOddStep
     ? `Token #${order.token_number || order.public_id}: Odd pages (Front Side) printed! Flip sheets and reload in tray for back side.`
