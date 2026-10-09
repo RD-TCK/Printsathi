@@ -236,11 +236,18 @@ export class AgentDaemon {
     logger.info(`Selected default printer: "${printerName}"`);
   }
 
-  private async refreshPrinters(): Promise<void> {
+  private lastPrinterDiscoveryTime = 0;
+
+  private async refreshPrinters(force = false): Promise<void> {
     if (this.discovering) return;
+    const now = Date.now();
+    if (!force && now - this.lastPrinterDiscoveryTime < 15000 && this.discoveredPrinters.length > 0) {
+      return;
+    }
     this.discovering = true;
     try {
       this.discoveredPrinters = await discoverWindowsPrinters();
+      this.lastPrinterDiscoveryTime = Date.now();
     } catch {
       this.discoveredPrinters = [];
     } finally {
@@ -658,11 +665,16 @@ export class AgentDaemon {
 
         // Clean up temporary download file (do NOT delete persistent local cache file!)
         if (!isLocalCacheHit && fs.existsSync(printFilePath)) {
-          try {
-            fs.unlinkSync(printFilePath);
-          } catch {
-            // Ignore cleanup failure
-          }
+          const downloadToClean = printFilePath;
+          setTimeout(() => {
+            try {
+              if (fs.existsSync(downloadToClean)) {
+                fs.unlinkSync(downloadToClean);
+              }
+            } catch {
+              // Ignore cleanup failure
+            }
+          }, 60000);
         }
       }
     } catch (error) {

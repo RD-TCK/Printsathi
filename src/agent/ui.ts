@@ -974,27 +974,29 @@ export class AgentWebServer {
       } else {
         pList.innerHTML = \`
           <div style="font-size:11px; color:#065f46; background:#f0fdf4; border:1px solid #bbf7d0; padding:8px 12px; border-radius:8px; margin-bottom:12px; line-height:1.4;">
-            ⚡ <b>Smart Auto-Spool:</b> Jobs are routed automatically to matching paper &amp; color hardware.
+            ⚡ <b>Smart Auto-Spool:</b> Jobs are routed automatically to matching paper &amp; color hardware. Click <b>Use as Default</b> to route single-sided jobs to your preferred printer.
           </div>
         \` + status.printers.map(p => {
           const isColor = Boolean(p.capabilities && p.capabilities.colorSupport);
           const isOnline = ['online', 'printing'].includes(p.status);
+          const isSelected = status.selectedPrinter ? status.selectedPrinter.toLowerCase() === p.name.toLowerCase() : p.isDefault;
           return \`
-          <div class="printer-card">
+          <div class="printer-card" style="\${isSelected ? 'border-color:#10b981; background:#f0fdf4;' : ''}">
             <div>
-              <div style="display:flex; align-items:center; gap:6px;">
+              <div style="display:flex; align-items:center; gap:6px; flex-wrap:wrap;">
                 <span style="font-size:13px; font-weight:700; color:var(--text-main);">\${escapeHtml(p.name)}</span>
                 <span class="badge" style="font-size:9px; \${isColor ? 'background:#ecfdf5; color:#047857; border:1px solid #a7f3d0;' : 'background:#f1f5f9; color:#475569; border:1px solid #e2e8f0;'}">
                   \${isColor ? '🎨 Color' : '📄 B&W'}
                 </span>
-                \${p.isDefault ? '<span class="badge badge-online" style="font-size:9px;">DEFAULT</span>' : ''}
+                \${isSelected ? '<span class="badge" style="font-size:9px; background:#d1fae5; color:#065f46; border:1px solid #6ee7b7;">⭐ ACTIVE DEFAULT</span>' : ''}
               </div>
               <div style="font-size:11px; color:var(--text-muted); margin-top:2px;">\${escapeHtml(p.driverName || 'Windows Spooler')}</div>
             </div>
-            <div>
+            <div style="display:flex; align-items:center; gap:8px;">
               <span class="badge \${isOnline ? 'badge-online' : 'badge-offline'}" style="font-size:10px;">
-                \${isOnline ? 'ONLINE' : 'OFFLINE (QUEUES IN WINDOWS)'}
+                \${isOnline ? 'ONLINE' : 'OFFLINE'}
               </span>
+              \${!isSelected ? \`<button type="button" class="btn-secondary" style="font-size:11px; padding:4px 10px; cursor:pointer;" onclick="selectDefaultPrinter('\${escapeHtml(p.name)}')">Use as Default</button>\` : ''}
             </div>
           </div>
         \`;
@@ -1051,6 +1053,24 @@ export class AgentWebServer {
         }
       } catch (err) {
         alert('Network error updating server URL');
+      }
+    }
+    async function selectDefaultPrinter(printerName) {
+      if (!printerName) return;
+      try {
+        const res = await fetch('/api/select-printer', {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({ printerName })
+        });
+        if (res.ok) {
+          await refreshStatus(true);
+        } else {
+          const err = await res.json().catch(() => ({}));
+          alert('Could not select printer: ' + (err.error || 'Server error'));
+        }
+      } catch (err) {
+        alert('Network error selecting printer');
       }
     }
 

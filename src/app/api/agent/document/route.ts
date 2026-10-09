@@ -1,6 +1,22 @@
 import { NextResponse } from "next/server";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import { authenticateAgent } from "@/lib/agent/auth";
+import { PDFDocument } from "pdf-lib";
+
+async function wrapImageToPdf(rawBuffer: Buffer): Promise<Buffer> {
+  const pdfDoc = await PDFDocument.create();
+  const isPng = rawBuffer.subarray(0, 4).toString("hex") === "89504e47";
+  const embeddedImg = isPng ? await pdfDoc.embedPng(rawBuffer) : await pdfDoc.embedJpg(rawBuffer);
+  const page = pdfDoc.addPage([595.28, 841.89]);
+  const { width, height } = embeddedImg.scaleToFit(595.28, 841.89);
+  page.drawImage(embeddedImg, {
+    x: (595.28 - width) / 2,
+    y: (841.89 - height) / 2,
+    width,
+    height,
+  });
+  return Buffer.from(await pdfDoc.save());
+}
 
 export async function GET(request: Request) {
   const auth = await authenticateAgent(request);
@@ -55,7 +71,7 @@ export async function GET(request: Request) {
 
   const effectiveOrderId = job.order_id || document.order_id;
   let fileBuffer: Buffer | null = null;
-  let effectiveMime = document.mime_type || "application/pdf";
+  let effectiveMime = "application/pdf";
 
   // 3. Download document
   if (document.storage_path.startsWith("local://")) {
@@ -68,8 +84,12 @@ export async function GET(request: Request) {
 
       if (previewData) {
         const ab = await previewData.arrayBuffer();
-        fileBuffer = Buffer.from(ab);
-        effectiveMime = "image/jpeg";
+        try {
+          fileBuffer = await wrapImageToPdf(Buffer.from(ab));
+        } catch {
+          fileBuffer = Buffer.from(ab);
+          effectiveMime = "image/jpeg";
+        }
       }
     }
   } else {
@@ -92,8 +112,12 @@ export async function GET(request: Request) {
 
     if (fallbackData) {
       const ab = await fallbackData.arrayBuffer();
-      fileBuffer = Buffer.from(ab);
-      effectiveMime = "image/jpeg";
+      try {
+        fileBuffer = await wrapImageToPdf(Buffer.from(ab));
+      } catch {
+        fileBuffer = Buffer.from(ab);
+        effectiveMime = "image/jpeg";
+      }
     }
   }
 
@@ -101,7 +125,7 @@ export async function GET(request: Request) {
     return NextResponse.json({ error: "Could not retrieve document from storage." }, { status: 502 });
   }
 
-  return new NextResponse(fileBuffer, {
+  return new NextResponse(new Uint8Array(fileBuffer), {
     status: 200,
     headers: {
       "Content-Type": effectiveMime,

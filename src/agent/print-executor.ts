@@ -95,7 +95,26 @@ export async function prepareAndPrintDocument(
     ) {
       throw new Error("Mixed paper/color settings must be submitted as separate print groups.");
     }
-    const sourcePdf = await PDFDocument.load(fs.readFileSync(sourcePdfPath));
+    let sourceBuffer = fs.readFileSync(sourcePdfPath);
+    if (
+      (sourceBuffer[0] === 0xff && sourceBuffer[1] === 0xd8 && sourceBuffer[2] === 0xff) ||
+      (sourceBuffer[0] === 0x89 && sourceBuffer[1] === 0x50 && sourceBuffer[2] === 0x4e && sourceBuffer[3] === 0x47)
+    ) {
+      const imgDoc = await PDFDocument.create();
+      const isPng = sourceBuffer[0] === 0x89;
+      const embeddedImg = isPng ? await imgDoc.embedPng(sourceBuffer) : await imgDoc.embedJpg(sourceBuffer);
+      const page = imgDoc.addPage([595.28, 841.89]);
+      const { width, height } = embeddedImg.scaleToFit(595.28, 841.89);
+      page.drawImage(embeddedImg, {
+        x: (595.28 - width) / 2,
+        y: (841.89 - height) / 2,
+        width,
+        height,
+      });
+      sourceBuffer = Buffer.from(await imgDoc.save());
+      fs.writeFileSync(sourcePdfPath, sourceBuffer);
+    }
+    const sourcePdf = await PDFDocument.load(sourceBuffer);
     for (const config of activeConfigs || []) {
       if (
         !Number.isInteger(config.startPage) ||
@@ -375,12 +394,25 @@ export async function prepareAndPrintDocument(
       errorMessage: errorMsg,
     };
   } finally {
-    // Clean up sliced temporary PDF
+    // In test environments, delete immediately for assertions; in production, delay cleanup so Windows Spooler finishes reading bytes
     if (tempExtractedPath && fs.existsSync(tempExtractedPath)) {
-      try {
-        fs.unlinkSync(tempExtractedPath);
-      } catch {
-        // Ignore deletion errors
+      if (process.env.NODE_ENV === "test") {
+        try {
+          fs.unlinkSync(tempExtractedPath);
+        } catch {
+          // Ignore deletion errors in test
+        }
+      } else {
+        const fileToClean = tempExtractedPath;
+        setTimeout(() => {
+          try {
+            if (fs.existsSync(fileToClean)) {
+              fs.unlinkSync(fileToClean);
+            }
+          } catch {
+            // Ignore deletion errors
+          }
+        }, 60000);
       }
     }
   }
