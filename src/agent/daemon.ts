@@ -393,7 +393,7 @@ export class AgentDaemon {
     this.isProcessingJob = true;
     try {
       await this.refreshPrinters();
-      const defaultPrinter = findDefaultPrinter(this.discoveredPrinters, this.config.selectedPrinter);
+      const defaultPrinter = findDefaultPrinter(this.discoveredPrinters, this.config.selectedPrinter, true);
       if (!defaultPrinter) {
         logger.warn(
           "No physical printer detected by Windows Spooler. Please ensure a physical printer is installed in Windows Printers & Scanners.",
@@ -477,6 +477,7 @@ export class AgentDaemon {
           requiresDuplex: isDoubleSided && !isDuplexEvenStep,
           busyPrinters,
           allowColorFallbackForMono: true,
+          allowOffline: true,
         });
         return { ranges, printer };
       });
@@ -541,15 +542,24 @@ export class AgentDaemon {
       try {
         const localCacheDir = typeof getDocumentCacheDirectory === "function" ? getDocumentCacheDirectory() : "";
         if (localCacheDir) {
-          const localCacheFile = path.join(localCacheDir, `doc_${job.document.id}.pdf`);
-          const localDirectFile = path.join(localCacheDir, `${job.document.id}.pdf`);
+          const rawId = (job.document.storagePath || "")
+            .replace(/^local:\/\//, "")
+            .replace(/\.pdf$/i, "")
+            .replace(/^doc_/, "");
+          const candidateNames = [
+            `doc_${job.document.id}.pdf`,
+            `${job.document.id}.pdf`,
+            rawId ? `doc_${rawId}.pdf` : "",
+            rawId ? `${rawId}.pdf` : "",
+          ].filter(Boolean);
 
-          if (fs.existsSync(localCacheFile) && fs.statSync(localCacheFile).size > 0) {
-            printFilePath = localCacheFile;
-            isLocalCacheHit = true;
-          } else if (fs.existsSync(localDirectFile) && fs.statSync(localDirectFile).size > 0) {
-            printFilePath = localDirectFile;
-            isLocalCacheHit = true;
+          for (const cand of candidateNames) {
+            const candPath = path.join(localCacheDir, cand);
+            if (fs.existsSync(candPath) && fs.statSync(candPath).size > 0) {
+              printFilePath = candPath;
+              isLocalCacheHit = true;
+              break;
+            }
           }
         }
       } catch {

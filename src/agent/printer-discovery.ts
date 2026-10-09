@@ -275,6 +275,7 @@ export function findBestPrinterForJob(
     requiresDuplex?: boolean;
     busyPrinters?: Set<string> | string[];
     allowColorFallbackForMono?: boolean;
+    allowOffline?: boolean;
   },
 ): DiscoveredPrinter | null {
   const busySet = new Set(
@@ -290,13 +291,23 @@ export function findBestPrinterForJob(
     const matched = printers.find(
       (p) =>
         isPhysicalPrinter(p) &&
+        (options.allowOffline || p.status !== "offline") &&
         p.name.toLowerCase() === options.requiredPrinterName!.toLowerCase(),
     );
     if (matched) {
       // 1. Color isolation: Color jobs cannot go to Monochrome printers.
       if (options.colorMode === "color" && !matched.capabilities?.colorSupport) return null;
 
-      // 2. Duplex isolation: Duplex jobs NEVER go to Simplex printers when hardware duplex is required.
+      // 2. Strict B&W isolation: B&W jobs cannot go to Color printers unless allowColorFallbackForMono is true
+      if (
+        options.colorMode === "black_and_white" &&
+        matched.capabilities?.colorSupport &&
+        options.allowColorFallbackForMono !== true
+      ) {
+        return null;
+      }
+
+      // 3. Duplex isolation: Duplex jobs NEVER go to Simplex printers when hardware duplex is required.
       if (options.requiresDuplex && matched.capabilities?.duplexSupport !== true) return null;
 
       return matched;
@@ -305,10 +316,8 @@ export function findBestPrinterForJob(
   }
 
   // Filter for physical printers that are NOT currently busy or reserved.
-  // Physical printers in Windows (even if currently offline / unplugged) can accept jobs
-  // directly into their Windows Print Spooler queue.
   const availablePrinters = printers.filter(
-    (p) => isPhysicalPrinter(p) && !busySet.has(p.name.toLowerCase()),
+    (p) => isPhysicalPrinter(p) && (options.allowOffline || p.status !== "offline") && !busySet.has(p.name.toLowerCase()),
   );
 
   const compatiblePrinters = availablePrinters.filter(
@@ -322,10 +331,6 @@ export function findBestPrinterForJob(
   }
 
   // Helper to pick best printer from candidates:
-  // 1. Online default printer
-  // 2. Any online printer
-  // 3. Physical default printer (offline, will spool to Windows print queue)
-  // 4. Any physical printer (offline, will spool to Windows print queue)
   const pickBestCandidate = (candidates: DiscoveredPrinter[]): DiscoveredPrinter | null => {
     if (candidates.length === 0) return null;
     const onlineDefault = candidates.find((p) => p.isDefault && (p.status === "online" || p.status === "printing"));
@@ -348,7 +353,7 @@ export function findBestPrinterForJob(
       const satisfiesColor =
         options.colorMode === "color"
           ? matched.capabilities?.colorSupport === true
-          : true; // Any printer (mono or color in mono mode) can print B&W
+          : !matched.capabilities?.colorSupport; // Strict isolation: preferred color printer ignored for B&W
 
       if (satisfiesDuplex && satisfiesColor) {
         return matched;
@@ -364,9 +369,6 @@ export function findBestPrinterForJob(
     if (colorPrinters.length === 0) return null;
 
     if (options.requiresDuplex) {
-      // STRICT DUPLEX ROUTING:
-      // Must find a color printer that explicitly supports hardware duplex.
-      // NEVER fall back to simplex printers for duplex jobs.
       colorPrinters = colorPrinters.filter((p) => p.capabilities?.duplexSupport === true);
       return pickBestCandidate(colorPrinters);
     }
@@ -375,27 +377,36 @@ export function findBestPrinterForJob(
   }
 
   // B&W ROUTING:
-  // 1. Prioritize dedicated monochrome/B&W printer (!colorSupport) if one exists to preserve color ink
-  let monoPrinters = compatiblePrinters.filter((p) => !p.capabilities?.colorSupport);
-  if (monoPrinters.length > 0) {
-    if (options.requiresDuplex) {
-      const duplexMono = monoPrinters.filter((p) => p.capabilities?.duplexSupport === true);
-      if (duplexMono.length > 0) return pickBestCandidate(duplexMono);
-      // If simplex mono only, but duplex required, check if any duplex printer exists
-      const duplexAny = compatiblePrinters.filter((p) => p.capabilities?.duplexSupport === true);
-      if (duplexAny.length > 0) return pickBestCandidate(duplexAny);
+  if (options.requiresDuplex) {
+    // 1. Prioritize dedicated monochrome duplex printer
+    const duplexMono = compatiblePrinters.filter(
+      (p) => !p.capabilities?.colorSupport && p.capabilities?.duplexSupport === true,
+    );
+    if (duplexMono.length > 0) return pickBestCandidate(duplexMono);
+
+    // 2. Fallback to color duplex only if explicitly permitted
+    if (options.allowColorFallbackForMono === true) {
+      const duplexColor = compatiblePrinters.filter(
+        (p) => p.capabilities?.colorSupport === true && p.capabilities?.duplexSupport === true,
+      );
+      if (duplexColor.length > 0) return pickBestCandidate(duplexColor);
     }
+    return null;
+  }
+
+  // Single-sided B&W:
+  // 1. Dedicated monochrome printer (!colorSupport)
+  const monoPrinters = compatiblePrinters.filter((p) => !p.capabilities?.colorSupport);
+  if (monoPrinters.length > 0) {
     return pickBestCandidate(monoPrinters);
   }
 
-  // 2. Fallback: If no dedicated mono printer exists, route B&W to any compatible printer
-  // (Color printers print B&W jobs in monochrome mode via driver settings)
-  if (options.allowColorFallbackForMono !== false) {
-    if (options.requiresDuplex) {
-      const duplexPrinters = compatiblePrinters.filter((p) => p.capabilities?.duplexSupport === true);
-      if (duplexPrinters.length > 0) return pickBestCandidate(duplexPrinters);
+  // 2. Color printer fallback ONLY if allowColorFallbackForMono is explicitly true
+  if (options.allowColorFallbackForMono === true) {
+    const colorPrinters = compatiblePrinters.filter((p) => p.capabilities?.colorSupport === true);
+    if (colorPrinters.length > 0) {
+      return pickBestCandidate(colorPrinters);
     }
-    return pickBestCandidate(compatiblePrinters);
   }
 
   return null;
@@ -404,18 +415,24 @@ export function findBestPrinterForJob(
 export function findDefaultPrinter(
   printers: DiscoveredPrinter[],
   preferredName?: string | null,
+  allowOffline = false,
 ): DiscoveredPrinter | null {
-  printers = printers.filter((p) => isPhysicalPrinter(p) && (p.status === "online" || p.status === "printing"));
+  const physicalPrinters = printers.filter((p) => isPhysicalPrinter(p) && (allowOffline || p.status !== "offline"));
+  if (physicalPrinters.length === 0) return null;
+
   if (preferredName) {
-    const matched = printers.find((p) => p.name.toLowerCase() === preferredName.toLowerCase());
-    if (matched && matched.status === "online") return matched;
+    const matched = physicalPrinters.find((p) => p.name.toLowerCase() === preferredName.toLowerCase());
+    if (matched) return matched;
   }
 
-  const systemDefault = printers.find((p) => p.isDefault && p.status === "online");
-  if (systemDefault) return systemDefault;
+  const onlineDefault = physicalPrinters.find((p) => p.isDefault && (p.status === "online" || p.status === "printing"));
+  if (onlineDefault) return onlineDefault;
 
-  const firstOnline = printers.find((p) => p.status === "online");
+  const firstOnline = physicalPrinters.find((p) => p.status === "online" || p.status === "printing");
   if (firstOnline) return firstOnline;
 
-  return printers[0] || null;
+  const systemDefault = physicalPrinters.find((p) => p.isDefault);
+  if (systemDefault) return systemDefault;
+
+  return physicalPrinters[0] || null;
 }

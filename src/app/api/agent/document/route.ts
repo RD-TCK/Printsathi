@@ -24,7 +24,7 @@ export async function GET(request: Request) {
   // 1. Verify that this job belongs to this agent's shop and is claimed by this agent
   const { data: job, error: jobError } = await adminClient
     .from("print_jobs")
-    .select("id, shop_id, document_id, claimed_by_agent_id, status")
+    .select("id, shop_id, document_id, order_id, claimed_by_agent_id, status")
     .eq("id", jobId)
     .eq("shop_id", auth.shop.id)
     .maybeSingle();
@@ -44,7 +44,7 @@ export async function GET(request: Request) {
   // 2. Fetch document storage path
   const { data: document, error: docError } = await adminClient
     .from("documents")
-    .select("id, storage_path, original_filename, mime_type")
+    .select("id, storage_path, original_filename, mime_type, order_id")
     .eq("id", documentId)
     .eq("shop_id", auth.shop.id)
     .maybeSingle();
@@ -53,23 +53,60 @@ export async function GET(request: Request) {
     return NextResponse.json({ error: "Document record not found." }, { status: 404 });
   }
 
-  // 3. Download document from private storage bucket
-  const { data: fileData, error: downloadError } = await adminClient.storage
-    .from("print-documents")
-    .download(document.storage_path);
+  const effectiveOrderId = job.order_id || document.order_id;
+  let fileBuffer: Buffer | null = null;
+  let effectiveMime = document.mime_type || "application/pdf";
 
-  if (downloadError || !fileData) {
+  // 3. Download document
+  if (document.storage_path.startsWith("local://")) {
+    // For local-first documents, check if thumbnail preview exists in cloud
+    if (effectiveOrderId) {
+      const previewStoragePath = `shops/${auth.shop.id}/orders/${effectiveOrderId}/documents/${document.id}/preview.jpg`;
+      const { data: previewData } = await adminClient.storage
+        .from("print-documents")
+        .download(previewStoragePath);
+
+      if (previewData) {
+        const ab = await previewData.arrayBuffer();
+        fileBuffer = Buffer.from(ab);
+        effectiveMime = "image/jpeg";
+      }
+    }
+  } else {
+    const { data: fileData } = await adminClient.storage
+      .from("print-documents")
+      .download(document.storage_path);
+
+    if (fileData) {
+      const ab = await fileData.arrayBuffer();
+      fileBuffer = Buffer.from(ab);
+    }
+  }
+
+  // If normal download failed, try preview thumbnail as emergency fallback
+  if (!fileBuffer && effectiveOrderId) {
+    const fallbackPreview = `shops/${auth.shop.id}/orders/${effectiveOrderId}/documents/${document.id}/preview.jpg`;
+    const { data: fallbackData } = await adminClient.storage
+      .from("print-documents")
+      .download(fallbackPreview);
+
+    if (fallbackData) {
+      const ab = await fallbackData.arrayBuffer();
+      fileBuffer = Buffer.from(ab);
+      effectiveMime = "image/jpeg";
+    }
+  }
+
+  if (!fileBuffer) {
     return NextResponse.json({ error: "Could not retrieve document from storage." }, { status: 502 });
   }
 
-  const buffer = await fileData.arrayBuffer();
-
-  return new NextResponse(Buffer.from(buffer), {
+  return new NextResponse(fileBuffer, {
     status: 200,
     headers: {
-      "Content-Type": document.mime_type || "application/pdf",
+      "Content-Type": effectiveMime,
       "Content-Disposition": `attachment; filename="${encodeURIComponent(document.original_filename)}"`,
-      "Content-Length": String(buffer.byteLength),
+      "Content-Length": String(fileBuffer.byteLength),
     },
   });
 }
