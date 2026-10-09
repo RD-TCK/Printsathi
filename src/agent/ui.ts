@@ -1,8 +1,10 @@
 import http from "node:http";
+import fs from "node:fs";
+import path from "node:path";
 import { agentDaemon } from "./daemon";
 import { logger } from "./logger";
 import { whatsAppAgent } from "./whatsapp";
-import { DEFAULT_CONFIG } from "./config";
+import { DEFAULT_CONFIG, getDocumentCacheDirectory } from "./config";
 
 export class AgentWebServer {
   private server: http.Server | null = null;
@@ -243,6 +245,42 @@ export class AgentWebServer {
       await whatsAppAgent.disconnect(true);
       res.writeHead(200, { "Content-Type": "application/json" });
       res.end(JSON.stringify(whatsAppAgent.getStatus()));
+      return;
+    }
+
+    if (url.pathname === "/api/document" && req.method === "GET") {
+      const docId = (url.searchParams.get("documentId") || url.searchParams.get("id") || "").replace(
+        /[^a-zA-Z0-9_-]/g,
+        "",
+      );
+      if (!docId) {
+        res.writeHead(400, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({ error: "Missing documentId parameter" }));
+        return;
+      }
+      const cacheDir = getDocumentCacheDirectory();
+      const directPath = path.join(cacheDir, `doc_${docId}.pdf`);
+      const altPath = path.join(cacheDir, `${docId}.pdf`);
+      const targetPath = fs.existsSync(directPath) ? directPath : fs.existsSync(altPath) ? altPath : null;
+
+      if (!targetPath) {
+        res.writeHead(404, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({ error: "Document not found in local cache" }));
+        return;
+      }
+
+      try {
+        const fileBytes = fs.readFileSync(targetPath);
+        res.writeHead(200, {
+          "Content-Type": "application/pdf",
+          "Content-Length": fileBytes.length,
+          "Content-Disposition": `inline; filename="document_${docId}.pdf"`,
+        });
+        res.end(fileBytes);
+      } catch (err) {
+        res.writeHead(500, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({ error: "Failed to read local cached document" }));
+      }
       return;
     }
 

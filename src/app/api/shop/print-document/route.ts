@@ -1,3 +1,6 @@
+import fs from "node:fs";
+import path from "node:path";
+import os from "node:os";
 import { NextResponse } from "next/server";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
@@ -45,11 +48,13 @@ export async function GET(request: Request) {
   let storagePath: string | null = null;
   let filename = "document.pdf";
   let mimeType = "application/pdf";
+  let orderId: string | null = null;
+  let targetDocId: string | null = documentId;
 
   if (documentId) {
     const { data: doc } = await adminClient
       .from("documents")
-      .select("storage_path, original_filename, mime_type, shop_id")
+      .select("order_id, storage_path, original_filename, mime_type, shop_id")
       .eq("id", documentId)
       .eq("shop_id", member.shop_id)
       .maybeSingle();
@@ -58,10 +63,11 @@ export async function GET(request: Request) {
     storagePath = doc.storage_path;
     filename = doc.original_filename;
     mimeType = doc.mime_type || "application/pdf";
+    orderId = doc.order_id || null;
   } else if (jobId) {
     const { data: job } = await adminClient
       .from("print_jobs")
-      .select("document_id, shop_id, documents(storage_path, original_filename, mime_type)")
+      .select("order_id, document_id, shop_id, documents(id, storage_path, original_filename, mime_type)")
       .eq("id", jobId)
       .eq("shop_id", member.shop_id)
       .maybeSingle();
@@ -72,21 +78,84 @@ export async function GET(request: Request) {
     storagePath = doc.storage_path;
     filename = doc.original_filename;
     mimeType = doc.mime_type || "application/pdf";
+    orderId = job.order_id || null;
+    targetDocId = job.document_id || doc.id || null;
   }
 
   if (!storagePath) {
     return NextResponse.json({ error: "Document storage path missing." }, { status: 404 });
   }
 
-  const { data: fileData, error: downloadError } = await adminClient.storage
-    .from("print-documents")
-    .download(storagePath);
+  let originalBuffer: ArrayBuffer | null = null;
 
-  if (downloadError || !fileData) {
-    return NextResponse.json({ error: "Could not download document file." }, { status: 502 });
+  if (storagePath.startsWith("local://")) {
+    const rawId = storagePath.replace("local://", "").replace(/\.pdf$/i, "").replace(/^doc_/, "");
+    // 1. Try local disk cache if running on same Windows machine (e.g. localhost dev/desktop agent)
+    const appData =
+      process.env.LOCALAPPDATA ||
+      (process.platform === "win32" ? path.join(os.homedir(), "AppData", "Local") : "");
+    if (appData) {
+      const directPath = path.join(appData, "PrintivaAgent", "document_cache", `doc_${rawId}.pdf`);
+      const altPath = path.join(appData, "PrintivaAgent", "document_cache", `${rawId}.pdf`);
+      if (fs.existsSync(directPath)) {
+        try {
+          const buf = fs.readFileSync(directPath);
+          originalBuffer = buf.buffer.slice(buf.byteOffset, buf.byteOffset + buf.byteLength);
+        } catch {}
+      } else if (fs.existsSync(altPath)) {
+        try {
+          const buf = fs.readFileSync(altPath);
+          originalBuffer = buf.buffer.slice(buf.byteOffset, buf.byteOffset + buf.byteLength);
+        } catch {}
+      }
+    }
+
+    // 2. Try fetching from local agent web server if accessible
+    if (!originalBuffer) {
+      try {
+        const agentRes = await fetch(
+          `http://127.0.0.1:4321/api/document?documentId=${encodeURIComponent(rawId)}`,
+          { signal: AbortSignal.timeout(3000) },
+        );
+        if (agentRes.ok) {
+          originalBuffer = await agentRes.arrayBuffer();
+        }
+      } catch {}
+    }
+
+    // 3. Fallback: Check if preview image exists in Supabase storage
+    if (!originalBuffer && orderId && (targetDocId || rawId)) {
+      const docLookupId = targetDocId || rawId;
+      const previewStoragePath = `shops/${member.shop_id}/orders/${orderId}/documents/${docLookupId}/preview.jpg`;
+      const { data: previewData } = await adminClient.storage
+        .from("print-documents")
+        .download(previewStoragePath);
+
+      if (previewData) {
+        originalBuffer = await previewData.arrayBuffer();
+        mimeType = "image/jpeg";
+        filename = filename.replace(/\.pdf$/i, "") + "_preview.jpg";
+      }
+    }
+  } else {
+    const { data: fileData, error: downloadError } = await adminClient.storage
+      .from("print-documents")
+      .download(storagePath);
+
+    if (!downloadError && fileData) {
+      originalBuffer = await fileData.arrayBuffer();
+    }
   }
 
-  const originalBuffer = await fileData.arrayBuffer();
+  if (!originalBuffer) {
+    return NextResponse.json(
+      {
+        error:
+          "Could not retrieve document file from storage or local agent cache. Please ensure the Windows Agent is running.",
+      },
+      { status: 502 },
+    );
+  }
 
   // If PDF, check if we need to slice page ranges, duplicate copies, or handle duplexStep
   if (mimeType === "application/pdf") {

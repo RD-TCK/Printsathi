@@ -58,6 +58,8 @@ export interface ClaimedJob {
   /** For even-step duplex jobs: the Windows printer name that printed the front (odd) side.
    *  The daemon must route the back side to this exact printer. Null for non-duplex or odd-step jobs. */
   requiredPrinterName?: string | null;
+  /** When true, allows a B&W job to be spooled to a Color printer (in monochrome mode) if no dedicated mono printer exists */
+  allowColorFallback?: boolean;
 }
 
 export interface LogEntry {

@@ -293,12 +293,10 @@ export function findBestPrinterForJob(
         p.name.toLowerCase() === options.requiredPrinterName!.toLowerCase(),
     );
     if (matched) {
-      // STRICT HARDWARE ISOLATION ENFORCEMENT:
-      // 1. Color isolation: B&W jobs NEVER go to Color printers; Color jobs NEVER go to B&W printers.
+      // 1. Color isolation: Color jobs cannot go to Monochrome printers.
       if (options.colorMode === "color" && !matched.capabilities?.colorSupport) return null;
-      if (options.colorMode === "black_and_white" && matched.capabilities?.colorSupport === true) return null;
 
-      // 2. Duplex isolation: Duplex jobs NEVER go to Simplex printers.
+      // 2. Duplex isolation: Duplex jobs NEVER go to Simplex printers when hardware duplex is required.
       if (options.requiresDuplex && matched.capabilities?.duplexSupport !== true) return null;
 
       return matched;
@@ -350,7 +348,7 @@ export function findBestPrinterForJob(
       const satisfiesColor =
         options.colorMode === "color"
           ? matched.capabilities?.colorSupport === true
-          : !matched.capabilities?.colorSupport;
+          : true; // Any printer (mono or color in mono mode) can print B&W
 
       if (satisfiesDuplex && satisfiesColor) {
         return matched;
@@ -376,23 +374,31 @@ export function findBestPrinterForJob(
     return pickBestCandidate(colorPrinters);
   }
 
-  // STRICT B&W ROUTING:
-  // Must find a printer that is dedicated monochrome/B&W (!colorSupport).
-  // NEVER fall back to color printers for B&W jobs (saving expensive color ink/toner).
+  // B&W ROUTING:
+  // 1. Prioritize dedicated monochrome/B&W printer (!colorSupport) if one exists to preserve color ink
   let monoPrinters = compatiblePrinters.filter((p) => !p.capabilities?.colorSupport);
-  if (monoPrinters.length === 0) {
-    return null;
-  }
-
-  if (options.requiresDuplex) {
-    // STRICT DUPLEX ROUTING:
-    // Must find a monochrome printer that explicitly supports hardware duplex.
-    // NEVER fall back to simplex printers for duplex jobs.
-    monoPrinters = monoPrinters.filter((p) => p.capabilities?.duplexSupport === true);
+  if (monoPrinters.length > 0) {
+    if (options.requiresDuplex) {
+      const duplexMono = monoPrinters.filter((p) => p.capabilities?.duplexSupport === true);
+      if (duplexMono.length > 0) return pickBestCandidate(duplexMono);
+      // If simplex mono only, but duplex required, check if any duplex printer exists
+      const duplexAny = compatiblePrinters.filter((p) => p.capabilities?.duplexSupport === true);
+      if (duplexAny.length > 0) return pickBestCandidate(duplexAny);
+    }
     return pickBestCandidate(monoPrinters);
   }
 
-  return pickBestCandidate(monoPrinters);
+  // 2. Fallback: If no dedicated mono printer exists, route B&W to any compatible printer
+  // (Color printers print B&W jobs in monochrome mode via driver settings)
+  if (options.allowColorFallbackForMono !== false) {
+    if (options.requiresDuplex) {
+      const duplexPrinters = compatiblePrinters.filter((p) => p.capabilities?.duplexSupport === true);
+      if (duplexPrinters.length > 0) return pickBestCandidate(duplexPrinters);
+    }
+    return pickBestCandidate(compatiblePrinters);
+  }
+
+  return null;
 }
 
 export function findDefaultPrinter(

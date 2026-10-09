@@ -345,6 +345,29 @@ describe("PDF print submission", () => {
       expect(mocks.execute).not.toHaveBeenCalled();
     });
 
+    it("allows Black & White job on Color printer when allowColorFallback is enabled", async () => {
+      const colorPrinterName = "Epson EcoTank Color";
+      mocks.discover.mockResolvedValue([
+        {
+          name: colorPrinterName,
+          status: "online",
+          capabilities: { colorSupport: true, duplexSupport: false, paperSizes: ["A4"] },
+        },
+      ]);
+
+      const bwJobWithFallback = {
+        id: "job-bw-fallback",
+        totalPages: 1,
+        allowColorFallback: true,
+        pagesConfig: [{ startPage: 1, endPage: 1, colorMode: "black_and_white", paperSize: "a4" }],
+      } as ClaimedJob;
+
+      const result = await prepareAndPrintDocument(source, bwJobWithFallback, colorPrinterName);
+      expect(result.success).toBe(true);
+      expect(result.status).toBe("PRINT_SUBMITTED");
+      expect(mocks.execute).toHaveBeenCalled();
+    });
+
     it("strictly blocks Double-Sided job from spooling to a Simplex printer", async () => {
       const simplexPrinterName = "HP LaserJet 1020 (Simplex)";
       mocks.discover.mockResolvedValue([

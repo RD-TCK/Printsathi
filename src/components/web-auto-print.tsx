@@ -117,8 +117,22 @@ export function WebPrintButton({
         iframe.src = url;
         document.body.appendChild(iframe);
         iframe.onload = () => {
-          iframe.contentWindow?.print();
+          try {
+            iframe.contentWindow?.print();
+          } catch {
+            // PDF iframe printing might be blocked by browser sandbox
+          }
         };
+      }
+
+      // Signal local desktop agent to claim and physically print immediately if connected
+      try {
+        fetch("http://127.0.0.1:4321/api/trigger-poll", {
+          method: "POST",
+          mode: "cors",
+        }).catch(() => {});
+      } catch {
+        // Desktop agent bridge optional
       }
 
       // Automatically mark as completed in background (no manual confirmation required)

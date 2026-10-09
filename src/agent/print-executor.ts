@@ -112,9 +112,9 @@ export async function prepareAndPrintDocument(
     const hasDoubleSidedConfig = (activeConfigs || []).some((c) => c.sideMode === "double_sided");
 
     // Strict hardware isolation guards:
-    // 1. Guard against B&W job sent to color printer
+    // 1. Guard against B&W job sent to color printer (unless allowColorFallback is enabled)
     const isBwJob = (activeConfigs || []).every((c) => c.colorMode === "black_and_white");
-    if (isBwJob && printer.capabilities?.colorSupport === true) {
+    if (isBwJob && printer.capabilities?.colorSupport === true && !job.allowColorFallback) {
       throw new Error(
         `Hardware Isolation Violation: Black & White job #${job.id.slice(0, 8)} cannot be sent to Color printer "${printer.name}" to prevent wasting color ink/toner.`,
       );
@@ -126,7 +126,8 @@ export async function prepareAndPrintDocument(
         `Hardware Isolation Violation: Color job #${job.id.slice(0, 8)} cannot be sent to Monochrome printer "${printer.name}".`,
       );
     }
-    // 3. Guard against Duplex job sent to simplex printer (unless explicit manual duplex step)
+
+    // 3. Guard against Duplex job sent directly to simplex printer without duplexStep
     if (hasDoubleSidedConfig && !targetSupportsHardwareDuplex && !job.duplexStep) {
       throw new Error(
         `Hardware Isolation Violation: Double-sided job #${job.id.slice(0, 8)} cannot be sent to Simplex printer "${printer.name}".`,
@@ -137,6 +138,7 @@ export async function prepareAndPrintDocument(
     // If duplexStep is explicitly "odd" or "even", execute that specific manual pass.
     // Otherwise, if the job has double-sided configs:
     //   - If target printer supports hardware duplex -> execute in a single pass ("all" / hardware)
+    //   - If target printer is simplex -> execute Step 1 ("odd" / manual duplex)
     let duplexStep = job.duplexStep;
     if (hasDoubleSidedConfig) {
       if (!duplexStep || duplexStep === "none") {

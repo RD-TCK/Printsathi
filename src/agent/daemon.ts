@@ -476,6 +476,7 @@ export class AgentDaemon {
           requiredPrinterName: isDuplexEvenStep ? reservedPrinterForJob : null,
           requiresDuplex: isDoubleSided && !isDuplexEvenStep,
           busyPrinters,
+          allowColorFallbackForMono: true,
         });
         return { ranges, printer };
       });
@@ -491,11 +492,11 @@ export class AgentDaemon {
         const reason = isDuplexEvenStep
           ? `Reserved printer "${reservedPrinterForJob}" is currently offline or busy. Order will remain on hold for this printer.`
           : isDoubleSided && !hasHardwareDuplexInShop
-            ? `No hardware Duplex printer connected. Double-sided print jobs cannot be sent to Simplex printers.`
+            ? `No compatible printer connected for double-sided request. Request stays on hold.`
             : isDoubleSided && hasHardwareDuplexInShop
               ? `Hardware Duplex printer is currently busy printing. Double-sided request is held to print automatically on the duplex printer.`
               : requiredMode === "black_and_white"
-                ? `No free dedicated Black & White printer is available (B&W jobs are strictly isolated from Color printers). Request stays on hold.`
+                ? `No free physical printer is available for Black & White printing. Request stays on hold.`
                 : `No free compatible Color printer is available. Request stays on hold.`;
 
         logger.warn(`Job #${job.id.slice(0, 8)} held: ${reason}`);
@@ -504,6 +505,9 @@ export class AgentDaemon {
         this.currentJob = null;
         return;
       }
+
+      // Allow B&W jobs to print on color printer when needed
+      job.allowColorFallback = true;
 
       // Resolve final duplex execution step based on selected printer hardware capability
       const firstPrinter = plan[0]?.printer;
@@ -515,14 +519,11 @@ export class AgentDaemon {
           // Printer has hardware duplex unit: print both sides in a single pass
           job.duplexStep = "all";
         } else {
-          // Strict Safety Guard: Double-sided job reached simplex printer
-          const msg = `Hardware Isolation Violation: Double-sided job #${job.id.slice(0, 8)} cannot be sent to Simplex printer "${firstPrinter?.name}".`;
-          logger.error(msg);
-          this.processedJobIds.delete(jobKey);
-          await this.client.reportFailure(job.id, msg, true);
-          this.stats.jobsFailed += 1;
-          this.currentJob = null;
-          return;
+          // Simplex printer fallback: manual duplex Step 1 (odd pages first)
+          job.duplexStep = "odd";
+          logger.info(
+            `Simplex printer "${firstPrinter?.name}" detected for double-sided Job #${job.id.slice(0, 8)}; routing to manual duplex (Step 1: odd pages).`,
+          );
         }
       }
 
