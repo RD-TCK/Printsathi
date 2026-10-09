@@ -3,7 +3,7 @@ import path from "node:path";
 import os from "node:os";
 import type { AgentConfig } from "./types";
 
-const DEFAULT_CONFIG: AgentConfig = {
+export const DEFAULT_CONFIG: AgentConfig = {
   serverUrl: process.env.PRINTIVA_SERVER_URL || process.env.NEXT_PUBLIC_APP_URL || "https://printiva.co.in",
   agentId: null,
   shopId: null,

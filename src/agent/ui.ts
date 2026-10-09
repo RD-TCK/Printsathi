@@ -2,6 +2,7 @@ import http from "node:http";
 import { agentDaemon } from "./daemon";
 import { logger } from "./logger";
 import { whatsAppAgent } from "./whatsapp";
+import { DEFAULT_CONFIG } from "./config";
 
 export class AgentWebServer {
   private server: http.Server | null = null;
@@ -276,7 +277,7 @@ export class AgentWebServer {
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Printiva — Hardware Print Agent</title>
+  <title>Printiva Desktop Agent v${DEFAULT_CONFIG.version}</title>
   <style>
     :root {
       --brand-950: #064e3b;
@@ -585,7 +586,7 @@ export class AgentWebServer {
       <div class="logo-area">
         <div class="logo">
           Printiva
-          <span class="logo-badge">Desktop Agent</span>
+          <span class="logo-badge">Desktop Agent v${DEFAULT_CONFIG.version}</span>
         </div>
         <div class="tagline">Zero-Touch Hardware Print Spooler</div>
       </div>

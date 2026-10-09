@@ -13,13 +13,18 @@ export default function DownloadPage() {
           Run the Windows agent on the computer connected to your printer. Paid customer documents arrive automatically
           with their paper and color settings.
         </p>
-        <a
-          href="/api/agent/download"
-          className="mt-6 inline-flex items-center gap-2 rounded-xl bg-white px-5 py-3 font-semibold text-brand-900"
-        >
-          <Download className="size-5" />
-          Download Windows agent
-        </a>
+        <div className="mt-6 flex flex-wrap items-center gap-4">
+          <a
+            href="https://github.com/RD-TCK/Printsathi/releases/download/v1.8.2/PrintivaAgent.exe"
+            className="inline-flex items-center gap-2 rounded-xl bg-white px-5 py-3 font-semibold text-brand-900 shadow-sm transition hover:bg-white/90"
+          >
+            <Download className="size-5" />
+            Download Windows Agent (v1.8.2)
+          </a>
+          <span className="text-xs text-white/70">
+            Version 1.8.2 &bull; 64-bit Windows 10/11
+          </span>
+        </div>
       </div>
       <ol className="mt-8 grid gap-4 sm:grid-cols-3">
         {[

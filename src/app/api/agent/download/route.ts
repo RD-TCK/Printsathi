@@ -11,7 +11,14 @@ export async function GET() {
     try {
       const target = new URL(url);
       if (!["http:", "https:"].includes(target.protocol)) throw new Error();
-      return NextResponse.redirect(target);
+      return NextResponse.redirect(target, {
+        status: 307,
+        headers: {
+          "Cache-Control": "no-store, no-cache, must-revalidate, proxy-revalidate, max-age=0",
+          Pragma: "no-cache",
+          Expires: "0",
+        },
+      });
     } catch {
       return NextResponse.json({ error: "Agent download URL is invalid." }, { status: 503 });
     }

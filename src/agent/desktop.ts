@@ -2,6 +2,7 @@ import { app, BrowserWindow, Menu, Tray, nativeImage, shell, powerSaveBlocker } 
 import { agentDaemon } from "./daemon";
 import { AgentWebServer } from "./ui";
 import { logger } from "./logger";
+import { DEFAULT_CONFIG } from "./config";
 
 // Prevent Windows Chromium GPU shader disk cache errors and access-denied locks
 app.commandLine.appendSwitch("disable-gpu-shader-disk-cache");
@@ -124,7 +125,7 @@ function createWindow() {
     minHeight: 600,
     show: false,
     autoHideMenuBar: true,
-    title: "Printiva Desktop Agent",
+    title: `Printiva Desktop Agent v${DEFAULT_CONFIG.version}`,
     icon: appIcon,
     webPreferences: {
       contextIsolation: true,
@@ -171,7 +172,7 @@ function createTray() {
   const trayIcon = trayIconPath ? nativeImage.createFromPath(trayIconPath) : nativeImage.createEmpty();
 
   tray = new Tray(trayIcon);
-  tray.setToolTip("Printiva Desktop Agent");
+  tray.setToolTip(`Printiva Desktop Agent v${DEFAULT_CONFIG.version}`);
   tray.setContextMenu(
     Menu.buildFromTemplate([
       { label: "Open Printiva", click: () => mainWindow?.show() },
