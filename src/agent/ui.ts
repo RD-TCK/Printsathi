@@ -955,7 +955,7 @@ export class AgentWebServer {
             </div>
             <div>
               <span class="badge \${isOnline ? 'badge-online' : 'badge-offline'}" style="font-size:10px;">
-                \${isOnline ? 'ONLINE' : 'OFFLINE'}
+                \${isOnline ? 'ONLINE' : 'OFFLINE (QUEUES IN WINDOWS)'}
               </span>
             </div>
           </div>

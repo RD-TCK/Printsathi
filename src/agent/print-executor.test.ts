@@ -104,10 +104,12 @@ describe("PDF print submission", () => {
     expect(mocks.execute).toHaveBeenCalled();
   });
 
-  it.each(["offline", "error"])("rejects %s printers without launching a renderer", async (status) => {
-    mocks.discover.mockResolvedValue([{ name: printerName, status }]);
-    expect((await prepareAndPrintDocument(source, job, printerName)).success).toBe(false);
-    expect(mocks.execute).not.toHaveBeenCalled();
+  it("spools to Windows print queue even when physical printer is offline", async () => {
+    mocks.discover.mockResolvedValue([{ name: printerName, status: "offline" }]);
+    const res = await prepareAndPrintDocument(source, job, printerName);
+    expect(res.success).toBe(true);
+    expect(res.status).toBe("PRINT_SUBMITTED");
+    expect(mocks.execute).toHaveBeenCalled();
   });
 
   it("rejects virtual printers and invalid ranges", async () => {

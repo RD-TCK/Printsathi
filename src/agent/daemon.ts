@@ -395,15 +395,8 @@ export class AgentDaemon {
       await this.refreshPrinters();
       const defaultPrinter = findDefaultPrinter(this.discoveredPrinters, this.config.selectedPrinter);
       if (!defaultPrinter) {
-        const physicalCount = this.discoveredPrinters.filter(
-          (p) =>
-            !/onenote|print to pdf|xps|fax|pdfcreator|cutepdf|bullzip|dopdf/i.test(`${p.name} ${p.driverName || ""}`) &&
-            !/^(nul:|portprompt:|file:)$/i.test(p.portName || ""),
-        ).length;
         logger.warn(
-          physicalCount > 0
-            ? `No ONLINE physical printer available (${physicalCount} detected but all offline/error). Waiting for printer to come online.`
-            : "No physical printer detected by Windows Spooler. Please ensure a printer is connected, powered on, and its driver is installed.",
+          "No physical printer detected by Windows Spooler. Please ensure a physical printer is installed in Windows Printers & Scanners.",
         );
         return;
       }

@@ -80,9 +80,12 @@ export async function prepareAndPrintDocument(
   try {
     if (!isWindows) throw new Error("Physical printing requires Windows; no job was submitted.");
     const printer = (await discoverWindowsPrinters()).find((p) => p.name === targetPrinterName);
-    if (!printer || !isPhysicalPrinter(printer) || !["online", "printing"].includes(printer.status)) {
-      throw new Error(
-        `Printer "${targetPrinterName}" is unavailable, offline, or virtual. Check its Windows print queue.`,
+    if (!printer || !isPhysicalPrinter(printer)) {
+      throw new Error(`Printer "${targetPrinterName}" is not an installed physical Windows printer.`);
+    }
+    if (printer.status === "offline") {
+      logger.info(
+        `Target printer "${targetPrinterName}" is currently offline. Document will be spooled to Windows print queue and will print once connected.`,
       );
     }
     if (
