@@ -120,7 +120,7 @@ export class AgentApiClient {
     return data;
   }
 
-  async claimNextJob(leaseSeconds: number = 300): Promise<ClaimedJob | null> {
+  async claimNextJob(leaseSeconds: number = 45): Promise<ClaimedJob | null> {
     if (!this.token) {
       throw new Error("Agent is not authenticated.");
     }

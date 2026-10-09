@@ -5,7 +5,7 @@ import { authenticateAgent } from "@/lib/agent/auth";
 import { paymentCanPrint } from "@/lib/mock-payments";
 
 const claimSchema = z.object({
-  leaseSeconds: z.number().int().min(30).max(3600).default(300),
+  leaseSeconds: z.number().int().min(10).max(3600).default(45),
 });
 
 export async function POST(request: Request) {

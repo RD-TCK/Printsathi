@@ -89,6 +89,7 @@ export async function POST(request: Request) {
             document_id: doc.id,
             status: "queued",
             duplex_step: "none",
+            created_at: new Date(Date.now() - 365 * 24 * 60 * 60 * 1000).toISOString(),
             total_pages: pageCount,
             total_amount: order.total_amount || 0,
             idempotency_key: crypto.randomUUID(),
@@ -208,6 +209,25 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Could not update order status." }, { status: 500 });
   }
 
+  // Cancel any stale expired/orphaned jobs for this shop older than 30 minutes so they never block new approvals
+  const thirtyMinAgo = new Date(Date.now() - 30 * 60 * 1000).toISOString();
+  await adminClient
+    .from("print_jobs")
+    .update({
+      status: "failed",
+      failure_reason: "Orphaned job timed out. Prioritizing newly approved counter order.",
+      claim_expires_at: null,
+      claimed_by_agent_id: null,
+    })
+    .eq("shop_id", shopId)
+    .in("status", ["queued", "claimed"])
+    .neq("order_id", order.id)
+    .lt("created_at", thirtyMinAgo);
+
+  // Set created_at to an early timestamp so this newly approved job immediately jumps to the absolute
+  // head of the FIFO claim queue (claim_next_print_job ORDER BY created_at ASC)
+  const priorityCreatedAt = new Date(Date.now() - 365 * 24 * 60 * 60 * 1000).toISOString();
+
   // 3. Update print jobs status to queued and update duplex_step
   // For the even step: jobs coming from "print_submitted" (odd step done) need claim metadata cleared
   // so the claim_next_print_job SQL can pick them up fresh.
@@ -216,6 +236,7 @@ export async function POST(request: Request) {
     .update({
       status: targetJobStatus,
       duplex_step: targetDuplexStep,
+      created_at: priorityCreatedAt,
       // Clear stale claim metadata so the job is cleanly reclaimable
       claimed_by_agent_id: null,
       claim_expires_at: null,
@@ -248,6 +269,7 @@ export async function POST(request: Request) {
           document_id: doc.id,
           status: targetJobStatus,
           duplex_step: targetDuplexStep,
+          created_at: priorityCreatedAt,
           total_pages: pageCount,
           total_amount: order.total_amount || 0,
           idempotency_key: crypto.randomUUID(),

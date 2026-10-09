@@ -979,7 +979,9 @@ export class AgentWebServer {
         \` + status.printers.map(p => {
           const isColor = Boolean(p.capabilities && p.capabilities.colorSupport);
           const isOnline = ['online', 'printing'].includes(p.status);
-          const isSelected = status.selectedPrinter ? status.selectedPrinter.toLowerCase() === p.name.toLowerCase() : p.isDefault;
+          const isSelected = status.selectedPrinter
+            ? status.selectedPrinter.toLowerCase() === p.name.toLowerCase()
+            : (isOnline && p.isDefault) || isOnline;
           return \`
           <div class="printer-card" style="\${isSelected ? 'border-color:#10b981; background:#f0fdf4;' : ''}">
             <div>
@@ -988,15 +990,15 @@ export class AgentWebServer {
                 <span class="badge" style="font-size:9px; \${isColor ? 'background:#ecfdf5; color:#047857; border:1px solid #a7f3d0;' : 'background:#f1f5f9; color:#475569; border:1px solid #e2e8f0;'}">
                   \${isColor ? '🎨 Color' : '📄 B&W'}
                 </span>
-                \${isSelected ? '<span class="badge" style="font-size:9px; background:#d1fae5; color:#065f46; border:1px solid #6ee7b7;">⭐ ACTIVE DEFAULT</span>' : ''}
+                \${isSelected && isOnline ? '<span class="badge" style="font-size:9px; background:#d1fae5; color:#065f46; border:1px solid #6ee7b7;">⭐ ACTIVE (AUTO-ROUTED)</span>' : ''}
               </div>
               <div style="font-size:11px; color:var(--text-muted); margin-top:2px;">\${escapeHtml(p.driverName || 'Windows Spooler')}</div>
             </div>
             <div style="display:flex; align-items:center; gap:8px;">
               <span class="badge \${isOnline ? 'badge-online' : 'badge-offline'}" style="font-size:10px;">
-                \${isOnline ? 'ONLINE' : 'OFFLINE'}
+                \${isOnline ? 'ONLINE & READY' : 'OFFLINE (DISCONNECTED)'}
               </span>
-              \${!isSelected ? \`<button type="button" class="btn-secondary" style="font-size:11px; padding:4px 10px; cursor:pointer;" onclick="selectDefaultPrinter('\${escapeHtml(p.name)}')">Use as Default</button>\` : ''}
+              \${!isSelected && isOnline ? \`<button type="button" class="btn-secondary" style="font-size:11px; padding:4px 10px; cursor:pointer;" onclick="selectDefaultPrinter('\${escapeHtml(p.name)}')">Use as Default</button>\` : ''}
             </div>
           </div>
         \`;

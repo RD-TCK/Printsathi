@@ -353,10 +353,22 @@ export function findBestPrinterForJob(
       const satisfiesColor =
         options.colorMode === "color"
           ? matched.capabilities?.colorSupport === true
-          : !matched.capabilities?.colorSupport; // Strict isolation: preferred color printer ignored for B&W
+          : !matched.capabilities?.colorSupport || options.allowColorFallbackForMono === true;
 
       if (satisfiesDuplex && satisfiesColor) {
-        return matched;
+        // Zero-touch: If preferred printer is OFFLINE, but an ONLINE compatible printer is available,
+        // do not blindly route to the offline printer!
+        const hasOnlineCandidate = compatiblePrinters.some(
+          (p) =>
+            (p.status === "online" || p.status === "printing") &&
+            (!options.requiresDuplex || p.capabilities?.duplexSupport === true) &&
+            (options.colorMode === "color"
+              ? p.capabilities?.colorSupport === true
+              : !p.capabilities?.colorSupport || options.allowColorFallbackForMono === true),
+        );
+        if (matched.status !== "offline" || !hasOnlineCandidate) {
+          return matched;
+        }
       }
     }
   }
@@ -422,7 +434,10 @@ export function findDefaultPrinter(
 
   if (preferredName) {
     const matched = physicalPrinters.find((p) => p.name.toLowerCase() === preferredName.toLowerCase());
-    if (matched) return matched;
+    const hasOnlinePhysical = physicalPrinters.some((p) => p.status === "online" || p.status === "printing");
+    if (matched && (matched.status !== "offline" || !hasOnlinePhysical)) {
+      return matched;
+    }
   }
 
   const onlineDefault = physicalPrinters.find((p) => p.isDefault && (p.status === "online" || p.status === "printing"));

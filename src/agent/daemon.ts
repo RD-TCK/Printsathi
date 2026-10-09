@@ -248,6 +248,27 @@ export class AgentDaemon {
     try {
       this.discoveredPrinters = await discoverWindowsPrinters();
       this.lastPrinterDiscoveryTime = Date.now();
+
+      // Zero-Touch Auto-Selection: If no printer is selected, or if the currently selected printer is offline,
+      // automatically select the connected online physical printer so the user never has to configure it manually.
+      const physicalPrinters = this.discoveredPrinters.filter(isPhysicalPrinter);
+      const onlinePhysical = physicalPrinters.filter((p) => p.status === "online" || p.status === "printing");
+      const currentSelected = this.config.selectedPrinter;
+      const isCurrentOnline =
+        currentSelected && onlinePhysical.some((p) => p.name.toLowerCase() === currentSelected.toLowerCase());
+
+      if (!isCurrentOnline && onlinePhysical.length > 0) {
+        const bestOnline = onlinePhysical.find((p) => p.isDefault) || onlinePhysical[0];
+        if (bestOnline && bestOnline.name !== this.config?.selectedPrinter) {
+          logger.info(`⚡ Zero-Touch: Automatically active on connected online printer "${bestOnline.name}".`);
+          this.config = { ...this.config, selectedPrinter: bestOnline.name };
+          try {
+            saveConfig({ selectedPrinter: bestOnline.name });
+          } catch {
+            // non-fatal
+          }
+        }
+      }
     } catch {
       this.discoveredPrinters = [];
     } finally {
@@ -407,7 +428,7 @@ export class AgentDaemon {
         );
         return;
       }
-      const job = await this.client.claimNextJob(300); // 5 minute lease
+      const job = await this.client.claimNextJob(45); // 45 second fast-recovery lease
       if (!job) {
         return;
       }
@@ -475,16 +496,23 @@ export class AgentDaemon {
         busyPrinters.delete(reservedPrinterForJob.toLowerCase());
       }
 
+      const hasHardwareDuplexInShop = this.discoveredPrinters.some(
+        (p) => isPhysicalPrinter(p) && p.capabilities?.duplexSupport === true,
+      );
+      const hasColorPrinterInShop = this.discoveredPrinters.some(
+        (p) => isPhysicalPrinter(p) && p.capabilities?.colorSupport === true,
+      );
+
       const plan = groups.map((ranges) => {
         const printer = findBestPrinterForJob(this.discoveredPrinters, {
-          colorMode: ranges[0].colorMode,
+          colorMode: hasColorPrinterInShop ? ranges[0].colorMode : "black_and_white",
           paperSize: ranges[0].paperSize,
           preferredName: this.config.selectedPrinter || job.defaultPrinter,
           requiredPrinterName: isDuplexEvenStep ? reservedPrinterForJob : null,
-          requiresDuplex: isDoubleSided && !isDuplexEvenStep,
+          requiresDuplex: isDoubleSided && hasHardwareDuplexInShop && !isDuplexEvenStep,
           busyPrinters,
           allowColorFallbackForMono: true,
-          allowOffline: true,
+          allowOffline: false,
         });
         return { ranges, printer };
       });
