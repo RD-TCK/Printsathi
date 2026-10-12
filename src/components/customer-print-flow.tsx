@@ -1147,10 +1147,17 @@ export function CustomerPrintFlow({
     const targetDoc = documents[cropTargetDocIndex];
     if (!targetDoc) return;
 
+    const capturedDocIndex = cropTargetDocIndex;
+    const capturedTargetDocId = targetDoc.id;
+
+    setBusy(true);
+    setUploadStatus("Processing & updating cropped document... Please wait");
+    setError(null);
+
     // Update local preview immediately
     setDocuments((docs) =>
       docs.map((doc, idx) =>
-        idx === cropTargetDocIndex
+        idx === capturedDocIndex || doc.id === capturedTargetDocId
           ? {
               ...doc,
               previewUrl: croppedDataUrl,
@@ -1160,7 +1167,7 @@ export function CustomerPrintFlow({
       ),
     );
 
-    // Re-upload cropped image in background to update normalized print PDF on server
+    // Re-upload cropped image to update normalized print PDF on server
     if (orderId && accessToken) {
       try {
         const croppedFile = new File([croppedBlob], targetDoc.filename || "image.jpg", {
@@ -1170,13 +1177,14 @@ export function CustomerPrintFlow({
         form.append("shopIdentifier", identifier);
         form.append("orderId", orderId);
         form.append("accessToken", accessToken);
-        if (targetDoc.id) {
-          form.append("replaceDocumentId", targetDoc.id);
+        if (capturedTargetDocId) {
+          form.append("replaceDocumentId", capturedTargetDocId);
         }
         form.append("files", croppedFile);
 
         const uploadRes = await safeFetchJson<{
           orderId: string;
+          accessToken: string;
           documents: CustomerDocument[];
         }>(
           await fetch("/api/customer/upload", {
@@ -1185,23 +1193,47 @@ export function CustomerPrintFlow({
           }),
         );
 
-        if (uploadRes.ok && uploadRes.data && uploadRes.data.documents.length > 0) {
-          const updatedServerDoc = uploadRes.data.documents[uploadRes.data.documents.length - 1];
-          setDocuments((docs) =>
-            docs.map((doc, idx) =>
-              idx === cropTargetDocIndex
-                ? {
-                    ...doc,
-                    id: updatedServerDoc.id,
-                    sizeBytes: updatedServerDoc.sizeBytes,
-                  }
-                : doc,
-            ),
-          );
+        if (!uploadRes.ok || !uploadRes.data || uploadRes.data.documents.length === 0) {
+          throw new Error(uploadRes.error || "Failed to update cropped document on server.");
         }
-      } catch {
-        // Fallback gracefully
+
+        const updatedServerDoc = uploadRes.data.documents[uploadRes.data.documents.length - 1];
+        if (uploadRes.data.orderId) {
+          setOrderId(uploadRes.data.orderId);
+        }
+        if (uploadRes.data.accessToken) {
+          setAccessToken(uploadRes.data.accessToken);
+        }
+
+        let updatedDocs: CustomerDocument[] = [];
+        setDocuments((docs) => {
+          updatedDocs = docs.map((doc, idx) =>
+            idx === capturedDocIndex || doc.id === capturedTargetDocId
+              ? {
+                  ...doc,
+                  id: updatedServerDoc.id,
+                  sizeBytes: updatedServerDoc.sizeBytes,
+                  pageCount: updatedServerDoc.pageCount || doc.pageCount,
+                }
+              : doc,
+          );
+          return updatedDocs;
+        });
+
+        await fetchEstimate(
+          updatedDocs,
+          uploadRes.data.orderId || orderId,
+          uploadRes.data.accessToken || accessToken,
+        );
+      } catch (err) {
+        setError(err instanceof Error ? err.message : "Failed to update cropped document on server.");
+      } finally {
+        setBusy(false);
+        setUploadStatus(null);
       }
+    } else {
+      setBusy(false);
+      setUploadStatus(null);
     }
   }
 
@@ -1337,7 +1369,7 @@ export function CustomerPrintFlow({
       }
 
       setStep(1);
-      void fetchEstimate(nextDocs, uploadRes.data.orderId, uploadRes.data.accessToken);
+      await fetchEstimate(nextDocs, uploadRes.data.orderId, uploadRes.data.accessToken);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to apply combined photo sheet.");
     } finally {
@@ -1350,6 +1382,7 @@ export function CustomerPrintFlow({
   async function handleProceedToCounterToken() {
     if (!orderId || !accessToken || !allValid) return;
     setBusy(true);
+    setUploadStatus("Generating counter token... Please wait");
     setError(null);
     try {
       // 1. Refresh estimate
@@ -1413,12 +1446,14 @@ export function CustomerPrintFlow({
       setError(msg);
     } finally {
       setBusy(false);
+      setUploadStatus(null);
     }
   }
 
   async function handleProceedToPay() {
     if (!orderId || !accessToken || !allValid) return;
     setBusy(true);
+    setUploadStatus("Preparing checkout... Please wait");
     setError(null);
     try {
       // 1. Refresh estimate
@@ -1467,6 +1502,7 @@ export function CustomerPrintFlow({
       setError(msg);
     } finally {
       setBusy(false);
+      setUploadStatus(null);
     }
   }
 
@@ -1586,6 +1622,7 @@ export function CustomerPrintFlow({
             removeDocument={removeDocument}
             allValid={allValid}
             busy={busy}
+            uploadStatus={uploadStatus}
             estimate={estimate}
 
             onOpenCropper={(docIndex) => {
@@ -2731,6 +2768,7 @@ function ConfigureAndCropStep({
   removeDocument,
   allValid,
   busy,
+  uploadStatus,
   estimate,
   onOpenCropper,
   onOpenMultiImage,
@@ -2751,6 +2789,7 @@ function ConfigureAndCropStep({
   removeDocument: (index: number) => void;
   allValid: boolean;
   busy: boolean;
+  uploadStatus?: string | null;
   estimate?: Estimate | null;
   onOpenCropper: (docIndex: number) => void;
   onOpenMultiImage: (initialDocIndex?: number, defaultPreset?: LayoutTemplate) => void;
@@ -2856,6 +2895,21 @@ function ConfigureAndCropStep({
 
   return (
     <div className="space-y-2.5 sm:space-y-4">
+      {/* On-Screen Processing & Please Wait Banner */}
+      {busy && (
+        <div className="flex items-center gap-2.5 rounded-2xl border border-emerald-300/80 bg-emerald-50/95 p-3 sm:p-3.5 text-xs text-emerald-950 font-medium shadow-xs animate-pulse">
+          <LoaderCircle className="size-4.5 animate-spin text-emerald-700 shrink-0" />
+          <div className="flex-1 min-w-0">
+            <p className="font-bold text-emerald-900 text-xs sm:text-sm leading-tight">
+              {uploadStatus || "Processing document... Please wait"}
+            </p>
+            <p className="text-emerald-800 text-[11px] sm:text-xs leading-tight mt-0.5">
+              Please wait while your document updates before generating a token or paying.
+            </p>
+          </div>
+        </div>
+      )}
+
       {/* Offline Warnings */}
       {colorPrinterUnavailable ? (
         <Alert tone="warning" title="Color Printer Currently Offline">
@@ -3544,7 +3598,7 @@ function ConfigureAndCropStep({
               {busy ? (
                 <>
                   <LoaderCircle className="size-4 animate-spin" />
-                  <span>Processing...</span>
+                  <span>Please wait · Processing...</span>
                 </>
               ) : (
                 <>
@@ -3563,7 +3617,7 @@ function ConfigureAndCropStep({
               {busy ? (
                 <>
                   <LoaderCircle className="size-4 animate-spin" />
-                  <span>Processing...</span>
+                  <span>Please wait · Processing...</span>
                 </>
               ) : (
                 <>
@@ -3583,7 +3637,7 @@ function ConfigureAndCropStep({
             {busy ? (
               <>
                 <LoaderCircle className="size-4 animate-spin" />
-                <span>Generating Token...</span>
+                <span>Please wait · Processing...</span>
               </>
             ) : (
               <>
@@ -3603,7 +3657,7 @@ function ConfigureAndCropStep({
             {busy ? (
               <>
                 <LoaderCircle className="size-4 animate-spin" />
-                <span>Preparing Payment...</span>
+                <span>Please wait · Processing...</span>
               </>
             ) : (
               <>
@@ -3639,8 +3693,17 @@ function ConfigureAndCropStep({
                 onClick={onProceedToCounterToken}
                 className="flex-1 inline-flex items-center justify-center gap-1 rounded-xl bg-emerald-600 py-2.5 px-2 text-[11.5px] font-bold text-white shadow-xs active:scale-95 transition disabled:opacity-50 truncate"
               >
-                <Ticket className="size-3.5 shrink-0" />
-                <span className="truncate">Token</span>
+                {busy ? (
+                  <>
+                    <LoaderCircle className="size-3.5 animate-spin shrink-0" />
+                    <span className="truncate">Please wait...</span>
+                  </>
+                ) : (
+                  <>
+                    <Ticket className="size-3.5 shrink-0" />
+                    <span className="truncate">Token</span>
+                  </>
+                )}
               </button>
               <button
                 type="button"
@@ -3648,8 +3711,17 @@ function ConfigureAndCropStep({
                 onClick={onProceedToPay}
                 className="flex-1 inline-flex items-center justify-center gap-1 rounded-xl bg-slate-900 py-2.5 px-2 text-[11.5px] font-bold text-white shadow-xs active:scale-95 transition disabled:opacity-50 truncate"
               >
-                <CreditCard className="size-3.5 shrink-0" />
-                <span className="truncate">Pay Online</span>
+                {busy ? (
+                  <>
+                    <LoaderCircle className="size-3.5 animate-spin shrink-0" />
+                    <span className="truncate">Please wait...</span>
+                  </>
+                ) : (
+                  <>
+                    <CreditCard className="size-3.5 shrink-0" />
+                    <span className="truncate">Pay Online</span>
+                  </>
+                )}
               </button>
             </div>
           ) : shopPaymentMode === "counter" ? (
@@ -3659,8 +3731,17 @@ function ConfigureAndCropStep({
               onClick={onProceedToCounterToken}
               className="flex-1 inline-flex items-center justify-center gap-1.5 rounded-xl bg-emerald-600 py-2.5 px-3 text-xs font-bold text-white shadow-xs active:scale-95 transition disabled:opacity-50"
             >
-              <Ticket className="size-4 shrink-0" />
-              <span>Generate Token (₹{displayTotalAmount})</span>
+              {busy ? (
+                <>
+                  <LoaderCircle className="size-3.5 animate-spin shrink-0" />
+                  <span>Please wait...</span>
+                </>
+              ) : (
+                <>
+                  <Ticket className="size-4 shrink-0" />
+                  <span>Generate Token (₹{displayTotalAmount})</span>
+                </>
+              )}
             </button>
           ) : (
             <button
@@ -3669,8 +3750,17 @@ function ConfigureAndCropStep({
               onClick={onProceedToPay}
               className="flex-1 inline-flex items-center justify-center gap-1.5 rounded-xl bg-emerald-600 py-2.5 px-3 text-xs font-bold text-white shadow-xs active:scale-95 transition disabled:opacity-50"
             >
-              <CreditCard className="size-4 shrink-0" />
-              <span>Pay Online (₹{displayTotalAmount})</span>
+              {busy ? (
+                <>
+                  <LoaderCircle className="size-3.5 animate-spin shrink-0" />
+                  <span>Please wait...</span>
+                </>
+              ) : (
+                <>
+                  <CreditCard className="size-4 shrink-0" />
+                  <span>Pay Online (₹{displayTotalAmount})</span>
+                </>
+              )}
             </button>
           )}
         </div>

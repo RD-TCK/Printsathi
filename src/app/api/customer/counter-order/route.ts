@@ -107,9 +107,10 @@ export async function POST(request: Request) {
   // 3. Validate documents and pricing
   const { data: documents } = await client
     .from("documents")
-    .select("id, order_id, page_count, original_filename")
+    .select("id, order_id, page_count, original_filename, created_at")
     .eq("order_id", orderId)
-    .eq("shop_id", shop.id);
+    .eq("shop_id", shop.id)
+    .order("created_at", { ascending: false });
 
   const documentMap = new Map((documents ?? []).map((doc) => [doc.id, doc]));
   const { data: rules } = await client
@@ -142,11 +143,20 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "A document cannot be configured more than once." }, { status: 400 });
   }
 
+  const validationAllocatedDocIds = new Set<string>();
   for (const configuration of parsed.data.configurations) {
-    const document = documentMap.get(configuration.documentId);
+    let document = documentMap.get(configuration.documentId);
+    if (!document && documents && documents.length > 0) {
+      const maxRequestedPage = Math.max(...configuration.ranges.map((r) => r.endPage), 1);
+      document =
+        documents.find((d) => !validationAllocatedDocIds.has(d.id) && d.page_count >= maxRequestedPage) ||
+        documents.find((d) => !validationAllocatedDocIds.has(d.id)) ||
+        documents[0];
+    }
     if (configuration.orderId !== orderId || !document || validateRanges(configuration.ranges, document.page_count)) {
       return NextResponse.json({ error: "Invalid document or page ranges." }, { status: 400 });
     }
+    validationAllocatedDocIds.add(document.id);
   }
 
   // 4. Generate sequential token number for this shop.
@@ -183,7 +193,11 @@ export async function POST(request: Request) {
     let document = documentMap.get(configuration.documentId);
     // If exact ID not found (e.g. crop replaced the document ID right before token submit), match by unallocated order document
     if (!document && documents && documents.length > 0) {
-      document = documents.find((d) => !allocatedDocIds.has(d.id)) || documents[0];
+      const maxRequestedPage = Math.max(...configuration.ranges.map((r) => r.endPage), 1);
+      document =
+        documents.find((d) => !allocatedDocIds.has(d.id) && d.page_count >= maxRequestedPage) ||
+        documents.find((d) => !allocatedDocIds.has(d.id)) ||
+        documents[0];
     }
     if (!document || document.order_id !== orderId) continue;
     allocatedDocIds.add(document.id);

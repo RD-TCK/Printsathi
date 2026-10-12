@@ -123,7 +123,7 @@ export async function POST(request: Request) {
       .eq("guest_access_token_hash", tokenHash)
       .maybeSingle();
 
-    if (existingOrder && existingOrder.status === "draft") {
+    if (existingOrder && ["draft", "awaiting_payment"].includes(existingOrder.status)) {
       orderId = existingOrder.id;
       orderPublicId = existingOrder.public_id;
       returnAccessToken = existingAccessToken.data;

@@ -82,9 +82,10 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Order is no longer configurable." }, { status: 409 });
   const { data: documents } = await client
     .from("documents")
-    .select("id, order_id, page_count")
+    .select("id, order_id, page_count, created_at")
     .eq("order_id", orderId)
-    .eq("shop_id", shop.id);
+    .eq("shop_id", shop.id)
+    .order("created_at", { ascending: false });
   const documentMap = new Map((documents ?? []).map((document) => [document.id, document]));
   const { data: rules } = await client
     .from("pricing_rules")
@@ -124,10 +125,19 @@ export async function POST(request: Request) {
   }
   if (new Set(parsed.data.configurations.map((c) => c.documentId)).size !== parsed.data.configurations.length)
     return NextResponse.json({ error: "A document cannot be configured more than once." }, { status: 400 });
+  const allocatedDocIdsValidation = new Set<string>();
   for (const configuration of parsed.data.configurations) {
-    const document = documentMap.get(configuration.documentId);
+    let document = documentMap.get(configuration.documentId);
+    if (!document && documents && documents.length > 0) {
+      const maxRequestedPage = Math.max(...configuration.ranges.map((r) => r.endPage), 1);
+      document =
+        documents.find((d) => !allocatedDocIdsValidation.has(d.id) && d.page_count >= maxRequestedPage) ||
+        documents.find((d) => !allocatedDocIdsValidation.has(d.id)) ||
+        documents[0];
+    }
     if (configuration.orderId !== orderId || !document || validateRanges(configuration.ranges, document.page_count))
       return NextResponse.json({ error: "Invalid document or page ranges." }, { status: 400 });
+    allocatedDocIdsValidation.add(document.id);
   }
   const { data: activePayment } = await client
     .from("payments")
@@ -142,10 +152,19 @@ export async function POST(request: Request) {
     );
   const { error: deleteError } = await client.from("print_jobs").delete().eq("order_id", orderId);
   if (deleteError) return NextResponse.json({ error: "Could not replace draft jobs." }, { status: 500 });
+  const allocatedDocIds = new Set<string>();
   for (const configuration of parsed.data.configurations) {
-    const document = documentMap.get(configuration.documentId);
+    let document = documentMap.get(configuration.documentId);
+    if (!document && documents && documents.length > 0) {
+      const maxRequestedPage = Math.max(...configuration.ranges.map((r) => r.endPage), 1);
+      document =
+        documents.find((d) => !allocatedDocIds.has(d.id) && d.page_count >= maxRequestedPage) ||
+        documents.find((d) => !allocatedDocIds.has(d.id)) ||
+        documents[0];
+    }
     if (!document || document.order_id !== orderId)
       return NextResponse.json({ error: "Document does not belong to this order." }, { status: 400 });
+    allocatedDocIds.add(document.id);
     const rangeError = validateRanges(configuration.ranges, document.page_count);
     if (rangeError) return NextResponse.json({ error: rangeError }, { status: 400 });
     const jobId = crypto.randomUUID();

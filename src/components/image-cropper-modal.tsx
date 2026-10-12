@@ -39,7 +39,7 @@ type Props = {
   imageUrl: string;
   filename: string;
   onClose: () => void;
-  onApplyCrop: (croppedBlob: Blob, croppedDataUrl: string) => void;
+  onApplyCrop: (croppedBlob: Blob, croppedDataUrl: string) => Promise<void> | void;
   onSwitchToMultiImage?: () => void;
 };
 
@@ -468,16 +468,21 @@ export function ImageCropperModal({ isOpen, imageUrl, filename, onClose, onApply
 
       // Export canvas to high-quality JPEG Blob
       canvas.toBlob(
-        (blob) => {
+        async (blob) => {
           if (!blob) {
             alert("Failed to crop image.");
             setIsProcessing(false);
             return;
           }
           const croppedDataUrl = canvas.toDataURL("image/jpeg", 0.95);
-          onApplyCrop(blob, croppedDataUrl);
-          setIsProcessing(false);
-          onClose();
+          try {
+            await onApplyCrop(blob, croppedDataUrl);
+          } catch (err) {
+            console.error("Cropping failed:", err);
+          } finally {
+            setIsProcessing(false);
+            onClose();
+          }
         },
         "image/jpeg",
         0.95,
@@ -941,7 +946,7 @@ export function ImageCropperModal({ isOpen, imageUrl, filename, onClose, onApply
               {isProcessing ? (
                 <>
                   <div className="size-3.5 animate-spin rounded-full border-2 border-white border-t-transparent" />
-                  <span>Processing...</span>
+                  <span>Saving &amp; Updating... Please wait</span>
                 </>
               ) : (
                 <>

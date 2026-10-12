@@ -57,15 +57,6 @@ export async function POST(request: Request) {
   const colorPrinterIsOnline = availablePrinters(printers ?? [], agents ?? []).some((printer) =>
     Boolean(printer.capabilities?.colorSupport),
   );
-  const { data: documents } = await client
-    .from("documents")
-    .select("id, order_id, page_count")
-    .eq("shop_id", shop.id)
-    .in(
-      "id",
-      parsed.data.configurations.map((item) => item.documentId),
-    );
-  const documentMap = new Map((documents ?? []).map((document) => [document.id, document]));
   const orderIds = [...new Set(parsed.data.configurations.map((configuration) => configuration.orderId))];
   const { data: ownedOrders } = await client
     .from("orders")
@@ -75,6 +66,15 @@ export async function POST(request: Request) {
     .in("id", orderIds);
   if (ownedOrders?.length !== orderIds.length)
     return NextResponse.json({ error: "Order access could not be verified." }, { status: 403 });
+
+  const { data: orderDocuments } = await client
+    .from("documents")
+    .select("id, order_id, page_count, created_at")
+    .eq("shop_id", shop.id)
+    .in("order_id", orderIds)
+    .order("created_at", { ascending: false });
+  const documentMap = new Map((orderDocuments ?? []).map((document) => [document.id, document]));
+
   const { data: rules } = await client
     .from("pricing_rules")
     .select("color_mode, paper_size, side_mode, min_pages, max_pages, price_per_page")
@@ -82,11 +82,25 @@ export async function POST(request: Request) {
     .eq("is_active", true);
   if (!rules?.length)
     return NextResponse.json({ error: "This shop has not configured printing prices yet." }, { status: 409 });
+
   const allRanges = [];
+  const allocatedDocIds = new Set<string>();
   for (const configuration of parsed.data.configurations) {
-    const document = documentMap.get(configuration.documentId);
+    let document = documentMap.get(configuration.documentId);
+    // If exact ID not found (e.g. crop replaced the document ID right before submit),
+    // match by unallocated order document belonging to this verified order, prioritizing page compatibility
+    if (!document && orderDocuments && orderDocuments.length > 0) {
+      const maxRequestedPage = Math.max(...configuration.ranges.map((r) => r.endPage), 1);
+      document =
+        orderDocuments.find(
+          (d) => d.order_id === configuration.orderId && !allocatedDocIds.has(d.id) && d.page_count >= maxRequestedPage,
+        ) ||
+        orderDocuments.find((d) => d.order_id === configuration.orderId && !allocatedDocIds.has(d.id)) ||
+        orderDocuments.find((d) => d.order_id === configuration.orderId);
+    }
     if (!document || document.order_id !== configuration.orderId)
       return NextResponse.json({ error: "Document does not belong to this order." }, { status: 400 });
+    allocatedDocIds.add(document.id);
     const rangeError = validateRanges(configuration.ranges, document.page_count);
     if (rangeError) return NextResponse.json({ error: rangeError }, { status: 400 });
     allRanges.push(...configuration.ranges);
