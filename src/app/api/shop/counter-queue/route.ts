@@ -112,6 +112,8 @@ export async function GET(request: Request) {
         ? new Date(new Date(o.created_at).getTime() + 60 * 60 * 1000)
         : null;
 
+    const rawJobs = Array.isArray(o.print_jobs) ? o.print_jobs : [];
+    const isCompleted = o.status === "completed" || (rawJobs.length > 0 && rawJobs.every((j: { status: string }) => j.status === "completed"));
     const isPaid = ["paid", "completed", "partially_printed"].includes(o.status);
     const isCancelled = o.status === "cancelled";
     const isExpired =
@@ -119,13 +121,11 @@ export async function GET(request: Request) {
       !isCancelled &&
       (o.status === "expired" || (expiresAt ? expiresAt.getTime() <= now.getTime() : false));
 
-    const remainingSeconds = isExpired
+    const remainingSeconds = isCompleted || isExpired
       ? 0
       : expiresAt
         ? Math.max(0, Math.floor((expiresAt.getTime() - now.getTime()) / 1000))
         : 0;
-
-    const rawJobs = Array.isArray(o.print_jobs) ? o.print_jobs : [];
 
     // Check if any job/page range has double-sided mode and collect copies info
     let isDoubleSided = false;

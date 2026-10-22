@@ -3908,19 +3908,27 @@ function CounterTokenStep({
   const [jobStatuses, setJobStatuses] = useState<Array<{ id: string; status: string }>>([]);
   const [copied, setCopied] = useState(false);
 
+  const isCompleted =
+    orderStatus === "completed" || (jobStatuses.length > 0 && jobStatuses.every((j) => j.status === "completed"));
+  const isPrinting = orderStatus === "paid" || orderStatus === "printing" || orderStatus === "partially_printed";
+
   // Auto scroll up to ensure token card is fully in view
   useEffect(() => {
     window.scrollTo({ top: 0, behavior: "smooth" });
   }, []);
 
-  // Live countdown timer for 1-hour validity
+  // Live countdown timer for 1-hour validity (stops when printed/completed)
   useEffect(() => {
+    if (isCompleted) {
+      setRemainingSeconds(0);
+      return;
+    }
     const timer = setInterval(() => {
       const remaining = Math.max(0, Math.floor((new Date(tokenDetails.expiresAt).getTime() - Date.now()) / 1000));
       setRemainingSeconds(remaining);
     }, 1000);
     return () => clearInterval(timer);
-  }, [tokenDetails.expiresAt]);
+  }, [tokenDetails.expiresAt, isCompleted]);
 
   // Real-time status polling (pauses when backgrounded)
   useEffect(() => {
@@ -3964,10 +3972,6 @@ function CounterTokenStep({
   const seconds = remainingSeconds % 60;
   const formattedCountdown = `${minutes}:${seconds < 10 ? "0" : ""}${seconds}`;
   const isExpired = remainingSeconds <= 0 && orderStatus === "awaiting_payment";
-
-  const isCompleted =
-    orderStatus === "completed" || (jobStatuses.length > 0 && jobStatuses.every((j) => j.status === "completed"));
-  const isPrinting = orderStatus === "paid" || orderStatus === "printing" || orderStatus === "partially_printed";
 
   const handleCopyToken = () => {
     if (typeof navigator !== "undefined" && navigator.clipboard) {
@@ -4055,22 +4059,43 @@ function CounterTokenStep({
         {/* Countdown Box */}
         <div className="rounded-2xl border border-slate-200/80 bg-white p-3.5 sm:p-4 shadow-2xs">
           <div className="flex items-center gap-1.5 text-xs text-slate-500">
-            <Clock3 className="size-3.5 text-emerald-600" />
-            <span className="font-bold">Token Validity</span>
+            {isCompleted ? (
+              <>
+                <CheckCircle2 className="size-3.5 text-emerald-600" />
+                <span className="font-bold text-emerald-800">Job Finished</span>
+              </>
+            ) : (
+              <>
+                <Clock3 className="size-3.5 text-emerald-600" />
+                <span className="font-bold">Token Validity</span>
+              </>
+            )}
           </div>
           <div className="mt-1.5 flex items-baseline gap-2">
-            <span
-              className={cn(
-                "font-mono text-xl sm:text-2xl font-black",
-                remainingSeconds < 300 ? "text-rose-600" : "text-slate-900",
-              )}
-            >
-              {isExpired ? "Expired" : formattedCountdown}
-            </span>
-            <span className="text-[11px] text-slate-500">{isExpired ? "" : "left (1 hr validity)"}</span>
+            {isCompleted ? (
+              <span className="font-mono text-xl sm:text-2xl font-black text-emerald-700">
+                Printed ✓
+              </span>
+            ) : (
+              <>
+                <span
+                  className={cn(
+                    "font-mono text-xl sm:text-2xl font-black",
+                    remainingSeconds < 300 ? "text-rose-600" : "text-slate-900",
+                  )}
+                >
+                  {isExpired ? "Expired" : formattedCountdown}
+                </span>
+                <span className="text-[11px] text-slate-500">{isExpired ? "" : "left (1 hr validity)"}</span>
+              </>
+            )}
           </div>
           <p className="mt-1 text-[11px] text-slate-500 leading-snug">
-            {isExpired ? "Token expired. Please submit a new request." : "Show token to the shopkeeper before expiry."}
+            {isCompleted
+              ? "All pages have been physically printed. Collect your printout at the counter."
+              : isExpired
+                ? "Token expired. Please submit a new request."
+                : "Show token to the shopkeeper before expiry."}
           </p>
         </div>
 

@@ -33,7 +33,7 @@ export function MarketingFooter() {
     <footer className="border-t border-white/10 bg-brand-950 text-white relative overflow-hidden">
       <div className="absolute top-0 right-1/4 -z-10 size-96 rounded-full bg-emerald-600/8 blur-3xl pointer-events-none" />
 
-      <div className="mx-auto grid max-w-7xl gap-12 px-6 py-16 lg:grid-cols-[1.4fr_1fr_1fr_1fr] lg:px-8">
+      <div className="mx-auto grid max-w-7xl gap-8 px-6 py-16 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-[1.3fr_1fr_1fr_1fr_1.1fr] lg:px-8">
         <div>
           <Link href="/" className="group inline-flex items-center gap-3">
             <div className="relative flex items-center justify-center transition-transform group-hover:scale-105">
@@ -51,7 +51,7 @@ export function MarketingFooter() {
           <div className="mt-6 flex items-center gap-3">
             <span className="inline-flex items-center gap-1.5 rounded-full border border-emerald-500/20 bg-emerald-950/80 px-3 py-1 text-xs font-medium text-emerald-400/80">
               <span className="size-1.5 rounded-full bg-emerald-400 animate-pulse" />
-              Agent v1.4.0 Live
+              Agent v1.8.10 Live
             </span>
           </div>
         </div>
@@ -60,7 +60,7 @@ export function MarketingFooter() {
           <h2 className="text-xs font-semibold uppercase tracking-[0.16em] text-emerald-400/80">Product</h2>
           <div className="mt-4 space-y-3 text-sm text-white/50">
             <Link className="block transition-colors hover:text-white" href="/features">
-              Features & Specs
+              Features &amp; Specs
             </Link>
             <Link className="block transition-colors hover:text-white" href="/how-it-works">
               How It Works
@@ -109,12 +109,53 @@ export function MarketingFooter() {
             </Link>
           </div>
         </div>
+
+        <div>
+          <h2 className="text-xs font-semibold uppercase tracking-[0.16em] text-emerald-400/80">Legal &amp; Support</h2>
+          <div className="mt-4 space-y-3 text-sm text-white/50">
+            <Link className="block transition-colors hover:text-white" href="/privacy">
+              Privacy Policy
+            </Link>
+            <Link className="block transition-colors hover:text-white" href="/terms">
+              Terms &amp; Conditions
+            </Link>
+            <Link className="block transition-colors hover:text-white" href="/refund">
+              Refund &amp; Cancellation
+            </Link>
+            <Link className="block transition-colors hover:text-white" href="/shipping">
+              Shipping &amp; Pick-up
+            </Link>
+            <Link className="block transition-colors hover:text-white" href="/contact">
+              Contact &amp; Support
+            </Link>
+          </div>
+        </div>
       </div>
 
       <div className="border-t border-white/5">
-        <div className="mx-auto flex max-w-7xl flex-col gap-3 px-6 py-6 text-xs text-white/30 sm:flex-row sm:items-center sm:justify-between lg:px-8">
+        <div className="mx-auto flex max-w-7xl flex-col gap-4 px-6 py-6 text-xs text-white/40 sm:flex-row sm:items-center sm:justify-between lg:px-8">
           <span>© 2026 Printiva Inc. All rights reserved.</span>
-          <span className="text-white/20">Scan · Upload · Pay · Print</span>
+          <div className="flex flex-wrap items-center gap-x-5 gap-y-2 text-white/40">
+            <Link className="transition-colors hover:text-white" href="/privacy">
+              Privacy
+            </Link>
+            <span>·</span>
+            <Link className="transition-colors hover:text-white" href="/terms">
+              Terms
+            </Link>
+            <span>·</span>
+            <Link className="transition-colors hover:text-white" href="/refund">
+              Refunds
+            </Link>
+            <span>·</span>
+            <Link className="transition-colors hover:text-white" href="/shipping">
+              Delivery
+            </Link>
+            <span>·</span>
+            <Link className="transition-colors hover:text-white" href="/contact">
+              Contact
+            </Link>
+          </div>
         </div>
       </div>
     </footer>

@@ -1095,7 +1095,7 @@ export class AgentWebServer {
     let queueErrorNotice = null;
 
     function updateQueueBadge() {
-      const active = cachedCounterQueue.filter(i => (i.status === 'awaiting_payment' || i.status === 'partially_printed') && !i.isExpired && (typeof i.remainingSeconds !== 'number' || i.remainingSeconds > 0));
+      const active = cachedCounterQueue.filter(i => (i.status === 'awaiting_payment' || (i.sideMode === 'double_sided' && i.status === 'partially_printed')) && !i.isExpired && (typeof i.remainingSeconds !== 'number' || i.remainingSeconds > 0));
       const badge = document.getElementById('counterQueueBadge');
       if (badge) {
         badge.innerText = active.length + ' waiting';
@@ -1254,10 +1254,10 @@ export class AgentWebServer {
         var isPartiallyPrinted = item.status === "partially_printed";
         var isOddDone = isDouble && (item.status === "partially_printed" || item.duplexStep === "odd_printed" || item.duplexStep === "even");
         var isExpired = !isCompleted && !isPrinting && !isProcessing && !isCancelled && !isPartiallyPrinted && (item.isExpired || item.status === "expired" || (typeof item.remainingSeconds === "number" && item.remainingSeconds <= 0) || (item.expiresAt && new Date(item.expiresAt).getTime() <= Date.now()));
-        var totalSecs = Math.max(0, item.remainingSeconds || 0);
+        var totalSecs = (isCompleted || isCancelled) ? 0 : Math.max(0, item.remainingSeconds || 0);
         var minutesLeft = Math.floor(totalSecs / 60);
         var secondsLeft = totalSecs % 60;
-        var validText = minutesLeft > 0 ? (minutesLeft + "m valid") : (secondsLeft + "s valid");
+        var validText = (isCompleted || isCancelled) ? "" : minutesLeft > 0 ? (minutesLeft + "m valid") : (secondsLeft + "s valid");
         var docNames = (item.documents || []).map(function(d) { return escapeHtml(d.filename); }).join(", ");
         var tokenLabel = item.tokenNumber ? ("#" + item.tokenNumber) : ("#" + (item.publicId || '').slice(0, 4));
 
