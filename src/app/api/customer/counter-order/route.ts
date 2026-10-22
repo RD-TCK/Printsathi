@@ -6,8 +6,10 @@ import { configurationSchema, validateRanges } from "@/lib/customer-print";
 import { calculatePricing, type PricingRule } from "@/lib/pricing-engine";
 import { assertShopCanPrice } from "@/lib/pricing-engine";
 import { hashGuestOrderToken } from "@/lib/guest-order";
+import { combineOrderDocumentsForPrint } from "@/lib/order-document-combiner";
 
 export const dynamic = "force-dynamic";
+export const maxDuration = 60;
 
 const counterOrderSchema = z.object({
   shopIdentifier: z.string().min(1),
@@ -184,63 +186,91 @@ export async function POST(request: Request) {
   }
 
   // 5. Replace draft print jobs
+  const { data: existingJobs } = await client.from("print_jobs").select("id").eq("order_id", orderId);
+  if (existingJobs && existingJobs.length > 0) {
+    const jobIds = existingJobs.map((j) => j.id);
+    await client.from("print_job_pages").delete().in("print_job_id", jobIds);
+  }
   await client.from("print_jobs").delete().eq("order_id", orderId);
 
   let insertedJobCount = 0;
-  const allocatedDocIds = new Set<string>();
 
-  for (const configuration of parsed.data.configurations) {
-    let document = documentMap.get(configuration.documentId);
-    // If exact ID not found (e.g. crop replaced the document ID right before token submit), match by unallocated order document
-    if (!document && documents && documents.length > 0) {
-      const maxRequestedPage = Math.max(...configuration.ranges.map((r) => r.endPage), 1);
-      document =
-        documents.find((d) => !allocatedDocIds.has(d.id) && d.page_count >= maxRequestedPage) ||
-        documents.find((d) => !allocatedDocIds.has(d.id)) ||
-        documents[0];
+  // Combine all pictures / documents for this token number into 1 single continuous print job!
+  if (parsed.data.configurations.length > 1 || (documents && documents.length > 1)) {
+    try {
+      const combinedRes = await combineOrderDocumentsForPrint(client, {
+        shopId: shop.id,
+        orderId,
+        tokenNumber,
+        customerId: order.customer_id,
+        totalAmount: pricing.total,
+        configurations: parsed.data.configurations,
+        targetJobStatus: "awaiting_payment",
+      });
+      if (combinedRes.success && combinedRes.combined) {
+        insertedJobCount = 1;
+      }
+    } catch (combineErr) {
+      console.warn("Failed to combine token documents, falling back to individual jobs:", combineErr);
     }
-    if (!document || document.order_id !== orderId) continue;
-    allocatedDocIds.add(document.id);
+  }
 
-    const jobId = crypto.randomUUID();
-    const jobPrintedPages = configuration.ranges.reduce(
-      (sum, r) => sum + (r.endPage - r.startPage + 1) * Math.max(1, r.copies ?? 1),
-      0,
-    );
-    await client.from("print_jobs").insert({
-      id: jobId,
-      order_id: orderId,
-      shop_id: shop.id,
-      customer_id: order.customer_id,
-      document_id: document.id,
-      status: "awaiting_payment",
-      total_pages: jobPrintedPages,
-      total_amount: Number(
-        calculatePricing(
-          configuration.ranges,
-          rules.map((rule) => ({
-            ...rule,
-            price_per_page: Number(rule.price_per_page),
-            is_active: true,
-          })) as PricingRule[],
-          billingMode,
-        ).total.toFixed(2),
-      ),
-      idempotency_key: crypto.randomUUID(),
-    });
+  if (insertedJobCount === 0) {
+    const allocatedDocIds = new Set<string>();
 
-    await client.from("print_job_pages").insert(
-      configuration.ranges.map((range) => ({
-        print_job_id: jobId,
-        start_page: range.startPage,
-        end_page: range.endPage,
-        color_mode: range.colorMode,
-        paper_size: range.paperSize,
-        side_mode: range.sideMode ?? "single_sided",
-        copies: range.copies ?? 1,
-      })),
-    );
-    insertedJobCount++;
+    for (const configuration of parsed.data.configurations) {
+      let document = documentMap.get(configuration.documentId);
+      // If exact ID not found (e.g. crop replaced the document ID right before token submit), match by unallocated order document
+      if (!document && documents && documents.length > 0) {
+        const maxRequestedPage = Math.max(...configuration.ranges.map((r) => r.endPage), 1);
+        document =
+          documents.find((d) => !allocatedDocIds.has(d.id) && d.page_count >= maxRequestedPage) ||
+          documents.find((d) => !allocatedDocIds.has(d.id)) ||
+          documents[0];
+      }
+      if (!document || document.order_id !== orderId) continue;
+      allocatedDocIds.add(document.id);
+
+      const jobId = crypto.randomUUID();
+      const jobPrintedPages = configuration.ranges.reduce(
+        (sum, r) => sum + (r.endPage - r.startPage + 1) * Math.max(1, r.copies ?? 1),
+        0,
+      );
+      await client.from("print_jobs").insert({
+        id: jobId,
+        order_id: orderId,
+        shop_id: shop.id,
+        customer_id: order.customer_id,
+        document_id: document.id,
+        status: "awaiting_payment",
+        total_pages: jobPrintedPages,
+        total_amount: Number(
+          calculatePricing(
+            configuration.ranges,
+            rules.map((rule) => ({
+              ...rule,
+              price_per_page: Number(rule.price_per_page),
+              is_active: true,
+            })) as PricingRule[],
+            billingMode,
+          ).total.toFixed(2),
+        ),
+        idempotency_key: crypto.randomUUID(),
+      });
+
+      await client.from("print_job_pages").insert(
+        configuration.ranges.map((range) => ({
+          print_job_id: jobId,
+          start_page: range.startPage,
+          end_page: range.endPage,
+          color_mode: range.colorMode,
+          paper_size: range.paperSize,
+          side_mode: range.sideMode ?? "single_sided",
+          copies: range.copies ?? 1,
+        })),
+      );
+      insertedJobCount++;
+    }
   }
 
   // Fallback safety: If 0 jobs were inserted but documents exist, create default jobs

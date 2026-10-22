@@ -4,14 +4,14 @@ import os from "node:os";
 import type { AgentConfig } from "./types";
 
 export const DEFAULT_CONFIG: AgentConfig = {
-  serverUrl: process.env.PRINTIVA_SERVER_URL || process.env.NEXT_PUBLIC_APP_URL || "https://printiva.co.in",
+  serverUrl: process.env.PRINTIVA_SERVER_URL || process.env.NEXT_PUBLIC_APP_URL || "https://www.printiva.co.in",
   agentId: null,
   shopId: null,
   shopName: null,
   agentToken: null,
   agentName: `Windows Agent (${os.hostname() || "Local"})`,
   selectedPrinter: null,
-  version: "1.8.13",
+  version: "1.8.14",
   pollIntervalMs: 1000,
   heartbeatIntervalMs: 45000,
 };
@@ -99,7 +99,10 @@ export function loadConfig(): AgentConfig {
   try {
     const raw = fs.readFileSync(filePath, "utf8");
     const parsed = JSON.parse(raw);
-    const serverUrl = process.env.PRINTIVA_SERVER_URL || parsed.serverUrl || DEFAULT_CONFIG.serverUrl;
+    let serverUrl = process.env.PRINTIVA_SERVER_URL || parsed.serverUrl || DEFAULT_CONFIG.serverUrl;
+    if (serverUrl === "https://printiva.co.in") {
+      serverUrl = "https://www.printiva.co.in";
+    }
 
     return {
       ...DEFAULT_CONFIG,

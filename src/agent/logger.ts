@@ -57,9 +57,10 @@ class AgentLogger {
       console.log(formatted, context ? JSON.stringify(context) : "");
     }
 
+    const ctxStr = context ? " " + JSON.stringify(context) : "";
     if (this.logFilePath) {
       try {
-        fs.appendFileSync(this.logFilePath, `${formatted}\n`, "utf8");
+        fs.appendFileSync(this.logFilePath, `${formatted}${ctxStr}\n`, "utf8");
       } catch {
         // Ignore file logging errors
       }
