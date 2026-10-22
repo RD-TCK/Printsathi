@@ -1,20 +1,39 @@
 import Link from "next/link";
 import { ArrowRight, Check } from "lucide-react";
 import { SiteHeader } from "@/components/site-header";
-import { MarketingFooter, SectionHeading, FaqList } from "@/components/marketing-site";
+import { MarketingFooter, SectionHeading, FaqList, faqItems } from "@/components/marketing-site";
+import { JsonLd } from "@/components/json-ld";
+import { breadcrumbJsonLd, faqJsonLd, pageMetadata, softwareJsonLd } from "@/lib/seo";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 
-export const metadata = { title: "Pricing", description: "Printiva trial and subscription plans for print shops." };
+export const metadata = pageMetadata({
+  title: "Pricing — ₹100 for a 7-Day Trial, then ₹699/month",
+  description:
+    "Printiva pricing for print shops: ₹100 for a 7-day trial, then ₹699 per month or ₹7,499 per year. Includes QR ordering, automatic printing, and Razorpay checkout.",
+  path: "/pricing",
+  keywords: ["print shop software price", "Printiva pricing", "print shop subscription India"],
+});
 
 export default function PricingPage() {
   return (
     <div>
+      <JsonLd
+        data={[
+          softwareJsonLd(),
+          faqJsonLd(faqItems),
+          breadcrumbJsonLd([
+            ["Home", "/"],
+            ["Pricing", "/pricing"],
+          ]),
+        ]}
+      />
       <SiteHeader />
       <main>
         <section className="bg-brand-50">
           <div className="mx-auto max-w-7xl px-6 py-20 lg:px-8 lg:py-28">
             <SectionHeading
+              as="h1"
               eyebrow="Simple to start"
               title="Try the workflow before you commit."
               description="Every new shop begins with a ₹100 for 7 days trial. Choose ₹699/month or ₹7,499/year with Razorpay checkout."

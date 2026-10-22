@@ -105,9 +105,25 @@ export async function GET(request: Request) {
   }
 
   const queueItems = (orders || []).map((o) => {
-    const expiresAt = o.expires_at ? new Date(o.expires_at) : null;
-    const isExpired = o.status === "awaiting_payment" && expiresAt ? expiresAt.getTime() < now.getTime() : false;
-    const remainingSeconds = expiresAt ? Math.max(0, Math.floor((expiresAt.getTime() - now.getTime()) / 1000)) : 0;
+    // If expires_at is null, fallback to created_at + 1 hour (tokens have 1-hour validity)
+    const expiresAt = o.expires_at
+      ? new Date(o.expires_at)
+      : o.created_at
+        ? new Date(new Date(o.created_at).getTime() + 60 * 60 * 1000)
+        : null;
+
+    const isPaid = ["paid", "completed", "partially_printed"].includes(o.status);
+    const isCancelled = o.status === "cancelled";
+    const isExpired =
+      !isPaid &&
+      !isCancelled &&
+      (o.status === "expired" || (expiresAt ? expiresAt.getTime() <= now.getTime() : false));
+
+    const remainingSeconds = isExpired
+      ? 0
+      : expiresAt
+        ? Math.max(0, Math.floor((expiresAt.getTime() - now.getTime()) / 1000))
+        : 0;
 
     const rawJobs = Array.isArray(o.print_jobs) ? o.print_jobs : [];
 
@@ -208,7 +224,12 @@ export async function GET(request: Request) {
     };
   });
 
-  const pendingActive = queueItems.filter((item) => item.status === "awaiting_payment" && !item.isExpired);
+  const pendingActive = queueItems.filter(
+    (item) =>
+      (item.status === "awaiting_payment" || item.status === "partially_printed") &&
+      !item.isExpired &&
+      item.remainingSeconds > 0,
+  );
 
   return NextResponse.json({
     queue: queueItems,

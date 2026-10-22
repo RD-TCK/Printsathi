@@ -64,15 +64,93 @@ export interface PrintExecutionResult {
   duplexModeUsed?: "hardware" | "manual_odd" | "manual_even" | "simplex";
 }
 
+function runPowerShellInline(script: string, timeoutMs = 5000): Promise<string> {
+  return new Promise((resolve) => {
+    execFile(
+      "powershell.exe",
+      ["-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-Command", `& { ${script} }`],
+      { timeout: timeoutMs, windowsHide: true },
+      (error, stdout) => {
+        if (error) {
+          resolve("");
+        } else {
+          resolve(stdout ? stdout.toString() : "");
+        }
+      },
+    );
+  });
+}
+
+export async function getPrinterQueueCount(printerName: string): Promise<number> {
+  const isWindows = process.platform === "win32" || os.platform() === "win32";
+  if (!isWindows || process.env.NODE_ENV === "test") return 0;
+
+  try {
+    const escaped = printerName.replace(/'/g, "''");
+    const script = `@(Get-PrintJob -PrinterName '${escaped}' -ErrorAction SilentlyContinue).Count`;
+    const out = await runPowerShellInline(script, 4000);
+    const count = parseInt(out.trim(), 10);
+    return Number.isInteger(count) ? count : 0;
+  } catch {
+    return 0;
+  }
+}
+
+export async function waitForPhysicalPrintCompletion(
+  printerName: string,
+  timeoutMs = 90000,
+): Promise<{ completed: boolean; durationMs: number }> {
+  const isWindows = process.platform === "win32" || os.platform() === "win32";
+  if (!isWindows || process.env.NODE_ENV === "test") {
+    return { completed: true, durationMs: 0 };
+  }
+
+  const startTime = Date.now();
+  // Brief initial pause to allow Windows spooler to register the job from SumatraPDF
+  await new Promise((r) => setTimeout(r, 1000));
+
+  while (Date.now() - startTime < timeoutMs) {
+    const count = await getPrinterQueueCount(printerName);
+    if (count > 0) {
+      logger.info(`Printer "${printerName}" is printing (${count} job(s) in spooler queue)...`);
+      await new Promise((r) => setTimeout(r, 1200));
+    } else {
+      logger.info(
+        `Printer "${printerName}" queue cleared after ${Math.round((Date.now() - startTime) / 1000)}s. Physical pages completed.`,
+      );
+      return { completed: true, durationMs: Date.now() - startTime };
+    }
+  }
+
+  logger.warn(`Printer "${printerName}" queue wait timed out after ${timeoutMs / 1000}s. Proceeding.`);
+  return { completed: false, durationMs: Date.now() - startTime };
+}
+
+export interface PrintDocumentOptions {
+  /**
+   * When true (default unless job.isLastJobForOrder is false), appends an empty separator page
+   * (or 2 blank pages for hardware duplex) after the printed document.
+   * In a multi-file user order, this is set to false for intermediate documents, and true only for the final document.
+   */
+  includeSeparatorPage?: boolean;
+}
+
 export async function prepareAndPrintDocument(
   sourcePdfPath: string,
   job: ClaimedJob,
   targetPrinterName: string,
   pagesConfigOverride?: ClaimedJob["pagesConfig"],
+  options?: PrintDocumentOptions,
 ): Promise<PrintExecutionResult> {
   const isWindows = process.platform === "win32" || os.platform() === "win32";
   const activeConfigs = pagesConfigOverride || job.pagesConfig;
-  logger.info(`Starting print execution for Job #${job.id.slice(0, 8)} on "${targetPrinterName}"`);
+  const shouldAddSeparatorPage =
+    options?.includeSeparatorPage !== undefined
+      ? options.includeSeparatorPage
+      : job.isLastJobForOrder !== undefined
+        ? job.isLastJobForOrder
+        : true;
+  logger.info(`Starting print execution for Job #${job.id.slice(0, 8)} on "${targetPrinterName}" (separator: ${shouldAddSeparatorPage})`);
 
   let finalPdfPath = sourcePdfPath;
   let tempExtractedPath: string | null = null;
@@ -103,11 +181,19 @@ export async function prepareAndPrintDocument(
       const imgDoc = await PDFDocument.create();
       const isPng = sourceBuffer[0] === 0x89;
       const embeddedImg = isPng ? await imgDoc.embedPng(sourceBuffer) : await imgDoc.embedJpg(sourceBuffer);
-      const page = imgDoc.addPage([595.28, 841.89]);
-      const { width, height } = embeddedImg.scaleToFit(595.28, 841.89);
+      const isLandscape = embeddedImg.width > embeddedImg.height * 1.15;
+      const pageWidth = isLandscape ? 841.89 : 595.28;
+      const pageHeight = isLandscape ? 595.28 : 841.89;
+      const margin = 28.35; // ~10mm safe printable margin
+      const contentW = pageWidth - margin * 2;
+      const contentH = pageHeight - margin * 2;
+      const scale = Math.min(contentW / embeddedImg.width, contentH / embeddedImg.height);
+      const width = embeddedImg.width * scale;
+      const height = embeddedImg.height * scale;
+      const page = imgDoc.addPage([pageWidth, pageHeight]);
       page.drawImage(embeddedImg, {
-        x: (595.28 - width) / 2,
-        y: (841.89 - height) / 2,
+        x: (pageWidth - width) / 2,
+        y: (pageHeight - height) / 2,
         width,
         height,
       });
@@ -222,11 +308,13 @@ export async function prepareAndPrintDocument(
         outputPdf.addPage(defaultPageSize);
       }
 
-      if (isHardwareDuplex) {
-        outputPdf.addPage(defaultPageSize);
-        outputPdf.addPage(defaultPageSize);
-      } else {
-        outputPdf.addPage(defaultPageSize);
+      if (shouldAddSeparatorPage) {
+        if (isHardwareDuplex) {
+          outputPdf.addPage(defaultPageSize);
+          outputPdf.addPage(defaultPageSize);
+        } else {
+          outputPdf.addPage(defaultPageSize);
+        }
       }
     } else {
       outputPdf = await PDFDocument.create();
@@ -328,7 +416,7 @@ export async function prepareAndPrintDocument(
         };
       }
 
-      if (!isManualDuplexOdd) {
+      if (shouldAddSeparatorPage && !isManualDuplexOdd) {
         if (isHardwareDuplex) {
           outputPdf.addPage(defaultPageSize);
           outputPdf.addPage(defaultPageSize);

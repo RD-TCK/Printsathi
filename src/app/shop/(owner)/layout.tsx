@@ -1,7 +1,11 @@
+import type { Metadata } from "next";
 import type { ReactNode } from "react";
+import { NO_INDEX } from "@/lib/seo";
 import { ProtectedLayout } from "@/components/protected-layout";
 import { ShopPortalShell } from "@/components/shop-portal-shell";
 import { getShopContext } from "@/lib/shop-portal";
+
+export const metadata: Metadata = { robots: NO_INDEX };
 
 export default async function ShopOwnerLayout({ children }: { children: ReactNode }) {
   const context = await getShopContext();

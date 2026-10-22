@@ -89,7 +89,12 @@ export async function GET(request: Request) {
   let originalBuffer: ArrayBuffer | null = null;
 
   if (storagePath.startsWith("local://")) {
-    const rawId = storagePath.replace("local://", "").replace(/\.pdf$/i, "").replace(/^doc_/, "");
+    // rawId is joined into a filesystem path below; strip anything that could escape the cache folder.
+    const rawId = storagePath
+      .replace("local://", "")
+      .replace(/\.pdf$/i, "")
+      .replace(/^doc_/, "")
+      .replace(/[^A-Za-z0-9_-]/g, "");
     // 1. Try local disk cache if running on same Windows machine (e.g. localhost dev/desktop agent)
     const appData =
       process.env.LOCALAPPDATA ||

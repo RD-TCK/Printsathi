@@ -1,9 +1,17 @@
 import Link from "next/link";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { MarketingShell } from "@/components/marketing-site";
+import { JsonLd } from "@/components/json-ld";
+import { breadcrumbJsonLd, pageMetadata, siteUrl } from "@/lib/seo";
 
 export const dynamic = "force-dynamic";
-export const metadata = { title: "Find a print shop | Printiva" };
+export const metadata = pageMetadata({
+  title: "Find a Print Shop Near You — Upload & Print Documents Online",
+  description:
+    "Browse print shops on Printiva. Pick a shop to see its per-page prices and live printer status, upload your documents from your phone, and collect your printouts at the counter.",
+  path: "/shops",
+  keywords: ["print shop near me", "printout shop near me", "xerox shop near me", "document printing shop"],
+});
 
 export default async function ShopsPage() {
   const client = await createSupabaseServerClient();
@@ -16,11 +24,38 @@ export default async function ShopsPage() {
     : null;
   return (
     <MarketingShell>
+      <JsonLd
+        data={[
+          breadcrumbJsonLd([
+            ["Home", "/"],
+            ["Print shops", "/shops"],
+          ]),
+          ...(result?.data?.length
+            ? [
+                {
+                  "@context": "https://schema.org",
+                  "@type": "ItemList",
+                  name: "Print shops on Printiva",
+                  itemListElement: result.data.map((shop, index) => ({
+                    "@type": "ListItem",
+                    position: index + 1,
+                    name: shop.name,
+                    url: siteUrl(`/shop/${encodeURIComponent(shop.public_id)}`),
+                  })),
+                },
+              ]
+            : []),
+        ]}
+      />
       <section className="mx-auto max-w-4xl px-6 py-16">
         <h1 className="text-3xl font-bold">Find a print shop</h1>
         <p className="mt-3 text-muted">
           Choose your shop to upload documents, see its prices, and check printer availability. You can also scan the
-          shop’s QR code.
+          shop’s QR code. New to this?{" "}
+          <Link href="/digital-printing-service" className="font-semibold text-brand-700 underline">
+            See how the digital printing service works
+          </Link>
+          .
         </p>
         {!result || result.error ? (
           <p role="alert" className="mt-8">

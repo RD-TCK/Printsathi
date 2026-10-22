@@ -104,6 +104,100 @@ describe("PDF print submission", () => {
     expect(mocks.execute).toHaveBeenCalled();
   });
 
+  it("omits separator page when isLastJobForOrder is false in multi-file orders", async () => {
+    let spooledCount = 0;
+    mocks.execute.mockImplementation(async (_file, args, _options, callback) => {
+      const p = args.at(-1);
+      const loaded = await PDFDocument.load(fs.readFileSync(p));
+      spooledCount = loaded.getPageCount();
+      callback(null, "", "");
+    });
+
+    // 1 customer page + 0 separator page = 1 page spooled (for intermediate files)
+    const intermediateJob = {
+      id: "job-file-1-of-6",
+      totalPages: 1,
+      isLastJobForOrder: false,
+      pagesConfig: [
+        {
+          startPage: 1,
+          endPage: 1,
+          colorMode: "black_and_white",
+          paperSize: "a4",
+          sideMode: "single_sided",
+          copies: 1,
+        },
+      ],
+    } as ClaimedJob;
+
+    const result = await prepareAndPrintDocument(source, intermediateJob, printerName);
+    expect(result.success).toBe(true);
+    expect(result.pagesSubmitted).toBe(1);
+    expect(spooledCount).toBe(1); // Exact document page, NO extra separator page!
+  });
+
+  it("adds separator page only for the final job in the order (isLastJobForOrder: true)", async () => {
+    let spooledCount = 0;
+    mocks.execute.mockImplementation(async (_file, args, _options, callback) => {
+      const p = args.at(-1);
+      const loaded = await PDFDocument.load(fs.readFileSync(p));
+      spooledCount = loaded.getPageCount();
+      callback(null, "", "");
+    });
+
+    const finalJob = {
+      id: "job-file-6-of-6",
+      totalPages: 1,
+      isLastJobForOrder: true,
+      pagesConfig: [
+        {
+          startPage: 1,
+          endPage: 1,
+          colorMode: "black_and_white",
+          paperSize: "a4",
+          sideMode: "single_sided",
+          copies: 1,
+        },
+      ],
+    } as ClaimedJob;
+
+    const result = await prepareAndPrintDocument(source, finalJob, printerName);
+    expect(result.success).toBe(true);
+    expect(result.pagesSubmitted).toBe(1);
+    expect(spooledCount).toBe(2); // 1 customer page + 1 separator page
+  });
+
+  it("respects includeSeparatorPage override in options", async () => {
+    let spooledCount = 0;
+    mocks.execute.mockImplementation(async (_file, args, _options, callback) => {
+      const p = args.at(-1);
+      const loaded = await PDFDocument.load(fs.readFileSync(p));
+      spooledCount = loaded.getPageCount();
+      callback(null, "", "");
+    });
+
+    const jobWithoutSetting = {
+      id: "job-override-test",
+      totalPages: 1,
+      pagesConfig: [
+        {
+          startPage: 1,
+          endPage: 1,
+          colorMode: "black_and_white",
+          paperSize: "a4",
+          sideMode: "single_sided",
+          copies: 1,
+        },
+      ],
+    } as ClaimedJob;
+
+    const result = await prepareAndPrintDocument(source, jobWithoutSetting, printerName, undefined, {
+      includeSeparatorPage: false,
+    });
+    expect(result.success).toBe(true);
+    expect(spooledCount).toBe(1);
+  });
+
   it("spools to Windows print queue even when physical printer is offline", async () => {
     mocks.discover.mockResolvedValue([{ name: printerName, status: "offline" }]);
     const res = await prepareAndPrintDocument(source, job, printerName);

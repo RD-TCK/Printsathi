@@ -108,6 +108,38 @@ export async function POST(request: Request) {
   // to route the back-side to the same physical printer, even after an agent restart.
   const requiredPrinterName = effectiveDuplexStep === "even" ? (jobDetails?.duplex_printer_name ?? null) : null;
 
+  // Check if this job is the final job for this user's order batch.
+  // In multi-file orders (e.g. user uploads 6 files), the empty separator sheet
+  // must only be appended after ALL documents have finished printing, not after each individual file.
+  let isLastJobForOrder = true;
+  if (effectiveDuplexStep === "odd") {
+    // Phase 1 (odd pages) must never append a separator sheet because paper will be flipped for phase 2.
+    isLastJobForOrder = false;
+  } else if (claimed.order_id) {
+    const { data: remainingJobs } = await adminClient
+      .from("print_jobs")
+      .select("id, status, duplex_step")
+      .eq("order_id", claimed.order_id)
+      .neq("id", claimed.job_id)
+      .in("status", ["queued", "paid", "awaiting_payment", "draft", "claimed"]);
+
+    const { data: incompleteDuplexJobs } = await adminClient
+      .from("print_jobs")
+      .select("id")
+      .eq("order_id", claimed.order_id)
+      .neq("id", claimed.job_id)
+      .in("duplex_step", ["odd_pending", "odd", "odd_printed", "even_pending"]);
+
+    const hasOtherPendingJobs = Boolean(
+      (remainingJobs && remainingJobs.length > 0) ||
+      (incompleteDuplexJobs && incompleteDuplexJobs.length > 0)
+    );
+
+    if (hasOtherPendingJobs) {
+      isLastJobForOrder = false;
+    }
+  }
+
   // Resolve pagesConfig dynamically:
   // Preserve intact ranges so the desktop agent can perform proper multi-copy collation
   // and blank-page sheet alignment for both hardware and manual duplex.
@@ -166,6 +198,7 @@ export async function POST(request: Request) {
         pageCount: claimed.document_page_count,
       },
       pagesConfig: resolvedPagesConfig,
+      isLastJobForOrder,
     },
   });
 }

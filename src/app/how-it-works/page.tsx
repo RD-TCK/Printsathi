@@ -1,16 +1,39 @@
 import { SiteHeader } from "@/components/site-header";
-import { MarketingFooter, SectionHeading, Steps, TrialCallout } from "@/components/marketing-site";
+import { MarketingFooter, SectionHeading, Steps, TrialCallout, workflowSteps } from "@/components/marketing-site";
+import { JsonLd } from "@/components/json-ld";
+import { breadcrumbJsonLd, howToJsonLd, pageMetadata } from "@/lib/seo";
 
-export const metadata = { title: "How It Works", description: "See the Printiva QR-led printing journey." };
+export const metadata = pageMetadata({
+  title: "How Printiva Works — Scan the QR, Upload, Pay, Print",
+  description:
+    "How to print documents with Printiva in four steps: scan the shop's QR code, upload and preview your files, pay by UPI or card, and the shop's printer prints automatically.",
+  path: "/how-it-works",
+  keywords: ["how to print documents online", "QR code printing steps", "print from phone at a print shop"],
+});
 
 export default function HowItWorksPage() {
   return (
     <div>
+      <JsonLd
+        data={[
+          howToJsonLd({
+            name: "How to print a document at a Printiva print shop",
+            description:
+              "Print documents from your phone at a local print shop using its Printiva QR code, with no app download.",
+            steps: workflowSteps,
+          }),
+          breadcrumbJsonLd([
+            ["Home", "/"],
+            ["How It Works", "/how-it-works"],
+          ]),
+        ]}
+      />
       <SiteHeader />
       <main>
         <section className="bg-brand-50">
           <div className="mx-auto max-w-7xl px-6 py-20 lg:px-8 lg:py-28">
             <SectionHeading
+              as="h1"
               eyebrow="The journey"
               title="From a scan to a finished print."
               description="The product is being built in deliberate phases, with payment and printer controls staying on trusted server and local-agent boundaries."

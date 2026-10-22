@@ -62,6 +62,28 @@ export function CounterQueueCenter({ shopName }: { shopName: string }) {
   // Audio chime notification for new requests
   const prevCountRef = useRef<number>(0);
 
+  // Helper to determine whether a queue item has expired
+  const isItemExpired = useCallback((item: QueueItem): boolean => {
+    if (
+      item.status === "paid" ||
+      item.status === "completed" ||
+      item.status === "cancelled" ||
+      item.status === "partially_printed"
+    ) {
+      return false;
+    }
+    if (item.isExpired || item.status === "expired") {
+      return true;
+    }
+    if (item.remainingSeconds <= 0) {
+      return true;
+    }
+    if (item.expiresAt) {
+      return new Date(item.expiresAt).getTime() <= Date.now();
+    }
+    return false;
+  }, []);
+
   const fetchQueue = useCallback(async () => {
     try {
       const res = await fetch("/api/shop/counter-queue", { cache: "no-store" });
@@ -70,7 +92,7 @@ export function CounterQueueCenter({ shopName }: { shopName: string }) {
       const items: QueueItem[] = data.queue || [];
 
       // Check if a new active request arrived
-      const activePending = items.filter((i) => i.status === "awaiting_payment" && !i.isExpired);
+      const activePending = items.filter((i) => i.status === "awaiting_payment" && !isItemExpired(i));
       if (activePending.length > prevCountRef.current && prevCountRef.current > 0) {
         try {
           const ctx = new (
@@ -98,6 +120,43 @@ export function CounterQueueCenter({ shopName }: { shopName: string }) {
     } finally {
       setLoading(false);
     }
+  }, [isItemExpired]);
+
+  // Real-time 1-second countdown ticker to decrement remainingSeconds and dynamically expire items
+  useEffect(() => {
+    const timer = setInterval(() => {
+      setQueue((prevQueue) => {
+        let changed = false;
+        const now = Date.now();
+        const updated = prevQueue.map((item) => {
+          if (
+            item.status === "paid" ||
+            item.status === "completed" ||
+            item.status === "cancelled" ||
+            item.status === "partially_printed"
+          ) {
+            return item;
+          }
+          const expiryMs = item.expiresAt ? new Date(item.expiresAt).getTime() : 0;
+          const currentRemaining = expiryMs
+            ? Math.max(0, Math.floor((expiryMs - now) / 1000))
+            : Math.max(0, item.remainingSeconds - 1);
+          const expired = item.isExpired || currentRemaining <= 0 || (expiryMs > 0 && expiryMs <= now);
+          if (currentRemaining !== item.remainingSeconds || expired !== item.isExpired) {
+            changed = true;
+            return {
+              ...item,
+              remainingSeconds: currentRemaining,
+              isExpired: expired,
+              status: expired && item.status === "awaiting_payment" ? "expired" : item.status,
+            };
+          }
+          return item;
+        });
+        return changed ? updated : prevQueue;
+      });
+    }, 1000);
+    return () => clearInterval(timer);
   }, []);
 
   useEffect(() => {
@@ -222,7 +281,7 @@ export function CounterQueueCenter({ shopName }: { shopName: string }) {
 
   // Filter active pending orders that need immediate attention and are not dismissed
   const activePendingOrders = queue.filter(
-    (item) => (item.status === "awaiting_payment" || item.status === "partially_printed") && !item.isExpired,
+    (item) => (item.status === "awaiting_payment" || item.status === "partially_printed") && !isItemExpired(item),
   );
   const popupOrders = activePendingOrders.filter((item) => !dismissedPopups.has(item.id));
 
@@ -246,7 +305,10 @@ export function CounterQueueCenter({ shopName }: { shopName: string }) {
       {popupOrders.length > 0 ? (
         <div className="space-y-3">
           {popupOrders.slice(0, 2).map((item) => {
-            const minutesLeft = Math.floor(item.remainingSeconds / 60);
+            const totalSecs = Math.max(0, item.remainingSeconds);
+            const minutesLeft = Math.floor(totalSecs / 60);
+            const secondsLeft = totalSecs % 60;
+            const timeLabel = minutesLeft > 0 ? `${minutesLeft}m` : `${secondsLeft}s`;
             const isDouble = item.sideMode === "double_sided";
             // isOddDone: front side has been physically printed and job is awaiting back-side print
             const isOddDone = item.duplexStep === "odd_printed" || item.status === "partially_printed";
@@ -290,7 +352,7 @@ export function CounterQueueCenter({ shopName }: { shopName: string }) {
                         </span>
                         <span className="text-xs text-muted flex items-center gap-1 font-mono">
                           <Clock3 className="size-3.5 text-emerald-600" />
-                          Valid {minutesLeft}m
+                          Valid {timeLabel}
                         </span>
                         {isDouble && (
                           <span className="text-xs font-extrabold text-indigo-700 bg-indigo-50 border border-indigo-200 px-2 py-0.5 rounded-md flex items-center gap-1">
@@ -346,8 +408,12 @@ export function CounterQueueCenter({ shopName }: { shopName: string }) {
                           className="inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-xl bg-gradient-to-b from-emerald-500 via-emerald-600 to-emerald-700 px-5 py-3 text-sm font-black uppercase tracking-wider text-white shadow-[0_4px_0_0_#064e3b,0_10px_20px_rgba(5,150,105,0.35)] border-t border-emerald-300/40 hover:from-emerald-400 hover:to-emerald-600 active:translate-y-[3px] active:shadow-[0_1px_0_0_#064e3b] disabled:opacity-50 transition-all cursor-pointer select-none"
                           onClick={() => handleApprovePrint(item.id, "odd")}
                         >
-                          <Printer className="size-5 shrink-0 drop-shadow-xs" />
-                          <span>{actionLoading === `${item.id}-odd` ? "Printing..." : "Print Front (Odd)"}</span>
+                          {actionLoading === `${item.id}-odd` ? (
+                            <LoaderCircle className="size-5 shrink-0 animate-spin" />
+                          ) : (
+                            <Printer className="size-5 shrink-0 drop-shadow-xs" />
+                          )}
+                          <span>{actionLoading === `${item.id}-odd` ? "Processing..." : "Print Front (Odd)"}</span>
                         </button>
                       ) : (
                         <button
@@ -356,8 +422,12 @@ export function CounterQueueCenter({ shopName }: { shopName: string }) {
                           className="inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-xl bg-gradient-to-b from-amber-500 via-amber-600 to-amber-700 px-5 py-3 text-sm font-black uppercase tracking-wider text-white shadow-[0_4px_0_0_#78350f,0_10px_20px_rgba(217,119,6,0.4)] border-t border-amber-300/40 hover:from-amber-400 hover:to-amber-600 active:translate-y-[3px] active:shadow-[0_1px_0_0_#78350f] disabled:opacity-50 transition-all cursor-pointer select-none animate-pulse"
                           onClick={() => handleApprovePrint(item.id, "even")}
                         >
-                          <RotateCw className="size-5 shrink-0 drop-shadow-xs" />
-                          <span>{actionLoading === `${item.id}-even` ? "Printing..." : "Print Next Side"}</span>
+                          {actionLoading === `${item.id}-even` ? (
+                            <LoaderCircle className="size-5 shrink-0 animate-spin" />
+                          ) : (
+                            <RotateCw className="size-5 shrink-0 drop-shadow-xs" />
+                          )}
+                          <span>{actionLoading === `${item.id}-even` ? "Processing..." : "Print Next Side"}</span>
                         </button>
                       )
                     ) : (
@@ -367,8 +437,12 @@ export function CounterQueueCenter({ shopName }: { shopName: string }) {
                         className="inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-xl bg-gradient-to-b from-emerald-500 via-emerald-600 to-emerald-700 px-6 py-3 text-sm font-black uppercase tracking-wider text-white shadow-[0_4px_0_0_#064e3b,0_10px_20px_rgba(5,150,105,0.35)] border-t border-emerald-300/40 hover:from-emerald-400 hover:to-emerald-600 active:translate-y-[3px] active:shadow-[0_1px_0_0_#064e3b] disabled:opacity-50 transition-all cursor-pointer select-none"
                         onClick={() => handleApprovePrint(item.id, "all")}
                       >
-                        <Printer className="size-5 shrink-0 drop-shadow-xs" />
-                        <span>{actionLoading === `${item.id}-all` ? "Printing..." : "Print Document"}</span>
+                        {actionLoading === `${item.id}-all` ? (
+                          <LoaderCircle className="size-5 shrink-0 animate-spin" />
+                        ) : (
+                          <Printer className="size-5 shrink-0 drop-shadow-xs" />
+                        )}
+                        <span>{actionLoading === `${item.id}-all` ? "Processing..." : "Print Document"}</span>
                       </button>
                     )}
 
@@ -481,15 +555,34 @@ export function CounterQueueCenter({ shopName }: { shopName: string }) {
           ) : (
             <div className="divide-y divide-line/60 max-h-[600px] overflow-y-auto pr-1">
               {filteredQueue.map((item) => {
-                const minutesLeft = Math.floor(item.remainingSeconds / 60);
-                const isPaid = item.status === "paid" || item.status === "completed";
+                const isCompleted =
+                  item.status === "completed" ||
+                  (Array.isArray(item.jobs) &&
+                    item.jobs.length > 0 &&
+                    item.jobs.every((j) => j.status === "completed"));
+                const isPrinting =
+                  item.status === "paid" &&
+                  Array.isArray(item.jobs) &&
+                  item.jobs.some((j) => j.status === "print_submitted");
+                const isProcessing =
+                  (item.status === "paid" || item.status === "awaiting_payment") &&
+                  (actionLoading?.startsWith(item.id) ||
+                    (Array.isArray(item.jobs) &&
+                      item.jobs.some((j) => j.status === "queued" || j.status === "claimed")));
+                const isPaid = isCompleted;
                 const isCancelled = item.status === "cancelled";
+                const isExpired = !isCompleted && !isPrinting && !isProcessing && item.status !== "paid" && !isCancelled && isItemExpired(item);
                 const isDouble = item.sideMode === "double_sided";
                 // isOddDone: front side has been physically printed and job is awaiting back-side print
                 const isOddDone = item.duplexStep === "odd_printed" || item.status === "partially_printed";
                 const totalSheets = isDouble ? Math.ceil(item.totalPages / 2) : item.totalPages;
                 const oddPages = item.oddPagesCount ?? Math.ceil(item.totalPages / 2);
                 const evenPages = item.evenPagesCount ?? Math.floor(item.totalPages / 2);
+
+                const totalSecs = Math.max(0, item.remainingSeconds);
+                const minutesLeft = Math.floor(totalSecs / 60);
+                const secondsLeft = totalSecs % 60;
+                const timeRemainingLabel = minutesLeft > 0 ? `${minutesLeft}m left` : `${secondsLeft}s left`;
 
                 return (
                   <div
@@ -498,7 +591,7 @@ export function CounterQueueCenter({ shopName }: { shopName: string }) {
                       "flex flex-col gap-3 p-4 sm:p-5 transition hover:bg-brand-50/40",
                       isOddDone
                         ? "bg-amber-50/40 border-l-4 border-l-amber-500"
-                        : item.status === "awaiting_payment" && !item.isExpired
+                        : item.status === "awaiting_payment" && !isExpired
                           ? "bg-white border-l-4 border-l-emerald-500"
                           : "bg-slate-50/60 opacity-85",
                     )}
@@ -510,13 +603,17 @@ export function CounterQueueCenter({ shopName }: { shopName: string }) {
                         <div
                           className={cn(
                             "flex size-14 shrink-0 items-center justify-center rounded-2xl font-mono text-xl font-black shadow-md",
-                            isPaid
+                            isCompleted
                               ? "bg-emerald-100 text-emerald-800 border border-emerald-300"
-                              : isOddDone
-                                ? "bg-amber-500 text-white shadow-amber-600/30 ring-2 ring-amber-300"
-                                : item.isExpired
-                                  ? "bg-slate-200 text-slate-500"
-                                  : "bg-emerald-600 text-white shadow-emerald-700/25 ring-2 ring-emerald-300",
+                              : isPrinting
+                                ? "bg-amber-500 text-white shadow-amber-600/30 ring-2 ring-amber-300 animate-pulse"
+                                : isProcessing || item.status === "paid"
+                                  ? "bg-blue-600 text-white shadow-blue-700/25 ring-2 ring-blue-300"
+                                  : isOddDone
+                                    ? "bg-amber-500 text-white shadow-amber-600/30 ring-2 ring-amber-300"
+                                    : isExpired
+                                      ? "bg-slate-200 text-slate-500"
+                                      : "bg-emerald-600 text-white shadow-emerald-700/25 ring-2 ring-emerald-300",
                           )}
                         >
                           #{item.tokenNumber ?? item.publicId.slice(0, 4)}
@@ -530,26 +627,34 @@ export function CounterQueueCenter({ shopName }: { shopName: string }) {
 
                             <Badge
                               tone={
-                                isPaid
+                                isCompleted
                                   ? "success"
-                                  : isOddDone
+                                  : isPrinting
                                     ? "warning"
-                                    : item.isExpired
-                                      ? "danger"
-                                      : isCancelled
-                                        ? "danger"
-                                        : "warning"
+                                    : isProcessing || item.status === "paid"
+                                      ? "neutral"
+                                      : isOddDone
+                                        ? "warning"
+                                        : isExpired
+                                          ? "danger"
+                                          : isCancelled
+                                            ? "danger"
+                                            : "warning"
                               }
                             >
-                              {isPaid
-                                ? "PRINTED / PAID"
-                                : isOddDone
-                                  ? "ODD PAGES PRINTED · RELOAD TRAY"
-                                  : item.isExpired
-                                    ? "EXPIRED (1 HR)"
-                                    : isCancelled
-                                      ? "DISCARDED (MISPRINT)"
-                                      : "WAITING AT COUNTER"}
+                              {isCompleted
+                                ? "PRINTED"
+                                : isPrinting
+                                  ? "PRINTING PAGES..."
+                                  : isProcessing || item.status === "paid"
+                                    ? "PROCESSING..."
+                                    : isOddDone
+                                      ? "ODD PAGES PRINTED · RELOAD TRAY"
+                                      : isExpired
+                                        ? "EXPIRED (1 HR)"
+                                        : isCancelled
+                                          ? "DISCARDED (MISPRINT)"
+                                          : "WAITING AT COUNTER"}
                             </Badge>
 
                             {isDouble && (
@@ -558,9 +663,16 @@ export function CounterQueueCenter({ shopName }: { shopName: string }) {
                               </span>
                             )}
 
-                            {!isPaid && !item.isExpired && !isCancelled && !isOddDone ? (
-                              <span className="inline-flex items-center gap-1 text-[11px] font-mono text-emerald-800 bg-emerald-50 px-2 py-0.5 rounded border border-emerald-200">
-                                <Clock3 className="size-3" /> {minutesLeft}m left
+                            {!isPaid && !isProcessing && !isPrinting && !isExpired && !isCancelled && !isOddDone && totalSecs > 0 ? (
+                              <span
+                                className={cn(
+                                  "inline-flex items-center gap-1 text-[11px] font-mono px-2 py-0.5 rounded border",
+                                  minutesLeft < 5
+                                    ? "text-amber-800 bg-amber-50 border-amber-200"
+                                    : "text-emerald-800 bg-emerald-50 border-emerald-200",
+                                )}
+                              >
+                                <Clock3 className="size-3" /> {timeRemainingLabel}
                               </span>
                             ) : null}
                           </div>
@@ -591,7 +703,7 @@ export function CounterQueueCenter({ shopName }: { shopName: string }) {
 
                       {/* Right: Actions inside Token Bar */}
                       <div className="flex flex-wrap items-center gap-2 shrink-0">
-                        {!isPaid && !isCancelled && !item.isExpired ? (
+                        {!isPaid && !isProcessing && !isPrinting && item.status !== "paid" && !isCancelled && !isExpired ? (
                           <>
                             {isDouble ? (
                               !isOddDone ? (
@@ -601,10 +713,14 @@ export function CounterQueueCenter({ shopName }: { shopName: string }) {
                                   className="inline-flex items-center justify-center gap-1.5 whitespace-nowrap rounded-lg bg-gradient-to-b from-emerald-500 via-emerald-600 to-emerald-700 px-3 py-1.5 text-xs font-black uppercase tracking-wide text-white shadow-[0_2.5px_0_0_#064e3b,0_4px_8px_rgba(5,150,105,0.25)] border-t border-emerald-300/40 hover:from-emerald-400 hover:to-emerald-600 active:translate-y-[2px] active:shadow-[0_1px_0_0_#064e3b] disabled:opacity-50 transition-all cursor-pointer select-none"
                                   onClick={() => handleApprovePrint(item.id, "odd")}
                                 >
-                                  <Printer className="size-3.5 shrink-0 drop-shadow-xs" />
+                                  {actionLoading === `${item.id}-odd` ? (
+                                    <LoaderCircle className="size-3.5 animate-spin" />
+                                  ) : (
+                                    <Printer className="size-3.5 shrink-0 drop-shadow-xs" />
+                                  )}
                                   <span>
                                     {actionLoading === `${item.id}-odd`
-                                      ? "Printing..."
+                                      ? "Processing..."
                                       : `Print Front (Odd: ${oddPages}p)`}
                                   </span>
                                 </button>
@@ -615,10 +731,14 @@ export function CounterQueueCenter({ shopName }: { shopName: string }) {
                                   className="inline-flex items-center justify-center gap-1.5 whitespace-nowrap rounded-lg bg-gradient-to-b from-amber-500 via-amber-600 to-amber-700 px-3 py-1.5 text-xs font-black uppercase tracking-wide text-white shadow-[0_2.5px_0_0_#78350f,0_4px_8px_rgba(217,119,6,0.3)] border-t border-amber-300/40 hover:from-amber-400 hover:to-amber-600 active:translate-y-[2px] active:shadow-[0_1px_0_0_#78350f] disabled:opacity-50 transition-all cursor-pointer select-none animate-pulse"
                                   onClick={() => handleApprovePrint(item.id, "even")}
                                 >
-                                  <RotateCw className="size-3.5 shrink-0 drop-shadow-xs" />
+                                  {actionLoading === `${item.id}-even` ? (
+                                    <LoaderCircle className="size-3.5 animate-spin" />
+                                  ) : (
+                                    <RotateCw className="size-3.5 shrink-0 drop-shadow-xs" />
+                                  )}
                                   <span>
                                     {actionLoading === `${item.id}-even`
-                                      ? "Printing..."
+                                      ? "Processing..."
                                       : `Print Next Side (${evenPages}p)`}
                                   </span>
                                 </button>
@@ -630,8 +750,12 @@ export function CounterQueueCenter({ shopName }: { shopName: string }) {
                                 className="inline-flex items-center justify-center gap-1.5 whitespace-nowrap rounded-lg bg-gradient-to-b from-emerald-500 via-emerald-600 to-emerald-700 px-3 py-1.5 text-xs font-black uppercase tracking-wide text-white shadow-[0_2.5px_0_0_#064e3b,0_4px_8px_rgba(5,150,105,0.25)] border-t border-emerald-300/40 hover:from-emerald-400 hover:to-emerald-600 active:translate-y-[2px] active:shadow-[0_1px_0_0_#064e3b] disabled:opacity-50 transition-all cursor-pointer select-none"
                                 onClick={() => handleApprovePrint(item.id, "all")}
                               >
-                                <Printer className="size-3.5 shrink-0 drop-shadow-xs" />
-                                <span>{actionLoading === `${item.id}-all` ? "Printing..." : "Print Document"}</span>
+                                {actionLoading === `${item.id}-all` ? (
+                                  <LoaderCircle className="size-3.5 animate-spin" />
+                                ) : (
+                                  <Printer className="size-3.5 shrink-0 drop-shadow-xs" />
+                                )}
+                                <span>{actionLoading === `${item.id}-all` ? "Processing..." : "Print Document"}</span>
                               </button>
                             )}
 
@@ -645,10 +769,10 @@ export function CounterQueueCenter({ shopName }: { shopName: string }) {
                               <span>Cancel</span>
                             </button>
                           </>
-                        ) : isPaid ? (
+                        ) : isCompleted ? (
                           <div className="flex flex-wrap items-center gap-2">
                             <span className="inline-flex items-center gap-1 rounded-lg bg-emerald-50 border border-emerald-200 px-2.5 py-1 text-[11px] font-bold text-emerald-800 shadow-2xs">
-                              <CheckCircle2 className="size-3.5 text-emerald-600" /> Approved
+                              <CheckCircle2 className="size-3.5 text-emerald-600" /> Printed
                             </span>
                             <button
                               type="button"
@@ -661,6 +785,18 @@ export function CounterQueueCenter({ shopName }: { shopName: string }) {
                               <span>Discard Misprint</span>
                             </button>
                           </div>
+                        ) : isPrinting ? (
+                          <div className="flex flex-wrap items-center gap-2">
+                            <span className="inline-flex items-center gap-1.5 rounded-lg bg-amber-50 border border-amber-300 px-2.5 py-1 text-[11px] font-bold text-amber-900 shadow-2xs animate-pulse">
+                              <Printer className="size-3.5 text-amber-700 animate-bounce" /> Printing Pages...
+                            </span>
+                          </div>
+                        ) : isProcessing || item.status === "paid" ? (
+                          <div className="flex flex-wrap items-center gap-2">
+                            <span className="inline-flex items-center gap-1.5 rounded-lg bg-blue-50 border border-blue-200 px-2.5 py-1 text-[11px] font-bold text-blue-800 shadow-2xs">
+                              <LoaderCircle className="size-3.5 text-blue-600 animate-spin" /> Processing...
+                            </span>
+                          </div>
                         ) : isCancelled ? (
                           <div className="flex flex-col items-end text-right">
                             <span className="inline-flex items-center gap-1 rounded-lg bg-rose-50 border border-rose-200 px-2 py-0.5 text-[11px] font-extrabold text-rose-700">
@@ -670,10 +806,24 @@ export function CounterQueueCenter({ shopName }: { shopName: string }) {
                               Excluded from revenue (₹0.00 counted)
                             </span>
                           </div>
+                        ) : isExpired ? (
+                          <div className="flex items-center gap-2">
+                            <span className="inline-flex items-center gap-1 rounded-lg bg-rose-50 border border-rose-200 px-2.5 py-1 text-[11px] font-bold text-rose-700">
+                              <Clock3 className="size-3 text-rose-500" /> Token Expired (1 hr)
+                            </span>
+                            <button
+                              type="button"
+                              disabled={actionLoading === item.id}
+                              className="inline-flex items-center justify-center gap-1 whitespace-nowrap rounded-lg bg-slate-100 hover:bg-slate-200 px-2.5 py-1 text-[11px] font-bold text-slate-600 border border-slate-300 transition-all cursor-pointer select-none"
+                              onClick={() => handleCancelOrder(item.id)}
+                              title="Dismiss / Cancel expired token"
+                            >
+                              <XCircle className="size-3 text-slate-500" />
+                              <span>Dismiss</span>
+                            </button>
+                          </div>
                         ) : (
-                          <span className="text-xs text-muted italic">
-                            {item.isExpired ? "Request expired after 1 hr" : "Cancelled"}
-                          </span>
+                          <span className="text-xs text-muted italic">Cancelled</span>
                         )}
                       </div>
                     </div>

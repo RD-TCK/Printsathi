@@ -2,6 +2,14 @@ import Link from "next/link";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { Alert } from "@/components/ui/alert";
 import { RegisterForm } from "@/components/register-form";
+import { pageMetadata } from "@/lib/seo";
+
+export const metadata = pageMetadata({
+  title: "Register Your Print Shop — ₹100 for a 7-Day Trial",
+  description:
+    "Create a Printiva shop account in minutes. Get your shop QR code, set per-page prices, connect your Windows printer, and start accepting paid print orders.",
+  path: "/register",
+});
 
 export default async function RegisterPage({ searchParams }: { searchParams: Promise<{ error?: string }> }) {
   const params = await searchParams;

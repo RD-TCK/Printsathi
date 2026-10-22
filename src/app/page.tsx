@@ -4,21 +4,22 @@ import { SiteHeader } from "@/components/site-header";
 import { FeatureGrid, FaqList, MarketingFooter, Steps, TrialCallout } from "@/components/marketing-site";
 import { Button } from "@/components/ui/button";
 import { InteractivePrinter } from "@/components/interactive-printer";
+import { JsonLd } from "@/components/json-ld";
+import { faqItems } from "@/components/marketing-site";
+import { faqJsonLd, pageMetadata, softwareJsonLd } from "@/lib/seo";
 
-export const metadata = {
-  title: "Printiva — Scan. Upload. Pay. Print.",
+export const metadata = pageMetadata({
+  title: "Printiva — Digital Printing Service & Print Shop Automation | Scan. Upload. Pay. Print.",
   description:
-    "Modern automated printing OS for local print shops. Customers scan, upload, pay — your Windows printer prints hands-free.",
-  openGraph: {
-    title: "Printiva — Scan. Upload. Pay. Print.",
-    description: "A clearer, faster way for local shops and their customers to print together.",
-    type: "website",
-  },
-};
+    "Printiva is a digital printing service platform for local print shops. Customers scan a QR code, upload documents, and pay online — the shop's Windows printer prints automatically. ₹100 for a 7-day trial.",
+  path: "/",
+  absoluteTitle: true,
+});
 
 export default function Home() {
   return (
     <div className="min-h-screen bg-white text-ink overflow-x-hidden">
+      <JsonLd data={[softwareJsonLd(), faqJsonLd(faqItems)]} />
       <SiteHeader />
 
       <main>
@@ -51,8 +52,8 @@ export default function Home() {
 
                 {/* Subhead */}
                 <p className="reveal reveal-d2 mt-6 max-w-lg text-base leading-7 text-muted sm:text-lg sm:leading-8">
-                  Customers scan your QR, upload a file, pay via Razorpay — and it prints on your Windows machine. No
-                  WhatsApp. No Ctrl+P.
+                  Printiva turns your shop into a digital printing service. Customers scan your QR, upload a file, pay
+                  via Razorpay — and it prints on your Windows machine. No WhatsApp. No Ctrl+P.
                 </p>
 
                 {/* CTA */}

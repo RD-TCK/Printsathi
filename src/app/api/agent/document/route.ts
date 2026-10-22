@@ -7,11 +7,19 @@ async function wrapImageToPdf(rawBuffer: Buffer): Promise<Buffer> {
   const pdfDoc = await PDFDocument.create();
   const isPng = rawBuffer.subarray(0, 4).toString("hex") === "89504e47";
   const embeddedImg = isPng ? await pdfDoc.embedPng(rawBuffer) : await pdfDoc.embedJpg(rawBuffer);
-  const page = pdfDoc.addPage([595.28, 841.89]);
-  const { width, height } = embeddedImg.scaleToFit(595.28, 841.89);
+  const isLandscape = embeddedImg.width > embeddedImg.height * 1.15;
+  const pageWidth = isLandscape ? 841.89 : 595.28;
+  const pageHeight = isLandscape ? 595.28 : 841.89;
+  const margin = 28.35; // ~10mm safe printable margin
+  const contentW = pageWidth - margin * 2;
+  const contentH = pageHeight - margin * 2;
+  const scale = Math.min(contentW / embeddedImg.width, contentH / embeddedImg.height);
+  const width = embeddedImg.width * scale;
+  const height = embeddedImg.height * scale;
+  const page = pdfDoc.addPage([pageWidth, pageHeight]);
   page.drawImage(embeddedImg, {
-    x: (595.28 - width) / 2,
-    y: (841.89 - height) / 2,
+    x: (pageWidth - width) / 2,
+    y: (pageHeight - height) / 2,
     width,
     height,
   });

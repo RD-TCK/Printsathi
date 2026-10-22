@@ -1,7 +1,11 @@
+import type { Metadata } from "next";
 import type { ReactNode } from "react";
+import { NO_INDEX } from "@/lib/seo";
 import { redirect } from "next/navigation";
 import { createSupabaseServerClient, getCurrentUser } from "@/lib/supabase/server";
 import { CustomerPortalShell } from "@/components/customer-portal-shell";
+
+export const metadata: Metadata = { robots: NO_INDEX };
 
 export default async function CustomerLayout({ children }: { children: ReactNode }) {
   const client = await createSupabaseServerClient();

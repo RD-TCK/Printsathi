@@ -4,8 +4,10 @@ const mocks = vi.hoisted(() => ({
   claim: vi.fn(),
   download: vi.fn(),
   submit: vi.fn(),
+  complete: vi.fn(),
   failure: vi.fn(),
   print: vi.fn(),
+  waitForPhysicalPrintCompletion: vi.fn().mockResolvedValue({ completed: true }),
   cacheFileExists: false,
 }));
 vi.mock("./config", () => ({
@@ -22,6 +24,7 @@ vi.mock("./client", () => ({
     claimNextJob = mocks.claim;
     downloadDocument = mocks.download;
     reportSubmit = mocks.submit;
+    reportComplete = mocks.complete;
     reportFailure = mocks.failure;
   },
 }));
@@ -31,7 +34,10 @@ vi.mock("./printer-discovery", () => ({
   findBestPrinterForJob: () => ({ name: "Test physical printer" }),
   isPhysicalPrinter: () => true,
 }));
-vi.mock("./print-executor", () => ({ prepareAndPrintDocument: mocks.print }));
+vi.mock("./print-executor", () => ({
+  prepareAndPrintDocument: mocks.print,
+  waitForPhysicalPrintCompletion: mocks.waitForPhysicalPrintCompletion,
+}));
 vi.mock("node:fs", () => ({
   default: {
     existsSync: (p: string) => {
@@ -64,6 +70,8 @@ describe("automatic dispatch safety", () => {
     });
     mocks.download.mockResolvedValue(undefined);
     mocks.submit.mockResolvedValue(true);
+    mocks.complete.mockResolvedValue(true);
+    mocks.waitForPhysicalPrintCompletion.mockResolvedValue({ completed: true });
     mocks.failure.mockResolvedValue(true);
     mocks.print.mockResolvedValue({ success: true, pagesSubmitted: 2 });
   });
@@ -74,6 +82,8 @@ describe("automatic dispatch safety", () => {
     expect(mocks.print.mock.calls[0][3]).toEqual([
       { startPage: 1, endPage: 2, colorMode: "black_and_white", paperSize: "a4" },
     ]);
+    expect(mocks.waitForPhysicalPrintCompletion).toHaveBeenCalled();
+    expect(mocks.complete).toHaveBeenCalledWith("job-123456");
     expect(mocks.failure).not.toHaveBeenCalled();
   });
 
@@ -104,6 +114,44 @@ describe("automatic dispatch safety", () => {
     expect(mocks.download).not.toHaveBeenCalled();
     expect(mocks.submit).toHaveBeenCalled();
     expect(mocks.print).toHaveBeenCalled();
+  });
+
+  it("omits separator page in prepareAndPrintDocument for intermediate jobs in a multi-file order", async () => {
+    mocks.claim.mockResolvedValue({
+      id: "job-multi-1",
+      orderId: "order-multi",
+      isLastJobForOrder: false,
+      defaultPrinter: null,
+      document: { id: "doc-1", originalFilename: "file1.pdf", pageCount: 1 },
+      pagesConfig: [{ startPage: 1, endPage: 1, colorMode: "black_and_white", paperSize: "a4" }],
+    });
+    await processJob();
+    expect(mocks.print).toHaveBeenCalledWith(
+      expect.any(String),
+      expect.objectContaining({ id: "job-multi-1", isLastJobForOrder: false }),
+      expect.any(String),
+      expect.any(Array),
+      { includeSeparatorPage: false },
+    );
+  });
+
+  it("appends separator page in prepareAndPrintDocument on the last job in a multi-file order", async () => {
+    mocks.claim.mockResolvedValue({
+      id: "job-multi-6",
+      orderId: "order-multi",
+      isLastJobForOrder: true,
+      defaultPrinter: null,
+      document: { id: "doc-6", originalFilename: "file6.pdf", pageCount: 1 },
+      pagesConfig: [{ startPage: 1, endPage: 1, colorMode: "black_and_white", paperSize: "a4" }],
+    });
+    await processJob();
+    expect(mocks.print).toHaveBeenCalledWith(
+      expect.any(String),
+      expect.objectContaining({ id: "job-multi-6", isLastJobForOrder: true }),
+      expect.any(String),
+      expect.any(Array),
+      { includeSeparatorPage: true },
+    );
   });
 });
 

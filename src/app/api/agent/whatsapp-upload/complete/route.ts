@@ -53,6 +53,23 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Order not found or access denied." }, { status: 404 });
   }
 
+  // The admin client bypasses storage RLS, so every agent-supplied path must stay inside
+  // this shop's own order folder; otherwise an agent could read or delete another shop's files.
+  const orderPrefix = `shops/${shop.id}/orders/${orderId}/documents/`;
+  const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+  const hasInvalidDocument = documents.some(
+    (doc) =>
+      typeof doc?.id !== "string" ||
+      !uuidPattern.test(doc.id) ||
+      typeof doc.filename !== "string" ||
+      typeof doc.storagePath !== "string" ||
+      !doc.storagePath.startsWith(`${orderPrefix}${doc.id}/`) ||
+      doc.storagePath.split("/").some((segment) => segment === ".." || segment === "."),
+  );
+  if (hasInvalidDocument) {
+    return NextResponse.json({ error: "Invalid document reference." }, { status: 400 });
+  }
+
   const storedPaths: string[] = [];
   const cleanupRawPaths: string[] = [];
 

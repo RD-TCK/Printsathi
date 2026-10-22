@@ -49,6 +49,65 @@ async function optimizePreviewImage(
   }
 }
 
+function renderDocPlaceholderSvg(options: {
+  filename: string;
+  pageCount?: number | null;
+  mimeType?: string | null;
+}): string {
+  const ext = (options.filename.split(".").pop() || "DOC").toUpperCase().slice(0, 6);
+  const cleanName = options.filename.replace(/[<>&"']/g, "").trim();
+  const displayName = cleanName.length > 28 ? cleanName.slice(0, 25) + "…" : cleanName;
+  const pageText =
+    options.pageCount && options.pageCount > 0
+      ? `${options.pageCount} page${options.pageCount > 1 ? "s" : ""}`
+      : "Document Ready";
+
+  return `<svg width="480" height="600" viewBox="0 0 480 600" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="bg" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#0f172a"/>
+      <stop offset="100%" stop-color="#1e293b"/>
+    </linearGradient>
+    <linearGradient id="sheet" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#ffffff"/>
+      <stop offset="100%" stop-color="#f8fafc"/>
+    </linearGradient>
+    <linearGradient id="badge" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#3b82f6"/>
+      <stop offset="100%" stop-color="#1d4ed8"/>
+    </linearGradient>
+    <filter id="shadow" x="30" y="30" width="420" height="540" filterUnits="userSpaceOnUse" color-interpolation-filters="sRGB">
+      <feDropShadow dx="0" dy="8" stdDeviation="16" flood-color="#000000" flood-opacity="0.35"/>
+    </filter>
+  </defs>
+  
+  <rect width="480" height="600" rx="20" fill="url(#bg)"/>
+  
+  <g filter="url(#shadow)">
+    <rect x="60" y="50" width="360" height="500" rx="14" fill="url(#sheet)"/>
+  </g>
+  
+  <path d="M380 50 L420 90 H380 V50 Z" fill="#cbd5e1"/>
+  
+  <rect x="100" y="120" width="140" height="12" rx="6" fill="#e2e8f0"/>
+  <rect x="100" y="150" width="280" height="8" rx="4" fill="#f1f5f9"/>
+  <rect x="100" y="170" width="260" height="8" rx="4" fill="#f1f5f9"/>
+  <rect x="100" y="190" width="270" height="8" rx="4" fill="#f1f5f9"/>
+  <rect x="100" y="210" width="230" height="8" rx="4" fill="#f1f5f9"/>
+  <rect x="100" y="230" width="280" height="8" rx="4" fill="#f1f5f9"/>
+  <rect x="100" y="250" width="200" height="8" rx="4" fill="#f1f5f9"/>
+  
+  <rect x="180" y="290" width="120" height="50" rx="12" fill="url(#badge)"/>
+  <text x="240" y="322" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" font-size="20" font-weight="800" fill="#ffffff" text-anchor="middle" letter-spacing="1">${ext}</text>
+  
+  <text x="240" y="390" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" font-size="16" font-weight="700" fill="#0f172a" text-anchor="middle">${displayName}</text>
+  <text x="240" y="420" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" font-size="14" font-weight="600" fill="#64748b" text-anchor="middle">${pageText}</text>
+  
+  <rect x="160" y="460" width="160" height="32" rx="16" fill="#f1f5f9"/>
+  <text x="240" y="481" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" font-size="12" font-weight="600" fill="#475569" text-anchor="middle">Ready for Printing</text>
+</svg>`;
+}
+
 export async function GET(request: Request) {
   const url = new URL(request.url);
   const parsed = QuerySchema.safeParse({
@@ -85,7 +144,7 @@ export async function GET(request: Request) {
   // Fetch document storage path
   const { data: doc, error: docError } = await client
     .from("documents")
-    .select("storage_path, original_filename, mime_type")
+    .select("storage_path, original_filename, mime_type, page_count")
     .eq("id", documentId)
     .eq("order_id", orderId)
     .maybeSingle();
@@ -119,7 +178,7 @@ export async function GET(request: Request) {
 
     const headers = new Headers();
     headers.set("Content-Type", mimeType);
-    headers.set("Cache-Control", "public, max-age=86400, stale-while-revalidate=604800");
+    headers.set("Cache-Control", "private, max-age=86400, stale-while-revalidate=604800");
     headers.set("Access-Control-Allow-Origin", "*");
     headers.set("Content-Disposition", `inline; filename="${encodeURIComponent(doc.original_filename)}"`);
 
@@ -129,9 +188,24 @@ export async function GET(request: Request) {
     });
   }
 
-  // If the document is stored strictly locally on the shop PC and has no preview image
+  // If the document is stored strictly locally on the shop PC and has no preview image,
+  // return a beautiful vector SVG document sheet so <img> tags never show broken image icons.
   if (doc.storage_path.startsWith("local://")) {
-    return NextResponse.json({ error: "Preview not available for this local document." }, { status: 404 });
+    const svg = renderDocPlaceholderSvg({
+      filename: doc.original_filename,
+      pageCount: doc.page_count,
+      mimeType: doc.mime_type,
+    });
+    const headers = new Headers();
+    headers.set("Content-Type", "image/svg+xml");
+    headers.set("Cache-Control", "private, max-age=86400");
+    headers.set("Access-Control-Allow-Origin", "*");
+    headers.set("Content-Disposition", `inline; filename="${encodeURIComponent(doc.original_filename)}"`);
+
+    return new NextResponse(svg, {
+      status: 200,
+      headers,
+    });
   }
 
   // 2. Otherwise download the stored document file (source.pdf) from cloud
@@ -140,7 +214,19 @@ export async function GET(request: Request) {
     .download(doc.storage_path);
 
   if (downloadError || !fileBlob) {
-    return NextResponse.json({ error: "Failed to download preview." }, { status: 502 });
+    const svg = renderDocPlaceholderSvg({
+      filename: doc.original_filename,
+      pageCount: doc.page_count,
+      mimeType: doc.mime_type,
+    });
+    const headers = new Headers();
+    headers.set("Content-Type", "image/svg+xml");
+    headers.set("Cache-Control", "public, max-age=300");
+    headers.set("Access-Control-Allow-Origin", "*");
+    return new NextResponse(svg, {
+      status: 200,
+      headers,
+    });
   }
 
   const arrayBuf = await fileBlob.arrayBuffer();
@@ -163,7 +249,7 @@ export async function GET(request: Request) {
 
       const headers = new Headers();
       headers.set("Content-Type", mimeType);
-      headers.set("Cache-Control", "public, max-age=86400, stale-while-revalidate=604800");
+      headers.set("Cache-Control", "private, max-age=86400, stale-while-revalidate=604800");
       headers.set("Access-Control-Allow-Origin", "*");
       headers.set("Content-Disposition", `inline; filename="${encodeURIComponent(doc.original_filename)}"`);
 
@@ -174,13 +260,32 @@ export async function GET(request: Request) {
     }
   }
 
+  if (doc.mime_type?.startsWith("image/")) {
+    const { buffer: optimizedBuffer, mimeType } = await optimizePreviewImage(buffer, targetWidth);
+    const headers = new Headers();
+    headers.set("Content-Type", mimeType);
+    headers.set("Cache-Control", "public, max-age=86400, stale-while-revalidate=604800");
+    headers.set("Access-Control-Allow-Origin", "*");
+    headers.set("Content-Disposition", `inline; filename="${encodeURIComponent(doc.original_filename)}"`);
+
+    return new NextResponse(new Uint8Array(optimizedBuffer), {
+      status: 200,
+      headers,
+    });
+  }
+
+  // Non-image document where no preview thumbnail could be extracted:
+  // Render clean vector SVG card instead of raw PDF bytes so HTML <img> renders flawlessly.
+  const svg = renderDocPlaceholderSvg({
+    filename: doc.original_filename,
+    pageCount: doc.page_count,
+    mimeType: doc.mime_type,
+  });
   const headers = new Headers();
-  headers.set("Content-Type", doc.mime_type || "application/octet-stream");
+  headers.set("Content-Type", "image/svg+xml");
   headers.set("Cache-Control", "public, max-age=86400, stale-while-revalidate=604800");
   headers.set("Access-Control-Allow-Origin", "*");
-  headers.set("Content-Disposition", `inline; filename="${encodeURIComponent(doc.original_filename)}"`);
-
-  return new NextResponse(new Uint8Array(buffer), {
+  return new NextResponse(svg, {
     status: 200,
     headers,
   });

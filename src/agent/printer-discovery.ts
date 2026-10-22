@@ -22,12 +22,21 @@ function runPowerShellScript(script: string, timeoutMs: number = 8000): Promise<
   });
 }
 
-export async function discoverWindowsPrinters(): Promise<DiscoveredPrinter[]> {
+let cachedPrinters: DiscoveredPrinter[] | null = null;
+let lastDiscoveryTimestamp = 0;
+const PRINTER_CACHE_TTL_MS = 10000; // 10 seconds cache
+
+export async function discoverWindowsPrinters(forceRefresh = false): Promise<DiscoveredPrinter[]> {
   const isWindows = process.platform === "win32" || os.platform() === "win32";
 
   if (!isWindows) {
     logger.debug("Non-Windows platform detected; using standard printer interface.");
     return getFallbackPrinters();
+  }
+
+  const now = Date.now();
+  if (!forceRefresh && cachedPrinters && now - lastDiscoveryTimestamp < PRINTER_CACHE_TTL_MS) {
+    return cachedPrinters;
   }
 
   try {
@@ -230,6 +239,8 @@ if ($configs) {
       ),
     });
 
+    cachedPrinters = discovered;
+    lastDiscoveryTimestamp = Date.now();
     return discovered;
   } catch (error) {
     logger.warn("Failed to query Win32_Printer, falling back to printer discovery fallback:", {

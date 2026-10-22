@@ -1,8 +1,25 @@
 import Link from "next/link";
 import { Download, Printer } from "lucide-react";
+import { JsonLd } from "@/components/json-ld";
+import { breadcrumbJsonLd, pageMetadata } from "@/lib/seo";
+
+export const metadata = pageMetadata({
+  title: "Download the Printiva Windows Agent — Automatic Printing for Your Shop",
+  description:
+    "Download the Printiva desktop agent for Windows 10 and 11. Pair it with your shop and paid customer documents print automatically on your USB, Wi-Fi, or network printer.",
+  path: "/download",
+  keywords: ["Printiva agent download", "automatic printing software for Windows", "print shop desktop agent"],
+});
+
 export default function DownloadPage() {
   return (
     <main className="mx-auto max-w-4xl px-6 py-16">
+      <JsonLd
+        data={breadcrumbJsonLd([
+          ["Home", "/"],
+          ["Download", "/download"],
+        ])}
+      />
       <Link href="/" className="font-semibold text-brand-700">
         Printiva
       </Link>
@@ -15,14 +32,14 @@ export default function DownloadPage() {
         </p>
         <div className="mt-6 flex flex-wrap items-center gap-4">
           <a
-            href="https://github.com/RD-TCK/Printsathi/releases/download/v1.8.7/PrintivaAgent.exe"
+            href="https://github.com/RD-TCK/Printsathi/releases/download/v1.8.8/PrintivaAgent.exe"
             className="inline-flex items-center gap-2 rounded-xl bg-white px-5 py-3 font-semibold text-brand-900 shadow-sm transition hover:bg-white/90"
           >
             <Download className="size-5" />
-            Download Windows Agent (v1.8.7)
+            Download Windows Agent (v1.8.8)
           </a>
           <span className="text-xs text-white/70">
-            Version 1.8.7 &bull; 64-bit Windows 10/11
+            Version 1.8.8 &bull; 64-bit Windows 10/11
           </span>
         </div>
       </div>

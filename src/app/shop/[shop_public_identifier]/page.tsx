@@ -8,6 +8,8 @@ import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import { hashGuestOrderToken } from "@/lib/guest-order";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
+import { JsonLd } from "@/components/json-ld";
+import { breadcrumbJsonLd, NO_INDEX, pageMetadata, siteUrl } from "@/lib/seo";
 
 type ShopPageProps = {
   params: Promise<{ shop_public_identifier: string }>;
@@ -66,12 +68,19 @@ async function getInitialDraftOrder(orderId: string | null, accessToken: string 
   }
 }
 
-export async function generateMetadata({ params }: ShopPageProps): Promise<Metadata> {
+export async function generateMetadata({ params, searchParams }: ShopPageProps): Promise<Metadata> {
   const { shop_public_identifier: identifier } = await params;
+  const search = (await searchParams) || {};
   const { shop } = await getPublicShop(identifier);
+  if (!shop) return { title: "Print Shop", description: "Printiva shop entry", robots: NO_INDEX };
   return {
-    title: shop ? `${shop.name} | Print Documents Online & Pay at Counter` : "Print Shop",
-    description: shop ? `Upload and print documents instantly at ${shop.name} with Printiva.` : "Printiva shop entry",
+    ...pageMetadata({
+      title: `${shop.name} — Print Documents Online`,
+      description: `Upload PDFs, Word files, or photos and print them at ${shop.name}. Choose colour or black & white, pick pages and copies, then pay online or at the counter with Printiva.`,
+      path: `/shop/${encodeURIComponent(shop.public_id)}`,
+    }),
+    // Links that resume a draft order carry a private access token; never index those variants.
+    ...(search.orderId || search.token || search.accessToken ? { robots: NO_INDEX } : {}),
   };
 }
 
@@ -95,6 +104,29 @@ export default async function PublicShopPage({ params, searchParams }: ShopPageP
 
   return (
     <main className="min-h-screen bg-slate-50 px-2 py-2.5 sm:px-6 sm:py-8">
+      <JsonLd
+        data={[
+          {
+            "@context": "https://schema.org",
+            "@type": "LocalBusiness",
+            name: shop.name,
+            url: siteUrl(`/shop/${encodeURIComponent(shop.public_id)}`),
+            description: `Document printing at ${shop.name}: upload from your phone, choose print settings, and pay online or at the counter.`,
+            currenciesAccepted: "INR",
+            paymentAccepted:
+              shop.payment_mode === "online" ? "UPI, Card" : shop.payment_mode === "counter" ? "Cash" : "UPI, Card, Cash",
+            makesOffer: {
+              "@type": "Offer",
+              itemOffered: { "@type": "Service", name: "Document printing", serviceType: "Digital printing service" },
+            },
+          },
+          breadcrumbJsonLd([
+            ["Home", "/"],
+            ["Print shops", "/shops"],
+            [shop.name, `/shop/${encodeURIComponent(shop.public_id)}`],
+          ]),
+        ]}
+      />
       <div className="mx-auto max-w-3xl">
         {/* Navigation Bar */}
         <header className="flex items-center justify-between px-1 pb-2 sm:pb-4">

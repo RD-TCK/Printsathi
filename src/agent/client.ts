@@ -183,7 +183,7 @@ export class AgentApiClient {
         const buffer = Buffer.from(arrayBuffer);
         fs.writeFileSync(destinationFilePath, buffer);
         return; // Download succeeded
-      } catch (err: any) {
+      } catch (err: unknown) {
         lastError = err instanceof Error ? err : new Error(String(err));
         logger.warn(
           `Document download attempt ${attempt}/${maxRetries} for Job #${jobId.slice(0, 8)} failed: ${lastError.message}`,
@@ -259,7 +259,7 @@ export class AgentApiClient {
     let data;
     try {
       data = await response.json();
-    } catch (err) {
+    } catch {
       throw new Error(`Server returned non-JSON response (status ${response.status}). The server may need to be updated to support Realtime configuration.`);
     }
 
@@ -331,7 +331,7 @@ export class AgentApiClient {
   async approveCounterOrder(
     orderId: string,
     duplexStep?: "odd" | "even" | "all",
-  ): Promise<{ success: boolean; message: string; order?: any; jobs?: any[] }> {
+  ): Promise<{ success: boolean; message: string; order?: unknown; jobs?: unknown[] }> {
     if (!this.token) {
       throw new Error("Agent is not authenticated.");
     }

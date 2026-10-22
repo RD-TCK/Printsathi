@@ -1,13 +1,15 @@
-/** Explicit opt-in for test servers; enabled by env flag, in development mode, or when live keys are not set. */
+/**
+ * Explicit opt-in for test servers; enabled by env flag or in development mode, never with live keys.
+ * A production server without platform Razorpay keys must NOT fall back to mock: shops bring their own
+ * gateway keys, so a missing platform key would let any customer release print jobs without paying.
+ */
 export function mockPaymentsEnabled() {
   const isLiveKey = [process.env.RAZORPAY_KEY_ID, process.env.NEXT_PUBLIC_RAZORPAY_KEY_ID].some((key) =>
     key?.startsWith("rzp_live_"),
   );
   if (isLiveKey) return false;
 
-  return (
-    process.env.ENABLE_MOCK_PAYMENTS === "true" || process.env.NODE_ENV !== "production" || !process.env.RAZORPAY_KEY_ID
-  );
+  return process.env.ENABLE_MOCK_PAYMENTS === "true" || process.env.NODE_ENV !== "production";
 }
 
 export function isMockPayment(payment: { provider?: string; metadata?: Record<string, unknown> | null }) {

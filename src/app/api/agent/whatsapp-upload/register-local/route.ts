@@ -36,6 +36,11 @@ export async function POST(request: Request) {
   if (!Array.isArray(documents) || documents.length === 0) {
     return NextResponse.json({ error: "No documents specified." }, { status: 400 });
   }
+  // doc.id becomes part of a storage path written with the admin client; keep it a plain UUID.
+  const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+  if (documents.some((doc) => typeof doc?.id !== "string" || !uuidPattern.test(doc.id))) {
+    return NextResponse.json({ error: "Invalid document reference." }, { status: 400 });
+  }
 
   const client = createSupabaseAdminClient();
   if (!client) {
@@ -67,7 +72,7 @@ export async function POST(request: Request) {
     await Promise.all(
       documents.map(async (doc) => {
         if (!doc.previewBase64) return;
-        const matches = doc.previewBase64.match(/^data:([A-Za-z-+/]+);base64,(.+)$/);
+        const matches = doc.previewBase64.match(/^data:(image\/(?:jpeg|png|webp));base64,(.+)$/);
         if (!matches || matches.length !== 3) return;
 
         const mimeType = matches[1];

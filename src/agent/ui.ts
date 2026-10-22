@@ -50,7 +50,10 @@ export class AgentWebServer {
     // CORS headers for local loopback and web dashboard
     const origin = req.headers.origin;
     const isAllowedOrigin =
-      !origin || /^https?:\/\/(127\.0\.0\.1|localhost)(:\d+)?$/.test(origin) || origin.includes("printiva.co.in");
+      !origin ||
+      /^https?:\/\/(127\.0\.0\.1|localhost)(:\d+)?$/.test(origin) ||
+      // Exact host match: a substring test would also accept "printiva.co.in.attacker.example".
+      /^https:\/\/([a-z0-9-]+\.)?printiva\.co\.in$/.test(origin);
     if (!isAllowedOrigin) {
       res.writeHead(403);
       res.end("Origin not allowed");
@@ -277,7 +280,7 @@ export class AgentWebServer {
           "Content-Disposition": `inline; filename="document_${docId}.pdf"`,
         });
         res.end(fileBytes);
-      } catch (err) {
+      } catch {
         res.writeHead(500, { "Content-Type": "application/json" });
         res.end(JSON.stringify({ error: "Failed to read local cached document" }));
       }
@@ -1092,7 +1095,7 @@ export class AgentWebServer {
     let queueErrorNotice = null;
 
     function updateQueueBadge() {
-      const active = cachedCounterQueue.filter(i => i.status === 'awaiting_payment' && !i.isExpired);
+      const active = cachedCounterQueue.filter(i => (i.status === 'awaiting_payment' || i.status === 'partially_printed') && !i.isExpired && (typeof i.remainingSeconds !== 'number' || i.remainingSeconds > 0));
       const badge = document.getElementById('counterQueueBadge');
       if (badge) {
         badge.innerText = active.length + ' waiting';
@@ -1112,7 +1115,7 @@ export class AgentWebServer {
       queueErrorNotice = null;
       if (btnEl) {
         btnEl.disabled = true;
-        btnEl.innerHTML = '🔄 Dispatching...';
+        btnEl.innerHTML = '⏳ Processing...';
       }
       try {
         const res = await fetch('/api/approve-counter-order', {
@@ -1122,9 +1125,6 @@ export class AgentWebServer {
         });
         const data = await res.json().catch(() => ({}));
         if (res.ok && (data.success || !data.error)) {
-          if (btnEl) {
-            btnEl.innerHTML = '✅ Sent to Printer!';
-          }
           const item = cachedCounterQueue.find(i => i.id === orderId);
           if (item) {
             if (duplexStep === 'odd') {
@@ -1132,8 +1132,17 @@ export class AgentWebServer {
               item.duplexStep = 'odd_printed';
             } else {
               item.status = 'paid';
+              if (!Array.isArray(item.jobs) || item.jobs.length === 0) {
+                item.jobs = [{ id: 'pending', status: 'queued', totalPages: item.totalPages }];
+              } else {
+                item.jobs.forEach(function(j) { if (j.status !== 'completed') j.status = 'queued'; });
+              }
             }
           }
+          if (btnEl) {
+            btnEl.innerHTML = '⏳ Processing...';
+          }
+          renderAgentQueueWithFilter();
           updateQueueBadge();
           await refreshCounterQueue();
           await refreshStatus(false);
@@ -1237,56 +1246,88 @@ export class AgentWebServer {
       }
 
       list.innerHTML = errorNoticeHtml + items.map(function(item) {
-        var minutesLeft = Math.floor(item.remainingSeconds / 60);
-        var isDouble = item.sideMode === "double_sided";
-        var isOddDone = item.status === "partially_printed" || item.duplexStep === "odd_printed" || item.duplexStep === "even";
-        var isPaid = item.status === "paid" || item.status === "completed";
+        var isCompleted = item.status === "completed" || (Array.isArray(item.jobs) && item.jobs.length > 0 && item.jobs.every(function(j) { return j.status === 'completed'; }));
+        var isPrinting = !isCompleted && item.status === "paid" && Array.isArray(item.jobs) && item.jobs.some(function(j) { return j.status === 'print_submitted'; });
+        var isProcessing = !isCompleted && !isPrinting && (item.status === "paid" || (Array.isArray(item.jobs) && item.jobs.some(function(j) { return j.status === 'queued' || j.status === 'claimed'; })));
         var isCancelled = item.status === "cancelled";
+        var isPartiallyPrinted = item.status === "partially_printed";
+        var isOddDone = item.status === "partially_printed" || item.duplexStep === "odd_printed" || item.duplexStep === "even";
+        var isExpired = !isCompleted && !isPrinting && !isProcessing && !isCancelled && !isPartiallyPrinted && (item.isExpired || item.status === "expired" || (typeof item.remainingSeconds === "number" && item.remainingSeconds <= 0) || (item.expiresAt && new Date(item.expiresAt).getTime() <= Date.now()));
+        var totalSecs = Math.max(0, item.remainingSeconds || 0);
+        var minutesLeft = Math.floor(totalSecs / 60);
+        var secondsLeft = totalSecs % 60;
+        var validText = minutesLeft > 0 ? (minutesLeft + "m valid") : (secondsLeft + "s valid");
+        var isDouble = item.sideMode === "double_sided";
         var docNames = (item.documents || []).map(function(d) { return escapeHtml(d.filename); }).join(", ");
         var tokenLabel = item.tokenNumber ? ("#" + item.tokenNumber) : ("#" + (item.publicId || '').slice(0, 4));
+
         var statusText = isCancelled
           ? "Cancelled"
+          : isCompleted
+          ? "Printed"
+          : isPrinting
+          ? "Printing Pages..."
+          : isProcessing
+          ? "Processing..."
           : isOddDone
           ? "Front Side Printed — Reload Tray for Back Side"
-          : isPaid
-          ? "Approved / Paid"
-          : item.isExpired
+          : isExpired
           ? "Expired (1 hr)"
-          : (minutesLeft + "m valid");
+          : validText;
+
         var statusColor = isCancelled
           ? "#dc2626"
+          : isCompleted
+          ? "#059669"
+          : isPrinting
+          ? "#d97706"
+          : isProcessing
+          ? "#2563eb"
           : isOddDone
           ? "#d97706"
-          : isPaid
-          ? "#059669"
-          : item.isExpired
+          : isExpired
           ? "#dc2626"
           : "#d97706";
+
         var borderCol = isCancelled
           ? "#fee2e2"
+          : isCompleted
+          ? "#a7f3d0"
+          : isPrinting
+          ? "#fde68a"
+          : isProcessing
+          ? "#bfdbfe"
           : isOddDone
           ? "#fde68a"
-          : isPaid
-          ? "#a7f3d0"
-          : item.isExpired
+          : isExpired
           ? "#e2e8f0"
           : "#fde68a";
+
         var bgCol = isCancelled
           ? "#fef2f2"
+          : isCompleted
+          ? "#ecfdf5"
+          : isPrinting
+          ? "#fffbeb"
+          : isProcessing
+          ? "#eff6ff"
           : isOddDone
           ? "#fffbeb"
-          : isPaid
-          ? "#ecfdf5"
-          : item.isExpired
+          : isExpired
           ? "#f8fafc"
           : "#fffbeb";
+
         var tokenCol = isCancelled
           ? "#991b1b"
+          : isCompleted
+          ? "#065f46"
+          : isPrinting
+          ? "#b45309"
+          : isProcessing
+          ? "#1d4ed8"
           : isOddDone
           ? "#b45309"
-          : isPaid
-          ? "#065f46"
-          : item.isExpired
+          : isExpired
           ? "#64748b"
           : "#b45309";
 
@@ -1304,17 +1345,19 @@ export class AgentWebServer {
             ')">Yes, Cancel</button>',
             '<button type="button" class="btn-secondary" style="font-size:12px; padding:6px 10px; cursor:pointer;" onclick="abortCancelCounterOrder()">Keep</button>'
           ].join("");
-        } else if (isDouble && !isCancelled && !item.isExpired) {
-          if (!isOddDone && !isPaid) {
-            actionHtml = [
-              '<button type="button" class="btn-primary" style="width:auto; padding:7px 14px; font-size:12px; background:linear-gradient(to bottom, #10b981, #059669);" onclick="approveCounterOrder(',
-              "'", item.id, "', 'odd', this",
-              ')">🖨️ Print Front (Odd)</button>',
-              '<button type="button" class="btn-secondary" style="color:#dc2626; border-color:#fca5a5; cursor:pointer;" onclick="promptCancelCounterOrder(',
-              "'", item.id, "'",
-              ')">Cancel</button>'
-            ].join("");
-          } else if (isOddDone) {
+        } else if (isProcessing) {
+          actionHtml = '<span style="font-size:12px; font-weight:700; color:#2563eb; background:#eff6ff; border:1px solid #bfdbfe; padding:6px 12px; border-radius:8px; display:inline-flex; align-items:center; gap:6px;">⏳ Processing...</span>';
+        } else if (isPrinting) {
+          actionHtml = '<span style="font-size:12px; font-weight:700; color:#b45309; background:#fffbeb; border:1px solid #fde68a; padding:6px 12px; border-radius:8px; display:inline-flex; align-items:center; gap:6px;">🖨️ Printing Pages...</span>';
+        } else if (isCompleted) {
+          actionHtml = [
+            '<span style="font-size:12px; font-weight:700; color:#059669; background:#ecfdf5; border:1px solid #a7f3d0; padding:6px 10px; border-radius:8px;">✅ Printed</span>',
+            '<button type="button" class="btn-secondary" style="font-size:11px; padding:5px 10px; cursor:pointer;" onclick="approveCounterOrder(',
+            "'", item.id, "', 'all', this",
+            ')" title="Send to printer again if paper jammed or misprinted">🖨️ Re-Print</button>'
+          ].join("");
+        } else if (isDouble && !isCancelled && !isExpired) {
+          if (isOddDone) {
             actionHtml = [
               '<button type="button" class="btn-primary" style="width:auto; padding:7px 14px; font-size:12px; background:linear-gradient(to bottom, #f59e0b, #d97706); box-shadow:0 0 10px rgba(245, 158, 11, 0.4);" onclick="approveCounterOrder(',
               "'", item.id, "', 'even', this",
@@ -1325,13 +1368,15 @@ export class AgentWebServer {
             ].join("");
           } else {
             actionHtml = [
-              '<span style="font-size:12px; font-weight:700; color:#059669; padding:6px 8px;">✅ Printed</span>',
-              '<button type="button" class="btn-secondary" style="font-size:11px; padding:5px 10px; cursor:pointer;" onclick="approveCounterOrder(',
-              "'", item.id, "', 'all', this",
-              ')" title="Send to printer again if paper jammed or misprinted">🖨️ Re-Print</button>'
+              '<button type="button" class="btn-primary" style="width:auto; padding:7px 14px; font-size:12px; background:linear-gradient(to bottom, #10b981, #059669);" onclick="approveCounterOrder(',
+              "'", item.id, "', 'odd', this",
+              ')">🖨️ Print Front (Odd)</button>',
+              '<button type="button" class="btn-secondary" style="color:#dc2626; border-color:#fca5a5; cursor:pointer;" onclick="promptCancelCounterOrder(',
+              "'", item.id, "'",
+              ')">Cancel</button>'
             ].join("");
           }
-        } else if (!isPaid && !isCancelled && !item.isExpired) {
+        } else if (!isCancelled && !isExpired) {
           actionHtml = [
             '<button type="button" class="btn-primary" style="width:auto; padding:7px 14px; font-size:12px;" onclick="approveCounterOrder(',
             "'", item.id, "', 'all', this",
@@ -1340,15 +1385,10 @@ export class AgentWebServer {
             "'", item.id, "'",
             ')">Cancel</button>'
           ].join("");
-        } else if (isPaid) {
-          actionHtml = [
-            '<span style="font-size:12px; font-weight:700; color:#059669; padding:6px 8px;">✅ Printed</span>',
-            '<button type="button" class="btn-secondary" style="font-size:11px; padding:5px 10px; cursor:pointer;" onclick="approveCounterOrder(',
-            "'", item.id, "', 'all', this",
-            ')" title="Send to printer again if paper jammed or misprinted">🖨️ Re-Print</button>'
-          ].join("");
         } else if (isCancelled) {
           actionHtml = '<span style="font-size:12px; font-weight:700; color:#dc2626; padding:6px 10px;">❌ Cancelled</span>';
+        } else if (isExpired) {
+          actionHtml = '<span style="font-size:12px; font-weight:700; color:#dc2626; padding:6px 10px;">⏰ Expired</span>';
         } else {
           actionHtml = '<span style="font-size:12px; color:var(--text-muted); padding:6px 10px;">Expired</span>';
         }
@@ -1356,13 +1396,13 @@ export class AgentWebServer {
         return [
           '<div style="display:flex; align-items:center; justify-content:space-between; padding:12px; margin-bottom:8px; border-radius:10px; border:1px solid ' + borderCol + '; background:' + bgCol + ';">',
             '<div style="display:flex; align-items:center; gap:12px;">',
-              '<div style="font-family:monospace; font-weight:800; font-size:18px; color:' + tokenCol + '; background:#ffffff; padding:6px 12px; border-radius:8px; border:1px solid #e2e8f0;">' + tokenLabel + '</div>',
+              '<div style="font-family:monospace; font-weight:800; font-size:18px; color:' + tokenCol + '; background:#ffffff; padding:6px 12px; border-radius:8px; border:1px solid #e2e8f0; min-width:54px; text-align:center;">' + tokenLabel + '</div>',
               '<div>',
                 '<div style="font-size:13px; font-weight:700; color:var(--text-main);">',
                   'Token ' + tokenLabel + ' &bull; ' + item.totalPages + ' Pages (' + item.blackAndWhitePages + ' B&amp;W, ' + item.colorPages + ' Color)',
                 '</div>',
                 '<div style="font-size:11px; color:var(--text-muted); margin-top:2px;">',
-                  '₹' + Number(item.totalAmount).toFixed(2) + ' &bull; ' + docNames + ' &bull; ',
+                  '₹' + Number(item.totalAmount).toFixed(2) + ' &bull; ' + (item.copiesSummary ? ('<b style="color:var(--text-main);">' + escapeHtml(item.copiesSummary) + '</b> &bull; ') : '') + docNames + ' &bull; ',
                   '<span style="font-weight:600; color:' + statusColor + ';">' + statusText + '</span>',
                 '</div>',
               '</div>',
@@ -1583,10 +1623,33 @@ export class AgentWebServer {
       });
     }
 
-    // Smart polling: only poll when the window is visible to the shopkeeper
-    // Reduced from 2.5s/3s to 10s/25s to cut database load by >80%
-    setInterval(() => { if (!document.hidden) refreshCounterQueue(); }, 10000);
-    setInterval(() => { if (!document.hidden) refreshStatus(false); }, 25000);
+    // Smart adaptive polling: only poll when the window is visible to the shopkeeper
+    // When a job is actively processing or printing pages, poll every 1.5s for instant feedback.
+    // When idle, poll every 6s to keep database load minimal.
+    let isPollingQueue = false;
+    async function tickCounterQueue() {
+      if (isPollingQueue || (typeof document !== 'undefined' && document.hidden)) return;
+      isPollingQueue = true;
+      try {
+        await refreshCounterQueue();
+      } catch (e) {
+        // ignore
+      } finally {
+        isPollingQueue = false;
+        var hasActiveJob = Array.isArray(cachedCounterQueue) && cachedCounterQueue.some(function(i) {
+          var isCompleted = i.status === 'completed' || (Array.isArray(i.jobs) && i.jobs.length > 0 && i.jobs.every(function(j) { return j.status === 'completed'; }));
+          return !isCompleted && (i.status === 'paid' || (Array.isArray(i.jobs) && i.jobs.some(function(j) { return j.status === 'queued' || j.status === 'claimed' || j.status === 'print_submitted'; })));
+        });
+        if (typeof setTimeout === 'function') {
+          setTimeout(tickCounterQueue, hasActiveJob ? 1500 : 6000);
+        }
+      }
+    }
+    if (typeof setTimeout === 'function') {
+      setTimeout(tickCounterQueue, 1500);
+    }
+
+    setInterval(() => { if (!document.hidden) refreshStatus(false); }, 20000);
     setInterval(() => { if (!document.hidden) refreshWhatsApp(); }, 6000);
   </script>
 </body>

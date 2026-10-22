@@ -10,16 +10,18 @@ export function SectionHeading({
   title,
   description,
   align = "left",
+  as: Heading = "h2",
 }: {
   eyebrow: string;
   title: string;
   description: string;
   align?: "left" | "center";
+  as?: "h1" | "h2";
 }) {
   return (
     <div className={align === "center" ? "mx-auto max-w-2xl text-center" : "max-w-2xl"}>
       <p className="text-xs font-semibold uppercase tracking-[0.2em] text-brand-600">{eyebrow}</p>
-      <h2 className="mt-3 text-3xl font-semibold tracking-tight text-brand-950 sm:text-4xl">{title}</h2>
+      <Heading className="mt-3 text-3xl font-semibold tracking-tight text-brand-950 sm:text-4xl">{title}</Heading>
       <p className="mt-4 text-base leading-7 text-muted sm:text-lg">{description}</p>
     </div>
   );
@@ -93,6 +95,9 @@ export function MarketingFooter() {
         <div>
           <h2 className="text-xs font-semibold uppercase tracking-[0.16em] text-emerald-400/80">Customers</h2>
           <div className="mt-4 space-y-3 text-sm text-white/50">
+            <Link className="block transition-colors hover:text-white" href="/digital-printing-service">
+              Digital Printing Service
+            </Link>
             <Link className="block transition-colors hover:text-white" href="/shops">
               Find a Print Shop
             </Link>
@@ -237,8 +242,26 @@ export function TrialCallout() {
 }
 
 /* ─── FAQ ─── */
-export function FaqList() {
-  const items = [
+export type FaqItem = readonly [question: string, answer: string];
+
+export function FaqList({ items = faqItems }: { items?: ReadonlyArray<FaqItem> }) {
+  return (
+    <div className="divide-y divide-line rounded-2xl border border-line bg-white">
+      {items.map(([question, answer]) => (
+        <details key={question} className="group p-6 transition-colors hover:bg-brand-50/30">
+          <summary className="flex cursor-pointer list-none items-center justify-between gap-4 text-base font-semibold text-brand-950 sm:text-lg">
+            <span>{question}</span>
+            <ChevronDown className="size-5 shrink-0 text-brand-400 transition-transform duration-300 group-open:rotate-180" />
+          </summary>
+          <p className="mt-3 max-w-3xl text-sm leading-7 text-muted sm:text-base">{answer}</p>
+        </details>
+      ))}
+    </div>
+  );
+}
+
+// Exported so pages can emit FAQPage structured data that matches the visible answers.
+export const faqItems: FaqItem[] = [
     [
       "What is Printiva?",
       "Printiva is a modern printing OS for local shops. It combines mobile QR ordering, automated payments, and a silent Windows agent that routes jobs to your physical printers.",
@@ -263,51 +286,11 @@ export function FaqList() {
       "What does it cost after the trial?",
       "₹100 for 7 days trial. Then ₹699/month or ₹7,499/year with full support, unlimited orders, and automatic agent updates.",
     ],
-  ];
-
-  return (
-    <div className="divide-y divide-line rounded-2xl border border-line bg-white">
-      {items.map(([question, answer]) => (
-        <details key={question} className="group p-6 transition-colors hover:bg-brand-50/30">
-          <summary className="flex cursor-pointer list-none items-center justify-between gap-4 text-base font-semibold text-brand-950 sm:text-lg">
-            <span>{question}</span>
-            <ChevronDown className="size-5 shrink-0 text-brand-400 transition-transform duration-300 group-open:rotate-180" />
-          </summary>
-          <p className="mt-3 max-w-3xl text-sm leading-7 text-muted sm:text-base">{answer}</p>
-        </details>
-      ))}
-    </div>
-  );
-}
+];
 
 /* ─── 4-Step workflow ─── */
 export function Steps() {
-  const steps = [
-    {
-      num: "01",
-      title: "Scan Counter QR",
-      desc: "Customer scans your shop sticker with any smartphone camera. No app needed.",
-      icon: QrCode,
-    },
-    {
-      num: "02",
-      title: "Upload & Preview",
-      desc: "Upload PDFs or images. Auto page-count and color options display instantly.",
-      icon: FileStack,
-    },
-    {
-      num: "03",
-      title: "Confirm & Pay",
-      desc: "Automated pricing based on your rates. Instant UPI or card via Razorpay.",
-      icon: ShieldCheck,
-    },
-    {
-      num: "04",
-      title: "Agent Auto-Prints",
-      desc: "Agent fetches the job in 2 seconds and triggers your local printer spooler.",
-      icon: Printer,
-    },
-  ];
+  const steps = workflowSteps;
 
   return (
     <div className="grid gap-5 sm:grid-cols-2 lg:grid-cols-4">
@@ -336,6 +319,34 @@ export function Steps() {
     </div>
   );
 }
+
+// Exported so the how-it-works page can emit HowTo structured data from the same steps.
+export const workflowSteps = [
+    {
+      num: "01",
+      title: "Scan Counter QR",
+      desc: "Customer scans your shop sticker with any smartphone camera. No app needed.",
+      icon: QrCode,
+    },
+    {
+      num: "02",
+      title: "Upload & Preview",
+      desc: "Upload PDFs or images. Auto page-count and color options display instantly.",
+      icon: FileStack,
+    },
+    {
+      num: "03",
+      title: "Confirm & Pay",
+      desc: "Automated pricing based on your rates. Instant UPI or card via Razorpay.",
+      icon: ShieldCheck,
+    },
+    {
+      num: "04",
+      title: "Agent Auto-Prints",
+      desc: "Agent fetches the job in 2 seconds and triggers your local printer spooler.",
+      icon: Printer,
+    },
+];
 
 export function CheckList({ items }: { items: string[] }) {
   return (

@@ -775,11 +775,16 @@ export class WhatsAppAgentService {
 
       const mimetype = documentMsg?.mimetype || imageMsg?.mimetype || "application/octet-stream";
 
-      // 2. Queue into sender batch with debounce window (4.0s) to bundle multiple images/PDFs into ONE order
-      const DEBOUNCE_MS = 4000;
+      // 2. Queue into sender batch with debounce window (1.5s) to bundle multiple images/PDFs into ONE order
+      const DEBOUNCE_MS = 1500;
       const MAX_BATCH_WAIT_MS = 25000;
       const existingBatch = this.pendingBatches.get(remoteJid) || this.retryBatches.get(remoteJid);
       const now = Date.now();
+
+      // Emit composing presence indicator immediately so customer sees "typing..." right away
+      if (this.socket) {
+        void this.socket.sendPresenceUpdate("composing", remoteJid).catch(() => {});
+      }
 
       if (existingBatch) {
         if (existingBatch.timer) {
@@ -889,7 +894,7 @@ export class WhatsAppAgentService {
       const batch = this.pendingBatches.get(remoteJid);
       if (batch) {
         clearTimeout(batch.timer);
-        batch.timer = setTimeout(() => void this.flushBatch(remoteJid), 2500);
+        batch.timer = setTimeout(() => void this.flushBatch(remoteJid), 1200);
       }
       return;
     }
@@ -1377,7 +1382,7 @@ export class WhatsAppAgentService {
         const remainingBatch = this.pendingBatches.get(remoteJid);
         if (remainingBatch) {
           clearTimeout(remainingBatch.timer);
-          remainingBatch.timer = setTimeout(() => void this.flushBatch(remoteJid), 2500);
+          remainingBatch.timer = setTimeout(() => void this.flushBatch(remoteJid), 1200);
         }
       }
     }
@@ -1402,7 +1407,7 @@ export class WhatsAppAgentService {
     try {
       // Anti-ban protections:
       // 1. Send blue tick read-receipt so Meta telemetry sees the message was opened
-      // 2. Simulate natural human reading and typing presence with randomized jitter delay (1.2s - 2.8s)
+      // 2. Simulate natural typing presence with quick presence update (200ms - 500ms)
       if (lastMessage?.key) {
         try {
           await this.socket.readMessages([lastMessage.key]);
@@ -1412,7 +1417,7 @@ export class WhatsAppAgentService {
       }
       try {
         await this.socket.sendPresenceUpdate("composing", remoteJid);
-        const humanDelay = Math.floor(Math.random() * 1600) + 1200;
+        const humanDelay = Math.floor(Math.random() * 300) + 200;
         await new Promise((resolve) => setTimeout(resolve, humanDelay));
         await this.socket.sendPresenceUpdate("paused", remoteJid);
       } catch {

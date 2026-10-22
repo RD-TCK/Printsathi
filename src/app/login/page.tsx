@@ -4,6 +4,13 @@ import { Input } from "@/components/ui/input";
 import { SubmitButton } from "@/components/ui/submit-button";
 import { Alert } from "@/components/ui/alert";
 import { signIn } from "@/app/actions/auth";
+import { NO_INDEX } from "@/lib/seo";
+
+export const metadata = {
+  title: "Shop Owner Login",
+  description: "Sign in to your Printiva shop dashboard.",
+  robots: NO_INDEX,
+};
 
 export default async function LoginPage({
   searchParams,

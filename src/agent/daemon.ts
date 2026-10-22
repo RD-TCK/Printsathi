@@ -6,7 +6,7 @@ import type { AgentConfig, AgentStatusSnapshot, ClaimedJob, DiscoveredPrinter } 
 import { clearConfig, isConfigPaired, loadConfig, saveConfig, getDocumentCacheDirectory, cleanDocumentCache } from "./config";
 import { AgentApiClient } from "./client";
 import { discoverWindowsPrinters, findBestPrinterForJob, findDefaultPrinter, isPhysicalPrinter } from "./printer-discovery";
-import { prepareAndPrintDocument } from "./print-executor";
+import { prepareAndPrintDocument, waitForPhysicalPrintCompletion } from "./print-executor";
 import { logger } from "./logger";
 import { whatsAppAgent } from "./whatsapp";
 import { createClient, SupabaseClient, RealtimeChannel } from "@supabase/supabase-js";
@@ -486,6 +486,20 @@ export class AgentDaemon {
         );
       }
 
+      // Clean up stale duplex reservations (> 30 minutes) to avoid locking printers if an order is abandoned
+      const DUPLEX_RESERVATION_TTL_MS = 30 * 60 * 1000;
+      const now = Date.now();
+      for (const [key, res] of this.reservedDuplexPrinters.entries()) {
+        if (now - res.reservedAt > DUPLEX_RESERVATION_TTL_MS) {
+          logger.warn(
+            `Duplex reservation for printer "${res.printerName}" (Order #${res.orderId.slice(0, 8)}) expired after 30m. Releasing printer.`,
+          );
+          this.reservedDuplexPrinters.delete(key);
+          this.orderToReservedPrinter.delete(res.orderId);
+          this.orderToReservedPrinter.delete(res.jobId);
+        }
+      }
+
       // Build busy printers set (all active printing printers + all reserved duplex printers)
       const busyPrinters = new Set([...this.activePrintingPrinters, ...this.reservedDuplexPrinters.keys()]);
 
@@ -626,12 +640,19 @@ export class AgentDaemon {
         await this.client.reportSubmit(job.id, firstPrinterName, job.duplexStep);
 
         let pagesSubmitted = 0;
-        for (const part of plan) {
+        for (let i = 0; i < plan.length; i++) {
+          const part = plan[i];
           const printerName = part.printer!.name;
-          logger.info(
-            `Submitting to printer "${printerName}" for Job #${job.id.slice(0, 8)} (${job.duplexStep || "full"})...`,
+          const isLastPartForThisPrinter = !plan.slice(i + 1).some(
+            (p) => p.printer?.name.toLowerCase() === printerName.toLowerCase(),
           );
-          const result = await prepareAndPrintDocument(printFilePath, job, printerName, part.ranges);
+          const shouldIncludeSeparator = (job.isLastJobForOrder !== false) && isLastPartForThisPrinter;
+          logger.info(
+            `Submitting to printer "${printerName}" for Job #${job.id.slice(0, 8)} (${job.duplexStep || "full"}, separator: ${shouldIncludeSeparator})...`,
+          );
+          const result = await prepareAndPrintDocument(printFilePath, job, printerName, part.ranges, {
+            includeSeparatorPage: shouldIncludeSeparator,
+          });
           if (!result.success)
             throw new Error(
               result.errorMessage || "Windows print submission failed. Check for partial output before retrying.",
@@ -669,9 +690,26 @@ export class AgentDaemon {
           }
         }
 
+        // Wait for physical printer to finish printing all pages before confirming completion!
+        const lastPrinterName = plan[plan.length - 1]?.printer?.name || firstPrinterName;
+        if (lastPrinterName && (process.platform === "win32" || os.platform() === "win32")) {
+          logger.info(`Monitoring physical printing on "${lastPrinterName}" until pages are ejected...`);
+          await waitForPhysicalPrintCompletion(lastPrinterName);
+        }
+
+        // Now report job physically completed to server (unless manual duplex odd step)!
+        if (job.duplexStep !== "odd") {
+          try {
+            await this.client.reportComplete(job.id);
+            logger.info(`Job #${job.id.slice(0, 8)} reported as physically COMPLETED to server.`);
+          } catch (compErr) {
+            logger.warn(`Could not report job #${job.id.slice(0, 8)} completed to server:`, { error: compErr });
+          }
+        }
+
         this.stats.jobsSubmitted += 1;
         this.stats.totalPagesSubmitted += pagesSubmitted;
-        logger.info(`Job #${job.id.slice(0, 8)} successfully submitted.`);
+        logger.info(`Job #${job.id.slice(0, 8)} successfully submitted and physically printed.`);
       } catch (printErr) {
         const errorMsg = printErr instanceof Error ? printErr.message : "Print execution error";
         logger.error(`Print execution failed for Job #${job.id.slice(0, 8)}: ${errorMsg}`);

@@ -8,7 +8,9 @@ export async function GET(request: Request) {
   const code = searchParams.get("code");
   const token_hash = searchParams.get("token_hash");
   const type = searchParams.get("type") as EmailOtpType | null;
-  const next = searchParams.get("next") || "/shop";
+  // Only same-origin paths: "@evil.com" or "//evil.com" appended to the origin would leave the site.
+  const requestedNext = searchParams.get("next") || "";
+  const next = /^\/(?![/\\])/.test(requestedNext) ? requestedNext : "/shop";
 
   // If Supabase returned an error in query parameters (e.g., otp_expired)
   const errorDescription = searchParams.get("error_description");

@@ -53,13 +53,32 @@ export async function POST(request: Request) {
   // Fetch the order
   const { data: order, error: orderError } = await adminClient
     .from("orders")
-    .select("id, public_id, status, total_amount, token_number, expires_at, payment_mode, color_pages")
+    .select("id, public_id, status, total_amount, token_number, expires_at, payment_mode, color_pages, created_at")
     .eq("id", orderId)
     .eq("shop_id", shopId)
     .maybeSingle();
 
   if (orderError || !order) {
     return NextResponse.json({ error: "Order not found." }, { status: 404 });
+  }
+
+  // Reject print approval if the counter order validity has expired
+  const orderExpiresAt = order.expires_at
+    ? new Date(order.expires_at)
+    : order.created_at
+      ? new Date(new Date(order.created_at).getTime() + 60 * 60 * 1000)
+      : null;
+  const isExpired =
+    !["paid", "completed", "partially_printed"].includes(order.status) &&
+    (order.status === "expired" || (orderExpiresAt ? orderExpiresAt.getTime() <= Date.now() : false));
+
+  if (isExpired) {
+    return NextResponse.json(
+      {
+        error: `Token #${order.token_number || order.public_id} has expired (tokens have 1-hour validity). Please ask the customer to generate a new token.`,
+      },
+      { status: 410 },
+    );
   }
 
   if (["paid", "completed"].includes(order.status) && duplexStep !== "even") {
