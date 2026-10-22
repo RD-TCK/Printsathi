@@ -6,7 +6,7 @@ import type { AgentConfig, AgentStatusSnapshot, ClaimedJob, DiscoveredPrinter } 
 import { clearConfig, isConfigPaired, loadConfig, saveConfig, getDocumentCacheDirectory, cleanDocumentCache } from "./config";
 import { AgentApiClient } from "./client";
 import { discoverWindowsPrinters, findBestPrinterForJob, findDefaultPrinter, isPhysicalPrinter } from "./printer-discovery";
-import { prepareAndPrintDocument, waitForPhysicalPrintCompletion } from "./print-executor";
+import { prepareAndPrintBatch, prepareAndPrintDocument, waitForPhysicalPrintCompletion } from "./print-executor";
 import { logger } from "./logger";
 import { whatsAppAgent } from "./whatsapp";
 import { createClient, SupabaseClient, RealtimeChannel } from "@supabase/supabase-js";
@@ -417,6 +417,54 @@ export class AgentDaemon {
     this.pollTimer = setInterval(runPoll, this.config.pollIntervalMs);
   }
 
+  private async resolveJobDocumentPath(job: ClaimedJob): Promise<{ filePath: string; isLocalCacheHit: boolean }> {
+    let printFilePath = "";
+    let isLocalCacheHit = false;
+
+    try {
+      const localCacheDir = typeof getDocumentCacheDirectory === "function" ? getDocumentCacheDirectory() : "";
+      if (localCacheDir) {
+        const rawId = (job.document.storagePath || "")
+          .replace(/^local:\/\//, "")
+          .replace(/\.pdf$/i, "")
+          .replace(/^doc_/, "");
+        const candidateNames = [
+          `doc_${job.document.id}.pdf`,
+          `${job.document.id}.pdf`,
+          rawId ? `doc_${rawId}.pdf` : "",
+          rawId ? `${rawId}.pdf` : "",
+        ].filter(Boolean);
+
+        for (const cand of candidateNames) {
+          const candPath = path.join(localCacheDir, cand);
+          if (fs.existsSync(candPath) && fs.statSync(candPath).size > 0) {
+            printFilePath = candPath;
+            isLocalCacheHit = true;
+            break;
+          }
+        }
+      }
+    } catch {
+      isLocalCacheHit = false;
+    }
+
+    if (!isLocalCacheHit) {
+      const tempDir = path.join(os.tmpdir(), "printsaathi_downloads");
+      if (!fs.existsSync(tempDir)) {
+        fs.mkdirSync(tempDir, { recursive: true });
+      }
+      printFilePath = path.join(tempDir, `doc_${job.document.id}_${Date.now()}.pdf`);
+      logger.info(`Downloading document "${job.document.originalFilename}" (${job.document.pageCount} pages)...`);
+      await this.client.downloadDocument(job.document.id, job.id, printFilePath);
+    } else {
+      logger.info(
+        `⚡ Instant Local Hit: Using cached document for "${job.document.originalFilename}" (${job.document.pageCount} pages, 0s download).`,
+      );
+    }
+
+    return { filePath: printFilePath, isLocalCacheHit };
+  }
+
   private async pollAndProcessNextJob(): Promise<void> {
     this.isProcessingJob = true;
     try {
@@ -436,16 +484,20 @@ export class AgentDaemon {
       }
 
       const jobKey = `${job.id}:${job.duplexStep || "standard"}`;
-      this.processedJobIds.add(jobKey);
+      const batchJobs: ClaimedJob[] = [job, ...(job.siblingJobs || [])];
+      for (const j of batchJobs) {
+        const jKey = `${j.id}:${j.duplexStep || "standard"}`;
+        this.processedJobIds.add(jKey);
+      }
       if (this.processedJobIds.size > 500) {
         const firstKey = this.processedJobIds.values().next().value;
         if (firstKey) this.processedJobIds.delete(firstKey);
       }
 
       this.currentJob = job;
-      this.stats.jobsProcessed += 1;
+      this.stats.jobsProcessed += batchJobs.length;
       logger.info(
-        `Atomically claimed Job #${job.id.slice(0, 8)} (Order #${job.orderId.slice(0, 8)}, Step: ${job.duplexStep || "standard"})`,
+        `Atomically claimed Job #${job.id.slice(0, 8)} (Order #${job.orderId.slice(0, 8)}, Step: ${job.duplexStep || "standard"}, Batch: ${batchJobs.length} doc(s))`,
       );
 
       // Determine configurations
@@ -582,56 +634,95 @@ export class AgentDaemon {
         }
       }
 
-      // Check local document cache first (Local-First WhatsApp orders)
-      let printFilePath: string = "";
-      let isLocalCacheHit = false;
+      // If we have multiple sibling jobs for the same order and a target printer,
+      // combine all documents into a single continuous print batch!
+      if (batchJobs.length > 1 && plan[0]?.printer?.name && job.duplexStep !== "odd") {
+        const targetPrinterName = plan[0].printer.name;
+        const resolvedItems: Array<{ sourcePath: string; job: ClaimedJob; isLocalCacheHit: boolean }> = [];
+        let batchSubmissionStarted = false;
 
-      try {
-        const localCacheDir = typeof getDocumentCacheDirectory === "function" ? getDocumentCacheDirectory() : "";
-        if (localCacheDir) {
-          const rawId = (job.document.storagePath || "")
-            .replace(/^local:\/\//, "")
-            .replace(/\.pdf$/i, "")
-            .replace(/^doc_/, "");
-          const candidateNames = [
-            `doc_${job.document.id}.pdf`,
-            `${job.document.id}.pdf`,
-            rawId ? `doc_${rawId}.pdf` : "",
-            rawId ? `${rawId}.pdf` : "",
-          ].filter(Boolean);
+        try {
+          for (const bJob of batchJobs) {
+            const resolved = await this.resolveJobDocumentPath(bJob);
+            resolvedItems.push({ sourcePath: resolved.filePath, job: bJob, isLocalCacheHit: resolved.isLocalCacheHit });
+          }
 
-          for (const cand of candidateNames) {
-            const candPath = path.join(localCacheDir, cand);
-            if (fs.existsSync(candPath) && fs.statSync(candPath).size > 0) {
-              printFilePath = candPath;
-              isLocalCacheHit = true;
-              break;
+          batchSubmissionStarted = true;
+          for (const bJob of batchJobs) {
+            bJob.allowColorFallback = true;
+            await this.client.reportSubmit(bJob.id, targetPrinterName, bJob.duplexStep);
+          }
+
+          const batchResult = await prepareAndPrintBatch(
+            resolvedItems.map((item) => ({ sourcePath: item.sourcePath, job: item.job })),
+            targetPrinterName,
+            { includeSeparatorPage: true },
+          );
+
+          if (!batchResult.success) {
+            throw new Error(batchResult.errorMessage || "Batch print submission failed.");
+          }
+
+          if (process.platform === "win32" || os.platform() === "win32") {
+            logger.info(
+              `Monitoring physical printing on "${targetPrinterName}" for continuous batch (${batchJobs.length} documents) until pages are ejected...`,
+            );
+            await waitForPhysicalPrintCompletion(targetPrinterName);
+          }
+
+          for (const bJob of batchJobs) {
+            try {
+              await this.client.reportComplete(bJob.id);
+              logger.info(`Batch Job #${bJob.id.slice(0, 8)} reported as physically COMPLETED to server.`);
+            } catch (compErr) {
+              logger.warn(`Could not report batch job #${bJob.id.slice(0, 8)} completed:`, { error: compErr });
+            }
+          }
+
+          this.stats.jobsSubmitted += batchJobs.length;
+          this.stats.totalPagesSubmitted += batchResult.pagesSubmitted;
+          logger.info(
+            `✅ Order #${job.orderId.slice(0, 8)}: Continuous batch of ${batchJobs.length} documents (${batchResult.pagesSubmitted} pages) physically printed successfully.`,
+          );
+          return;
+        } catch (batchErr) {
+          const errorMsg = batchErr instanceof Error ? batchErr.message : "Batch print execution error";
+          logger.error(`Continuous batch print failed for Order #${job.orderId.slice(0, 8)}: ${errorMsg}`);
+          for (const bJob of batchJobs) {
+            if (!batchSubmissionStarted) {
+              this.processedJobIds.delete(`${bJob.id}:${bJob.duplexStep || "standard"}`);
+            }
+            await this.client.reportFailure(bJob.id, errorMsg.slice(0, 500), !batchSubmissionStarted);
+          }
+          this.stats.jobsFailed += batchJobs.length;
+          return;
+        } finally {
+          for (const part of plan) {
+            if (part.printer) {
+              this.activePrintingPrinters.delete(part.printer.name.toLowerCase());
+            }
+          }
+          for (const item of resolvedItems) {
+            if (!item.isLocalCacheHit && fs.existsSync(item.sourcePath)) {
+              const toClean = item.sourcePath;
+              setTimeout(() => {
+                try {
+                  if (fs.existsSync(toClean)) fs.unlinkSync(toClean);
+                } catch {}
+              }, 60000);
             }
           }
         }
-      } catch {
-        isLocalCacheHit = false;
       }
 
-      if (!isLocalCacheHit) {
-        // Fallback: Download from cloud (Web portal orders)
-        const tempDir = path.join(os.tmpdir(), "printsaathi_downloads");
-        if (!fs.existsSync(tempDir)) {
-          fs.mkdirSync(tempDir, { recursive: true });
-        }
-        printFilePath = path.join(tempDir, `doc_${job.document.id}_${Date.now()}.pdf`);
-      }
-
+      // Single-job execution
+      let printFilePath = "";
+      let isLocalCacheHit = false;
       let submissionStarted = false;
       try {
-        if (isLocalCacheHit) {
-          logger.info(
-            `⚡ Instant Local Hit: Using cached document for "${job.document.originalFilename}" (${job.document.pageCount} pages, 0s download).`,
-          );
-        } else {
-          logger.info(`Downloading document "${job.document.originalFilename}" (${job.document.pageCount} pages)...`);
-          await this.client.downloadDocument(job.document.id, job.id, printFilePath);
-        }
+        const resolved = await this.resolveJobDocumentPath(job);
+        printFilePath = resolved.filePath;
+        isLocalCacheHit = resolved.isLocalCacheHit;
 
         // Persist the no-retry boundary BEFORE invoking the renderer.
         // Also tells the server which printer and duplex step is handling this job.
@@ -693,8 +784,14 @@ export class AgentDaemon {
         // Wait for physical printer to finish printing all pages before confirming completion!
         const lastPrinterName = plan[plan.length - 1]?.printer?.name || firstPrinterName;
         if (lastPrinterName && (process.platform === "win32" || os.platform() === "win32")) {
-          logger.info(`Monitoring physical printing on "${lastPrinterName}" until pages are ejected...`);
-          await waitForPhysicalPrintCompletion(lastPrinterName);
+          if (job.isLastJobForOrder !== false) {
+            logger.info(`Monitoring physical printing on "${lastPrinterName}" until pages are ejected...`);
+            await waitForPhysicalPrintCompletion(lastPrinterName);
+          } else {
+            logger.info(
+              `Job #${job.id.slice(0, 8)} is an intermediate job in order batch; skipping spooler queue wait to maintain continuous printing.`,
+            );
+          }
         }
 
         // Now report job physically completed to server (unless manual duplex odd step)!

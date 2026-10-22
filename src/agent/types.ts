@@ -62,6 +62,8 @@ export interface ClaimedJob {
   allowColorFallback?: boolean;
   /** Whether this job is the final job of the user's order batch. If false, an empty separator page is omitted until all jobs in the order have finished printing. Defaults to true. */
   isLastJobForOrder?: boolean;
+  /** Sibling jobs belonging to the same order batch that can be printed together continuously without stopping the printer */
+  siblingJobs?: ClaimedJob[];
 }
 
 export interface LogEntry {

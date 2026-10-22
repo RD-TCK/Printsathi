@@ -12,7 +12,7 @@ vi.mock("./printer-discovery", () => ({
   isPhysicalPrinter: (printer: { name: string }) => printer.name !== "Microsoft Print to PDF",
 }));
 vi.mock("./logger", () => ({ logger: { info: vi.fn(), error: vi.fn() } }));
-import { prepareAndPrintDocument } from "./print-executor";
+import { prepareAndPrintBatch, prepareAndPrintDocument } from "./print-executor";
 
 describe("PDF print submission", () => {
   let directory: string;
@@ -510,6 +510,57 @@ describe("PDF print submission", () => {
       expect(result.errorMessage).toContain("Hardware Isolation Violation");
       expect(result.errorMessage).toContain("cannot be sent to Monochrome printer");
       expect(mocks.execute).not.toHaveBeenCalled();
+    });
+  });
+
+  describe("continuous batch printing for multi-image orders", () => {
+    it("merges 4 separate pictures into 1 continuous print spool job with exactly 1 separator page", async () => {
+      let spooledPageCount = 0;
+      let spooledPath = "";
+      mocks.execute.mockImplementation(async (_file, args, _options, callback) => {
+        spooledPath = args.at(-1);
+        const loaded = await PDFDocument.load(fs.readFileSync(spooledPath));
+        spooledPageCount = loaded.getPageCount();
+        callback(null, "", "");
+      });
+
+      // Create 4 test source files representing 4 pictures
+      const picSources: string[] = [];
+      for (let i = 1; i <= 4; i++) {
+        const picDoc = await PDFDocument.create();
+        picDoc.addPage();
+        const picPath = path.join(directory, `pic_${i}.pdf`);
+        fs.writeFileSync(picPath, await picDoc.save());
+        picSources.push(picPath);
+      }
+
+      const batchItems = picSources.map((p, idx) => ({
+        sourcePath: p,
+        job: {
+          id: `pic-job-${idx + 1}`,
+          orderId: "order-4-pics",
+          totalPages: 1,
+          isLastJobForOrder: idx === 3,
+          pagesConfig: [
+            {
+              startPage: 1,
+              endPage: 1,
+              colorMode: "black_and_white",
+              paperSize: "a4",
+              sideMode: "single_sided",
+            },
+          ],
+        } as ClaimedJob,
+      }));
+
+      const result = await prepareAndPrintBatch(batchItems, printerName, { includeSeparatorPage: true });
+
+      expect(result.success).toBe(true);
+      expect(result.pagesSubmitted).toBe(4);
+      // 4 photos + 1 separator page = 5 pages in single spool document
+      expect(spooledPageCount).toBe(5);
+      // SumatraPDF was invoked only once for all 4 photos!
+      expect(mocks.execute).toHaveBeenCalledTimes(1);
     });
   });
 });

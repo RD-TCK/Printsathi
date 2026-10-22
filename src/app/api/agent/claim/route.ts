@@ -108,38 +108,6 @@ export async function POST(request: Request) {
   // to route the back-side to the same physical printer, even after an agent restart.
   const requiredPrinterName = effectiveDuplexStep === "even" ? (jobDetails?.duplex_printer_name ?? null) : null;
 
-  // Check if this job is the final job for this user's order batch.
-  // In multi-file orders (e.g. user uploads 6 files), the empty separator sheet
-  // must only be appended after ALL documents have finished printing, not after each individual file.
-  let isLastJobForOrder = true;
-  if (effectiveDuplexStep === "odd") {
-    // Phase 1 (odd pages) must never append a separator sheet because paper will be flipped for phase 2.
-    isLastJobForOrder = false;
-  } else if (claimed.order_id) {
-    const { data: remainingJobs } = await adminClient
-      .from("print_jobs")
-      .select("id, status, duplex_step")
-      .eq("order_id", claimed.order_id)
-      .neq("id", claimed.job_id)
-      .in("status", ["queued", "paid", "awaiting_payment", "draft", "claimed"]);
-
-    const { data: incompleteDuplexJobs } = await adminClient
-      .from("print_jobs")
-      .select("id")
-      .eq("order_id", claimed.order_id)
-      .neq("id", claimed.job_id)
-      .in("duplex_step", ["odd_pending", "odd", "odd_printed", "even_pending"]);
-
-    const hasOtherPendingJobs = Boolean(
-      (remainingJobs && remainingJobs.length > 0) ||
-      (incompleteDuplexJobs && incompleteDuplexJobs.length > 0)
-    );
-
-    if (hasOtherPendingJobs) {
-      isLastJobForOrder = false;
-    }
-  }
-
   // Resolve pagesConfig dynamically:
   // Preserve intact ranges so the desktop agent can perform proper multi-copy collation
   // and blank-page sheet alignment for both hardware and manual duplex.
@@ -170,6 +138,143 @@ export async function POST(request: Request) {
     });
   }
 
+  // Check for any sibling queued/paid jobs for the same order that can be batched together
+  const siblingJobs: Array<{
+    id: string;
+    orderId: string;
+    documentId: string;
+    shopId: string;
+    totalPages: number;
+    totalAmount: number;
+    currency: string;
+    printAttempts: number;
+    maxAttempts: number;
+    defaultPrinter: string | null;
+    requiredPrinterName: string | null;
+    duplexStep: string;
+    document: {
+      id: string;
+      storagePath: string;
+      originalFilename: string;
+      mimeType: string;
+      sizeBytes: number;
+      pageCount: number;
+    };
+    pagesConfig: typeof resolvedPagesConfig;
+    isLastJobForOrder: boolean;
+  }> = [];
+
+  if (claimed.order_id && effectiveDuplexStep !== "odd") {
+    const { data: rawSiblings } = await adminClient
+      .from("print_jobs")
+      .select(`
+        id, order_id, document_id, shop_id, status, total_pages, total_amount, currency,
+        print_attempts, max_attempts, duplex_step, duplex_printer_name,
+        documents ( id, storage_path, original_filename, mime_type, size_bytes, page_count ),
+        print_job_pages ( start_page, end_page, color_mode, paper_size, side_mode, copies )
+      `)
+      .eq("order_id", claimed.order_id)
+      .neq("id", claimed.job_id)
+      .in("status", ["queued", "paid"])
+      .order("created_at", { ascending: true });
+
+    if (rawSiblings && rawSiblings.length > 0) {
+      const siblingIds = rawSiblings.map((s) => s.id);
+      await adminClient
+        .from("print_jobs")
+        .update({
+          status: "claimed",
+          claimed_by_agent_id: auth.agent.id,
+          claimed_at: new Date().toISOString(),
+          claim_expires_at: new Date(Date.now() + leaseSeconds * 1000).toISOString(),
+          print_attempts: 1,
+        })
+        .in("id", siblingIds);
+
+      for (let sIdx = 0; sIdx < rawSiblings.length; sIdx++) {
+        const s = rawSiblings[sIdx];
+        const sDoc = Array.isArray(s.documents) ? s.documents[0] : s.documents;
+        const sPages = Array.isArray(s.print_job_pages) ? s.print_job_pages : [];
+        if (!sDoc || !sPages.length) continue;
+
+        const sResolvedPages = sPages.map((p: {
+          start_page: number;
+          end_page: number;
+          color_mode?: string;
+          paper_size?: string;
+          side_mode?: string;
+          copies?: number;
+        }) => ({
+          startPage: Math.max(1, p.start_page),
+          endPage: Math.max(Math.max(1, p.start_page), p.end_page),
+          colorMode: (p.color_mode || "black_and_white") as "color" | "black_and_white",
+          paperSize: (p.paper_size || "a4") as "a4" | "a3",
+          sideMode: (p.side_mode || "single_sided") as "single_sided" | "double_sided",
+          copies: Math.max(1, p.copies ?? 1),
+        }));
+
+        siblingJobs.push({
+          id: s.id,
+          orderId: s.order_id,
+          documentId: s.document_id,
+          shopId: s.shop_id,
+          totalPages: s.total_pages,
+          totalAmount: Number(s.total_amount),
+          currency: s.currency,
+          printAttempts: s.print_attempts,
+          maxAttempts: s.max_attempts,
+          defaultPrinter: defaultPrinter?.name || null,
+          requiredPrinterName,
+          duplexStep: s.duplex_step || "none",
+          document: {
+            id: sDoc.id,
+            storagePath: sDoc.storage_path,
+            originalFilename: sDoc.original_filename,
+            mimeType: sDoc.mime_type,
+            sizeBytes: Number(sDoc.size_bytes),
+            pageCount: sDoc.page_count,
+          },
+          pagesConfig: sResolvedPages,
+          isLastJobForOrder: sIdx === rawSiblings.length - 1,
+        });
+      }
+    }
+  }
+
+  // Check if this job is the final job for this user's order batch.
+  // In multi-file orders (e.g. user uploads 6 files), the empty separator sheet
+  // must only be appended after ALL documents have finished printing, not after each individual file.
+  let isLastJobForOrder = true;
+  if (effectiveDuplexStep === "odd" || siblingJobs.length > 0) {
+    // Phase 1 (odd pages) or orders with sibling jobs pending in batch must not append separator yet
+    isLastJobForOrder = false;
+  } else if (claimed.order_id) {
+    const { data: remainingJobs } = await adminClient
+      .from("print_jobs")
+      .select("id, status, duplex_step")
+      .eq("order_id", claimed.order_id)
+      .neq("id", claimed.job_id)
+      .in("status", ["queued", "paid", "awaiting_payment", "draft", "claimed"]);
+
+    const { data: incompleteDuplexJobs } = await adminClient
+      .from("print_jobs")
+      .select("id")
+      .eq("order_id", claimed.order_id)
+      .neq("id", claimed.job_id)
+      .in("duplex_step", ["odd_pending", "odd", "odd_printed", "even_pending"]);
+
+    const hasOtherPendingJobs = Boolean(
+      (remainingJobs && remainingJobs.length > 0) ||
+      (incompleteDuplexJobs && incompleteDuplexJobs.length > 0)
+    );
+
+    if (hasOtherPendingJobs) {
+      isLastJobForOrder = false;
+    }
+  }
+
+
+
   return NextResponse.json({
     success: true,
     job: {
@@ -199,6 +304,7 @@ export async function POST(request: Request) {
       },
       pagesConfig: resolvedPagesConfig,
       isLastJobForOrder,
+      siblingJobs: siblingJobs.length > 0 ? siblingJobs : undefined,
     },
   });
 }
