@@ -11,9 +11,10 @@ export const DEFAULT_CONFIG: AgentConfig = {
   agentToken: null,
   agentName: `Windows Agent (${os.hostname() || "Local"})`,
   selectedPrinter: null,
-  version: "1.8.17",
+  version: "1.8.18",
   pollIntervalMs: 1000,
   heartbeatIntervalMs: 45000,
+  enableSeparatorPage: true,
 };
 
 export function getConfigDirectory(): string {
@@ -111,6 +112,7 @@ export function loadConfig(): AgentConfig {
       version: DEFAULT_CONFIG.version,
       pollIntervalMs: parsed.pollIntervalMs ? Math.max(1000, Math.min(parsed.pollIntervalMs, 5000)) : 2000,
       heartbeatIntervalMs: parsed.heartbeatIntervalMs ? Math.max(10000, Math.min(parsed.heartbeatIntervalMs, 60000)) : 45000,
+      enableSeparatorPage: parsed.enableSeparatorPage !== undefined ? Boolean(parsed.enableSeparatorPage) : true,
     };
   } catch {
     return { ...DEFAULT_CONFIG };

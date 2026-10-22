@@ -174,6 +174,15 @@ export class AgentWebServer {
       return;
     }
 
+    if (url.pathname === "/api/set-separator-page" && req.method === "POST") {
+      const body = await this.readJsonBody(req);
+      const enabled = body?.enabled !== false;
+      agentDaemon.setSeparatorPage(enabled);
+      res.writeHead(200, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({ success: true, enableSeparatorPage: enabled }));
+      return;
+    }
+
     if (url.pathname === "/api/counter-queue" && req.method === "GET") {
       try {
         const data = await agentDaemon.getCounterQueue();

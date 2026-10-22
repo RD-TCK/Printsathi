@@ -88,6 +88,7 @@ export interface AgentStatusSnapshot {
   printers: DiscoveredPrinter[];
   selectedPrinter: string | null;
   currentJob: ClaimedJob | null;
+  enableSeparatorPage?: boolean;
   stats: {
     jobsProcessed: number;
     jobsSubmitted: number;

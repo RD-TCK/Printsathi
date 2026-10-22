@@ -204,7 +204,7 @@ describe("automatic dispatch safety", () => {
         expect.objectContaining({ job: expect.objectContaining({ id: "job-pic-4" }) }),
       ]),
       expect.any(String),
-      { includeSeparatorPage: false },
+      { includeSeparatorPage: true },
     );
     // Verify reportSubmit was called for all 4 jobs
     expect(mocks.submit).toHaveBeenCalledWith("job-pic-1", expect.any(String), undefined);

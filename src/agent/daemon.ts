@@ -767,10 +767,11 @@ export class AgentDaemon {
             await this.client.reportSubmit(bJob.id, targetPrinterName, bJob.duplexStep);
           }
 
+          const shouldIncludeSeparator = this.config.enableSeparatorPage !== false;
           const batchResult = await prepareAndPrintBatch(
             resolvedItems.map((item) => ({ sourcePath: item.sourcePath, job: item.job })),
             targetPrinterName,
-            { includeSeparatorPage: Boolean(this.config.enableSeparatorPage) },
+            { includeSeparatorPage: shouldIncludeSeparator },
           );
 
           if (!batchResult.success) {
@@ -851,7 +852,10 @@ export class AgentDaemon {
           const isLastPartForThisPrinter = !plan.slice(i + 1).some(
             (p) => p.printer?.name.toLowerCase() === printerName.toLowerCase(),
           );
-          const shouldIncludeSeparator = Boolean(this.config.enableSeparatorPage) && (job.isLastJobForOrder !== false) && isLastPartForThisPrinter;
+          const shouldIncludeSeparator =
+            this.config.enableSeparatorPage !== false &&
+            job.isLastJobForOrder !== false &&
+            isLastPartForThisPrinter;
           logger.info(
             `Submitting to printer "${printerName}" for Job #${job.id.slice(0, 8)} (${job.duplexStep || "full"}, separator: ${shouldIncludeSeparator})...`,
           );
@@ -985,6 +989,7 @@ export class AgentDaemon {
       printers: this.discoveredPrinters,
       selectedPrinter: this.config.selectedPrinter,
       currentJob: this.currentJob,
+      enableSeparatorPage: this.config.enableSeparatorPage !== false,
       stats: { ...this.stats },
       recentLogs: logger.getRecentLogs(),
     };
@@ -1002,6 +1007,11 @@ export class AgentDaemon {
 
   async getCounterQueue() {
     return await this.client.getCounterQueue();
+  }
+
+  setSeparatorPage(enabled: boolean) {
+    this.config = saveConfig({ enableSeparatorPage: enabled });
+    logger.info(`Separator page ${enabled ? "enabled" : "disabled"}`);
   }
 
   clearProcessedJob(jobIdOrOrderId: string) {
