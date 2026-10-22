@@ -9,6 +9,7 @@ export interface AgentConfig {
   version: string;
   pollIntervalMs: number;
   heartbeatIntervalMs: number;
+  enableSeparatorPage?: boolean;
 }
 
 export interface DiscoveredPrinter {

@@ -53,8 +53,9 @@ vi.mock("node:fs", () => ({
 }));
 import { AgentDaemon } from "./daemon";
 
-async function processJob() {
+async function processJob(configure?: (daemon: AgentDaemon) => void) {
   const daemon = new AgentDaemon();
+  if (configure) configure(daemon);
   await (daemon as unknown as { pollAndProcessNextJob(): Promise<void> }).pollAndProcessNextJob();
   return daemon;
 }
@@ -138,7 +139,7 @@ describe("automatic dispatch safety", () => {
     );
   });
 
-  it("appends separator page in prepareAndPrintDocument on the last job in a multi-file order", async () => {
+  it("appends separator page in prepareAndPrintDocument on the last job in a multi-file order when enabled", async () => {
     mocks.claim.mockResolvedValue({
       id: "job-multi-6",
       orderId: "order-multi",
@@ -147,7 +148,9 @@ describe("automatic dispatch safety", () => {
       document: { id: "doc-6", originalFilename: "file6.pdf", pageCount: 1 },
       pagesConfig: [{ startPage: 1, endPage: 1, colorMode: "black_and_white", paperSize: "a4" }],
     });
-    await processJob();
+    await processJob((d) => {
+      (d as unknown as { config: { enableSeparatorPage: boolean } }).config.enableSeparatorPage = true;
+    });
     expect(mocks.print).toHaveBeenCalledWith(
       expect.any(String),
       expect.objectContaining({ id: "job-multi-6", isLastJobForOrder: true }),
@@ -201,7 +204,7 @@ describe("automatic dispatch safety", () => {
         expect.objectContaining({ job: expect.objectContaining({ id: "job-pic-4" }) }),
       ]),
       expect.any(String),
-      { includeSeparatorPage: true },
+      { includeSeparatorPage: false },
     );
     // Verify reportSubmit was called for all 4 jobs
     expect(mocks.submit).toHaveBeenCalledWith("job-pic-1", expect.any(String), undefined);

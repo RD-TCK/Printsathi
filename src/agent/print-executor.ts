@@ -458,7 +458,7 @@ export async function prepareAndPrintDocument(
     fs.writeFileSync(tempExtractedPath, outputBytes);
     finalPdfPath = tempExtractedPath;
 
-    const settings = ["fit"];
+    const settings = ["shrink"];
     const config = activeConfigs?.[0];
     if (isHardwareDuplex) {
       settings.push("duplex");
@@ -703,7 +703,7 @@ export async function prepareAndPrintBatch(
     tempExtractedPath = path.join(tempDir, `batch_${firstJob.orderId || firstJob.id}_${Date.now()}_spooled.pdf`);
     fs.writeFileSync(tempExtractedPath, outputBytes);
 
-    const settings = ["fit"];
+    const settings = ["shrink"];
     if (isHardwareDuplex) {
       settings.push("duplex");
     } else {

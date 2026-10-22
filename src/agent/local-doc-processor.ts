@@ -700,11 +700,11 @@ function wrapText(text: string, font: PDFFont, fontSize: number, maxWidth: numbe
       continue;
     }
 
-    const words = para.split(/\s+/);
+    const tokens = para.match(/\S+|\s+/g) || [];
     let currentLine = "";
 
-    for (const word of words) {
-      const testLine = currentLine ? `${currentLine} ${word}` : word;
+    for (const token of tokens) {
+      const testLine = currentLine + token;
       let width = 0;
       try {
         width = font.widthOfTextAtSize(testLine, fontSize);
@@ -720,16 +720,20 @@ function wrapText(text: string, font: PDFFont, fontSize: number, maxWidth: numbe
           currentLine = "";
         }
 
-        let wordWidth = 0;
-        try {
-          wordWidth = font.widthOfTextAtSize(word, fontSize);
-        } catch {
-          wordWidth = word.length * (fontSize * 0.55);
+        if (/^\s+$/.test(token)) {
+          continue;
         }
 
-        if (wordWidth > maxWidth) {
+        let tokenWidth = 0;
+        try {
+          tokenWidth = font.widthOfTextAtSize(token, fontSize);
+        } catch {
+          tokenWidth = token.length * (fontSize * 0.55);
+        }
+
+        if (tokenWidth > maxWidth) {
           let chunk = "";
-          for (const char of word) {
+          for (const char of token) {
             const testChunk = chunk + char;
             let chunkW = 0;
             try {
@@ -746,7 +750,7 @@ function wrapText(text: string, font: PDFFont, fontSize: number, maxWidth: numbe
           }
           currentLine = chunk;
         } else {
-          currentLine = word;
+          currentLine = token;
         }
       }
     }

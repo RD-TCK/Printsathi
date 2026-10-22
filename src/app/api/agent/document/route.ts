@@ -82,25 +82,7 @@ export async function GET(request: Request) {
   let effectiveMime = "application/pdf";
 
   // 3. Download document
-  if (document.storage_path.startsWith("local://")) {
-    // For local-first documents, check if thumbnail preview exists in cloud
-    if (effectiveOrderId) {
-      const previewStoragePath = `shops/${auth.shop.id}/orders/${effectiveOrderId}/documents/${document.id}/preview.jpg`;
-      const { data: previewData } = await adminClient.storage
-        .from("print-documents")
-        .download(previewStoragePath);
-
-      if (previewData) {
-        const ab = await previewData.arrayBuffer();
-        try {
-          fileBuffer = await wrapImageToPdf(Buffer.from(ab));
-        } catch {
-          fileBuffer = Buffer.from(ab);
-          effectiveMime = "image/jpeg";
-        }
-      }
-    }
-  } else {
+  if (!document.storage_path.startsWith("local://")) {
     const { data: fileData } = await adminClient.storage
       .from("print-documents")
       .download(document.storage_path);
@@ -108,29 +90,28 @@ export async function GET(request: Request) {
     if (fileData) {
       const ab = await fileData.arrayBuffer();
       fileBuffer = Buffer.from(ab);
-    }
-  }
 
-  // If normal download failed, try preview thumbnail as emergency fallback
-  if (!fileBuffer && effectiveOrderId) {
-    const fallbackPreview = `shops/${auth.shop.id}/orders/${effectiveOrderId}/documents/${document.id}/preview.jpg`;
-    const { data: fallbackData } = await adminClient.storage
-      .from("print-documents")
-      .download(fallbackPreview);
-
-    if (fallbackData) {
-      const ab = await fallbackData.arrayBuffer();
-      try {
-        fileBuffer = await wrapImageToPdf(Buffer.from(ab));
-      } catch {
-        fileBuffer = Buffer.from(ab);
-        effectiveMime = "image/jpeg";
+      const isImg =
+        document.mime_type?.startsWith("image/") ||
+        /\.(jpe?g|png|webp|bmp|tiff?)$/i.test(document.original_filename);
+      if (isImg) {
+        try {
+          fileBuffer = await wrapImageToPdf(fileBuffer);
+          effectiveMime = "application/pdf";
+        } catch {
+          effectiveMime = document.mime_type || "image/jpeg";
+        }
+      } else {
+        effectiveMime = document.mime_type || "application/pdf";
       }
     }
   }
 
   if (!fileBuffer) {
-    return NextResponse.json({ error: "Could not retrieve document from storage." }, { status: 502 });
+    return NextResponse.json(
+      { error: "Original high-resolution document not found in storage. Refusing to print low-quality preview." },
+      { status: 404 },
+    );
   }
 
   return new NextResponse(new Uint8Array(fileBuffer), {

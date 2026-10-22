@@ -687,7 +687,7 @@ export class AgentDaemon {
       const plan = groups.map((ranges) => {
         const reqColor = anyJobInBatchRequiresColor || ranges[0].colorMode === "color";
         const printer = findBestPrinterForJob(this.discoveredPrinters, {
-          colorMode: hasColorPrinterInShop && reqColor ? "color" : "black_and_white",
+          colorMode: reqColor ? "color" : "black_and_white",
           paperSize: ranges[0].paperSize,
           preferredName: this.config.selectedPrinter || job.defaultPrinter,
           requiredPrinterName: isDuplexEvenStep ? reservedPrinterForJob : null,
@@ -774,7 +774,7 @@ export class AgentDaemon {
           const batchResult = await prepareAndPrintBatch(
             resolvedItems.map((item) => ({ sourcePath: item.sourcePath, job: item.job })),
             targetPrinterName,
-            { includeSeparatorPage: true },
+            { includeSeparatorPage: Boolean(this.config.enableSeparatorPage) },
           );
 
           if (!batchResult.success) {
@@ -855,7 +855,7 @@ export class AgentDaemon {
           const isLastPartForThisPrinter = !plan.slice(i + 1).some(
             (p) => p.printer?.name.toLowerCase() === printerName.toLowerCase(),
           );
-          const shouldIncludeSeparator = (job.isLastJobForOrder !== false) && isLastPartForThisPrinter;
+          const shouldIncludeSeparator = Boolean(this.config.enableSeparatorPage) && (job.isLastJobForOrder !== false) && isLastPartForThisPrinter;
           logger.info(
             `Submitting to printer "${printerName}" for Job #${job.id.slice(0, 8)} (${job.duplexStep || "full"}, separator: ${shouldIncludeSeparator})...`,
           );

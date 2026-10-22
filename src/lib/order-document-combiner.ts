@@ -215,14 +215,6 @@ export async function combineOrderDocumentsForPrint(
           }
         }
 
-        // 2c. Fallback: try preview thumbnail in Supabase storage
-        if (!docBuffer) {
-          const previewPath = `shops/${shopId}/orders/${orderId}/documents/${doc.id}/preview.jpg`;
-          const { data: previewData } = await client.storage.from("print-documents").download(previewPath);
-          if (previewData) {
-            docBuffer = Buffer.from(await previewData.arrayBuffer());
-          }
-        }
 
         return { item, docBuffer };
       }),

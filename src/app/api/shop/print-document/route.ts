@@ -128,20 +128,6 @@ export async function GET(request: Request) {
       } catch {}
     }
 
-    // 3. Fallback: Check if preview image exists in Supabase storage
-    if (!originalBuffer && orderId && (targetDocId || rawId)) {
-      const docLookupId = targetDocId || rawId;
-      const previewStoragePath = `shops/${member.shop_id}/orders/${orderId}/documents/${docLookupId}/preview.jpg`;
-      const { data: previewData } = await adminClient.storage
-        .from("print-documents")
-        .download(previewStoragePath);
-
-      if (previewData) {
-        originalBuffer = await previewData.arrayBuffer();
-        mimeType = "image/jpeg";
-        filename = filename.replace(/\.pdf$/i, "") + "_preview.jpg";
-      }
-    }
   } else {
     const { data: fileData, error: downloadError } = await adminClient.storage
       .from("print-documents")
