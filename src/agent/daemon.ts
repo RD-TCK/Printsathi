@@ -85,7 +85,7 @@ export class AgentDaemon {
     this.discoveryTimer = setInterval(async () => {
       if (this.discovering) return;
       cleanDocumentCache();
-      
+
       await this.refreshPrinters();
       const currentSignature = JSON.stringify(
         this.discoveredPrinters.map((p) => ({
@@ -95,7 +95,7 @@ export class AgentDaemon {
           driver: p.driverName,
         })),
       );
-      
+
       if (this.lastSentPrintersSignature && this.lastSentPrintersSignature !== currentSignature && this.isConnected) {
         logger.info("Printer state change detected locally. Triggering immediate heartbeat.");
         void this.sendHeartbeat();
@@ -221,7 +221,7 @@ export class AgentDaemon {
     this.activePrintingPrinters.clear();
     this.reservedDuplexPrinters.clear();
     this.orderToReservedPrinter.clear();
-    
+
     if (this.jobsChannel && this.supabaseClient) {
       void this.supabaseClient.removeChannel(this.jobsChannel);
       this.jobsChannel = null;
@@ -367,7 +367,7 @@ export class AgentDaemon {
 
   private async setupRealtimeSubscription() {
     if (!this.isRunning || !isConfigPaired(this.config) || !this.isConnected) return;
-    
+
     try {
       if (!this.supabaseClient) {
         const { supabaseUrl, supabaseAnonKey } = await this.client.getRealtimeConfig();
@@ -391,29 +391,29 @@ export class AgentDaemon {
           'postgres_changes',
           { event: 'INSERT', schema: 'public', table: 'print_jobs', filter: `shop_id=eq.${this.config.shopId}` },
           () => {
-             logger.info("⚡ Realtime event: new print job created. Waking up agent immediately...");
-             void this.triggerPoll();
+            logger.info("⚡ Realtime event: new print job created. Waking up agent immediately...");
+            void this.triggerPoll();
           }
         )
         .on(
           'postgres_changes',
           { event: 'UPDATE', schema: 'public', table: 'print_jobs', filter: `shop_id=eq.${this.config.shopId}` },
           (payload) => {
-             if (payload.new && (payload.new.status === 'queued' || payload.new.status === 'pending' || payload.new.status === 'paid')) {
-                 logger.info(`⚡ Realtime event: print job status updated to "${payload.new.status}". Waking up agent immediately...`);
-                 void this.triggerPoll();
-             }
+            if (payload.new && (payload.new.status === 'queued' || payload.new.status === 'paid')) {
+              logger.info(`⚡ Realtime event: print job status updated to "${payload.new.status}". Waking up agent immediately...`);
+              void this.triggerPoll();
+            }
           }
         )
         .subscribe((status) => {
-           if (status === 'SUBSCRIBED') {
-             this.isRealtimeConnected = true;
-             logger.info("Supabase Realtime subscription active for print jobs. Adaptive polling sleeping (fallback: 20s).");
-           } else if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT' || status === 'CLOSED') {
-             this.isRealtimeConnected = false;
-             logger.warn(`Supabase Realtime subscription status: ${status}. Active polling safety net engaged.`);
-             void this.triggerPoll();
-           }
+          if (status === 'SUBSCRIBED') {
+            this.isRealtimeConnected = true;
+            logger.info("Supabase Realtime subscription active for print jobs. Adaptive polling sleeping (fallback: 20s).");
+          } else if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT' || status === 'CLOSED') {
+            this.isRealtimeConnected = false;
+            logger.warn(`Supabase Realtime subscription status: ${status}. Active polling safety net engaged.`);
+            void this.triggerPoll();
+          }
         });
 
     } catch (err) {
@@ -597,13 +597,13 @@ export class AgentDaemon {
       const configs = job.pagesConfig.length
         ? job.pagesConfig
         : [
-            {
-              startPage: 1,
-              endPage: job.document.pageCount,
-              colorMode: "black_and_white" as const,
-              paperSize: "a4" as const,
-            },
-          ];
+          {
+            startPage: 1,
+            endPage: job.document.pageCount,
+            colorMode: "black_and_white" as const,
+            paperSize: "a4" as const,
+          },
+        ];
 
       // Separate changes of paper size or color mode
       const groups: ClaimedJob["pagesConfig"][] = [];
@@ -806,7 +806,7 @@ export class AgentDaemon {
               setTimeout(() => {
                 try {
                   if (fs.existsSync(toClean)) fs.unlinkSync(toClean);
-                } catch {}
+                } catch { }
               }, 60000);
             }
           }
