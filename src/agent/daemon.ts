@@ -41,6 +41,7 @@ export class AgentDaemon {
   private heartbeatTimer: NodeJS.Timeout | null = null;
   private pollTimeout: NodeJS.Timeout | null = null;
   private isRealtimeConnected: boolean = false;
+  private isSubscribingRealtime: boolean = false;
   private idlePollCount: number = 0;
   private hasPendingWakeup: boolean = false;
   private isPollRunning: boolean = false;
@@ -222,6 +223,12 @@ export class AgentDaemon {
     this.reservedDuplexPrinters.clear();
     this.orderToReservedPrinter.clear();
 
+    if (this.pollTimeout) {
+      clearTimeout(this.pollTimeout);
+      this.pollTimeout = null;
+    }
+    this.isRealtimeConnected = false;
+
     if (this.jobsChannel && this.supabaseClient) {
       void this.supabaseClient.removeChannel(this.jobsChannel);
       this.jobsChannel = null;
@@ -347,6 +354,10 @@ export class AgentDaemon {
       this.isConnected = true;
       logger.debug("Heartbeat acknowledged by server.", { timestamp: result.timestamp });
 
+      if (!this.pollTimeout && !this.isProcessingJob && !this.isPollRunning) {
+        this.scheduleNextPoll(0);
+      }
+
       if (!this.supabaseClient || !this.isRealtimeConnected || !this.jobsChannel) {
         void this.setupRealtimeSubscription();
       }
@@ -366,7 +377,8 @@ export class AgentDaemon {
   }
 
   private async setupRealtimeSubscription() {
-    if (!this.isRunning || !isConfigPaired(this.config) || !this.isConnected) return;
+    if (!this.isRunning || !isConfigPaired(this.config) || this.isSubscribingRealtime) return;
+    this.isSubscribingRealtime = true;
 
     try {
       if (!this.supabaseClient) {
@@ -399,8 +411,9 @@ export class AgentDaemon {
           'postgres_changes',
           { event: 'UPDATE', schema: 'public', table: 'print_jobs', filter: `shop_id=eq.${this.config.shopId}` },
           (payload) => {
-            if (payload.new && (payload.new.status === 'queued' || payload.new.status === 'paid')) {
-              logger.info(`⚡ Realtime event: print job status updated to "${payload.new.status}". Waking up agent immediately...`);
+            const status = payload.new ? (payload.new as { status?: string }).status : undefined;
+            if (!status || status === 'queued' || status === 'paid') {
+              logger.info(`⚡ Realtime event: print job status updated${status ? ` to "${status}"` : ""}. Waking up agent immediately...`);
               void this.triggerPoll();
             }
           }
@@ -419,6 +432,8 @@ export class AgentDaemon {
     } catch (err) {
       this.isRealtimeConnected = false;
       logger.error("Failed to setup realtime subscription:", { error: err instanceof Error ? err.message : String(err) });
+    } finally {
+      this.isSubscribingRealtime = false;
     }
   }
 
@@ -450,7 +465,7 @@ export class AgentDaemon {
       clearTimeout(this.pollTimeout);
       this.pollTimeout = null;
     }
-    if (!this.isRunning || !isConfigPaired(this.config) || !this.isConnected) return;
+    if (!this.isRunning || !isConfigPaired(this.config)) return;
 
     const delay = overrideDelayMs !== undefined ? overrideDelayMs : this.getNextPollDelay();
     this.pollTimeout = setTimeout(() => {
@@ -468,7 +483,7 @@ export class AgentDaemon {
   }
 
   private async runAdaptivePollCycle(): Promise<void> {
-    if (!this.isRunning || !isConfigPaired(this.config) || !this.isConnected) return;
+    if (!this.isRunning || !isConfigPaired(this.config)) return;
     if (this.isProcessingJob || this.isPollRunning) {
       this.hasPendingWakeup = true;
       return;
@@ -488,7 +503,9 @@ export class AgentDaemon {
     let didProcessJob = false;
 
     try {
-      didProcessJob = await this.pollAndProcessNextJob();
+      if (this.isConnected) {
+        didProcessJob = await this.pollAndProcessNextJob();
+      }
     } catch (err) {
       logger.warn("Error during adaptive poll cycle:", {
         error: err instanceof Error ? err.message : String(err),
@@ -975,7 +992,7 @@ export class AgentDaemon {
   }
 
   async triggerPoll(): Promise<void> {
-    if (!this.isRunning || !isConfigPaired(this.config) || !this.isConnected) return;
+    if (!this.isRunning || !isConfigPaired(this.config)) return;
     this.idlePollCount = 0;
     if (this.isProcessingJob || this.isPollRunning) {
       this.hasPendingWakeup = true;
