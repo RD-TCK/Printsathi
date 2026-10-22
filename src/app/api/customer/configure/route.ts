@@ -7,7 +7,6 @@ import { configurationSchema, validateRanges } from "@/lib/customer-print";
 import { calculatePricing, type PricingRule } from "@/lib/pricing-engine";
 import { assertShopCanPrice } from "@/lib/pricing-engine";
 import { hashGuestOrderToken } from "@/lib/guest-order";
-import { combineOrderDocumentsForPrint } from "@/lib/order-document-combiner";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
@@ -162,83 +161,60 @@ export async function POST(request: Request) {
   const { error: deleteError } = await client.from("print_jobs").delete().eq("order_id", orderId);
   if (deleteError) return NextResponse.json({ error: "Could not replace draft jobs." }, { status: 500 });
 
-  let insertedJobCount = 0;
-
-  // Combine all pictures / documents for this order into 1 single continuous print job!
-  if (parsed.data.configurations.length > 1) {
-    try {
-      const combinedRes = await combineOrderDocumentsForPrint(client, {
-        shopId: shop.id,
-        orderId,
-        customerId: order.customer_id,
-        totalAmount: pricing.total,
-        configurations: parsed.data.configurations,
-        targetJobStatus: "awaiting_payment",
-      });
-      if (combinedRes.success && combinedRes.combined) {
-        insertedJobCount = 1;
-      }
-    } catch (combineErr) {
-      console.warn("Failed to combine configured documents, falling back to individual jobs:", combineErr);
+  const allocatedDocIds = new Set<string>();
+  for (const configuration of parsed.data.configurations) {
+    let document = documentMap.get(configuration.documentId);
+    if (!document && documents && documents.length > 0) {
+      const maxRequestedPage = Math.max(...configuration.ranges.map((r) => r.endPage), 1);
+      document =
+        documents.find((d) => !allocatedDocIds.has(d.id) && d.page_count >= maxRequestedPage) ||
+        documents.find((d) => !allocatedDocIds.has(d.id)) ||
+        documents[0];
     }
-  }
-
-  if (insertedJobCount === 0) {
-    const allocatedDocIds = new Set<string>();
-    for (const configuration of parsed.data.configurations) {
-      let document = documentMap.get(configuration.documentId);
-      if (!document && documents && documents.length > 0) {
-        const maxRequestedPage = Math.max(...configuration.ranges.map((r) => r.endPage), 1);
-        document =
-          documents.find((d) => !allocatedDocIds.has(d.id) && d.page_count >= maxRequestedPage) ||
-          documents.find((d) => !allocatedDocIds.has(d.id)) ||
-          documents[0];
-      }
-      if (!document || document.order_id !== orderId)
-        return NextResponse.json({ error: "Document does not belong to this order." }, { status: 400 });
-      allocatedDocIds.add(document.id);
-      const rangeError = validateRanges(configuration.ranges, document.page_count);
-      if (rangeError) return NextResponse.json({ error: rangeError }, { status: 400 });
-      const jobId = crypto.randomUUID();
-      const jobPrintedPages = configuration.ranges.reduce(
-        (sum, r) => sum + (r.endPage - r.startPage + 1) * Math.max(1, r.copies ?? 1),
-        0,
-      );
-      const { error: jobError } = await client.from("print_jobs").insert({
-        id: jobId,
-        order_id: orderId,
-        shop_id: shop.id,
-        customer_id: order.customer_id,
-        document_id: document.id,
-        status: "awaiting_payment",
-        total_pages: jobPrintedPages,
-        total_amount: Number(
-          calculatePricing(
-            configuration.ranges,
-            rules.map((rule) => ({
-              ...rule,
-              price_per_page: Number(rule.price_per_page),
-              is_active: true,
-            })) as PricingRule[],
-            billingMode,
-          ).total.toFixed(2),
-        ),
-        idempotency_key: crypto.randomUUID(),
-      });
-      if (jobError) return NextResponse.json({ error: "Could not save print configuration." }, { status: 500 });
-      const { error: pagesError } = await client.from("print_job_pages").insert(
-        configuration.ranges.map((range) => ({
-          print_job_id: jobId,
-          start_page: range.startPage,
-          end_page: range.endPage,
-          color_mode: range.colorMode,
-          paper_size: range.paperSize,
-          side_mode: range.sideMode ?? "single_sided",
-          copies: range.copies ?? 1,
-        })),
-      );
-      if (pagesError) return NextResponse.json({ error: "Could not save page ranges." }, { status: 500 });
-    }
+    if (!document || document.order_id !== orderId)
+      return NextResponse.json({ error: "Document does not belong to this order." }, { status: 400 });
+    allocatedDocIds.add(document.id);
+    const rangeError = validateRanges(configuration.ranges, document.page_count);
+    if (rangeError) return NextResponse.json({ error: rangeError }, { status: 400 });
+    const jobId = crypto.randomUUID();
+    const jobPrintedPages = configuration.ranges.reduce(
+      (sum, r) => sum + (r.endPage - r.startPage + 1) * Math.max(1, r.copies ?? 1),
+      0,
+    );
+    const { error: jobError } = await client.from("print_jobs").insert({
+      id: jobId,
+      order_id: orderId,
+      shop_id: shop.id,
+      customer_id: order.customer_id,
+      document_id: document.id,
+      status: "awaiting_payment",
+      total_pages: jobPrintedPages,
+      total_amount: Number(
+        calculatePricing(
+          configuration.ranges,
+          rules.map((rule) => ({
+            ...rule,
+            price_per_page: Number(rule.price_per_page),
+            is_active: true,
+          })) as PricingRule[],
+          billingMode,
+        ).total.toFixed(2),
+      ),
+      idempotency_key: crypto.randomUUID(),
+    });
+    if (jobError) return NextResponse.json({ error: "Could not save print configuration." }, { status: 500 });
+    const { error: pagesError } = await client.from("print_job_pages").insert(
+      configuration.ranges.map((range) => ({
+        print_job_id: jobId,
+        start_page: range.startPage,
+        end_page: range.endPage,
+        color_mode: range.colorMode,
+        paper_size: range.paperSize,
+        side_mode: range.sideMode ?? "single_sided",
+        copies: range.copies ?? 1,
+      })),
+    );
+    if (pagesError) return NextResponse.json({ error: "Could not save page ranges." }, { status: 500 });
   }
   const { error: orderError } = await client
     .from("orders")

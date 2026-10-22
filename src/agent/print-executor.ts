@@ -143,7 +143,22 @@ export async function loadSourceAsPdfDocument(filePath: string): Promise<PDFDocu
   ) {
     const imgDoc = await PDFDocument.create();
     const isPng = sourceBuffer[0] === 0x89;
-    const embeddedImg = isPng ? await imgDoc.embedPng(sourceBuffer) : await imgDoc.embedJpg(sourceBuffer);
+    let embeddedImg;
+    try {
+      embeddedImg = isPng ? await imgDoc.embedPng(sourceBuffer) : await imgDoc.embedJpg(sourceBuffer);
+    } catch {
+      try {
+        const sharp = (await import("sharp")).default;
+        const normalizedJpeg = await sharp(sourceBuffer)
+          .rotate()
+          .toColorspace("srgb")
+          .jpeg({ quality: 95, chromaSubsampling: "4:4:4" })
+          .toBuffer();
+        embeddedImg = await imgDoc.embedJpg(normalizedJpeg);
+      } catch {
+        embeddedImg = isPng ? await imgDoc.embedJpg(sourceBuffer) : await imgDoc.embedPng(sourceBuffer);
+      }
+    }
     const isLandscape = embeddedImg.width > embeddedImg.height * 1.15;
     const pageWidth = isLandscape ? 841.89 : 595.28;
     const pageHeight = isLandscape ? 595.28 : 841.89;
@@ -167,7 +182,7 @@ export async function loadSourceAsPdfDocument(filePath: string): Promise<PDFDocu
       // non-fatal if path is read-only
     }
   }
-  return PDFDocument.load(sourceBuffer);
+  return PDFDocument.load(sourceBuffer, { ignoreEncryption: true });
 }
 
 export async function prepareAndPrintDocument(

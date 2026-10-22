@@ -1135,7 +1135,7 @@ export class AgentWebServer {
               if (!Array.isArray(item.jobs) || item.jobs.length === 0) {
                 item.jobs = [{ id: 'pending', status: 'queued', totalPages: item.totalPages }];
               } else {
-                item.jobs.forEach(function(j) { if (j.status !== 'completed') j.status = 'queued'; });
+                item.jobs.forEach(function(j) { j.status = 'queued'; });
               }
             }
           }

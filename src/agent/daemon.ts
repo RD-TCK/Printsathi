@@ -598,6 +598,9 @@ export class AgentDaemon {
       for (const j of batchJobs) {
         const jKey = `${j.id}:${j.duplexStep || "standard"}`;
         this.processedJobIds.add(jKey);
+        if (j.orderId) {
+          this.processedJobIds.add(`${j.orderId}:${j.id}:${j.duplexStep || "standard"}`);
+        }
       }
       if (this.processedJobIds.size > 500) {
         const firstKey = this.processedJobIds.values().next().value;

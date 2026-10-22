@@ -159,7 +159,11 @@ export async function GET(request: Request) {
       }
     }
 
-    const totalPages = o.total_pages || 0;
+    const rawDocuments = (Array.isArray(o.documents) ? o.documents : []).filter(
+      (d) => !d.original_filename?.toLowerCase().includes("combined"),
+    );
+    const rawDocsPageSum = rawDocuments.reduce((sum, d) => sum + Math.max(1, d.page_count || 1), 0);
+    const totalPages = rawDocsPageSum > 0 ? rawDocsPageSum : (o.total_pages || 0);
     let oddPagesCount = 0;
     let evenPagesCount = 0;
 
@@ -202,7 +206,7 @@ export async function GET(request: Request) {
       remainingSeconds,
       isExpired,
       createdAt: o.created_at,
-      documents: (Array.isArray(o.documents) ? o.documents : []).map((d) => ({
+      documents: rawDocuments.map((d) => ({
         id: d.id,
         filename: d.original_filename,
         pageCount: d.page_count,

@@ -2,7 +2,6 @@ import { NextResponse } from "next/server";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import { authenticateAgent } from "@/lib/agent/auth";
-import { combineOrderDocumentsForPrint } from "@/lib/order-document-combiner";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
@@ -55,7 +54,7 @@ export async function POST(request: Request) {
   // Fetch the order
   const { data: order, error: orderError } = await adminClient
     .from("orders")
-    .select("id, public_id, status, total_amount, token_number, expires_at, payment_mode, color_pages, created_at, customer_id")
+    .select("id, public_id, status, total_amount, token_number, total_pages, expires_at, payment_mode, color_pages, created_at, customer_id")
     .eq("id", orderId)
     .eq("shop_id", shopId)
     .maybeSingle();
@@ -172,42 +171,59 @@ export async function POST(request: Request) {
     .neq("order_id", order.id)
     .lt("updated_at", thirtyMinAgo);
 
-  // 3. For multi-picture / multi-document orders, combine all pages into EXACTLY ONE print job.
-  // This guarantees that SumatraPDF sends a single continuous multi-page print job to Windows Spooler,
-  // preventing motor spin-down or pauses between individual pictures.
-  if (!isEvenStep) {
-    const { data: orderDocs } = await adminClient
-      .from("documents")
-      .select("id, original_filename, page_count")
+  // 3. Clean up any legacy or duplicate combined documents/jobs for this order
+  const { data: legacyCombinedDocs } = await adminClient
+    .from("documents")
+    .select("id, storage_path")
+    .eq("order_id", order.id)
+    .ilike("original_filename", "%combined%");
+
+  if (legacyCombinedDocs && legacyCombinedDocs.length > 0) {
+    const legacyDocIds = legacyCombinedDocs.map((d) => d.id);
+    const { data: legacyJobs } = await adminClient
+      .from("print_jobs")
+      .select("id")
       .eq("order_id", order.id)
-      .eq("shop_id", shopId);
+      .in("document_id", legacyDocIds);
 
-    const nonCombinedDocs = (orderDocs || []).filter(
-      (d) => !d.original_filename?.toLowerCase().includes("combined"),
-    );
-
-    if (nonCombinedDocs.length > 1) {
-      await combineOrderDocumentsForPrint(adminClient, {
-        shopId,
-        orderId: order.id,
-        tokenNumber: order.token_number,
-        customerId: order.customer_id,
-        totalAmount: order.total_amount,
-        targetJobStatus: "queued",
-        duplexStep: targetDuplexStep,
-      });
+    if (legacyJobs && legacyJobs.length > 0) {
+      const legacyJobIds = legacyJobs.map((j) => j.id);
+      await adminClient.from("print_job_pages").delete().in("print_job_id", legacyJobIds);
+      await adminClient.from("print_jobs").delete().in("id", legacyJobIds);
+    }
+    await adminClient.from("documents").delete().in("id", legacyDocIds);
+    const pathsToRemove = legacyCombinedDocs.map((d) => d.storage_path).filter((p) => !p.startsWith("local://"));
+    if (pathsToRemove.length > 0) {
+      await adminClient.storage.from("print-documents").remove(pathsToRemove);
     }
   }
 
-  // 4. Update print jobs status to queued and update duplex_step
-  // For the even step: jobs coming from "print_submitted" (odd step done) need claim metadata cleared
-  // so the claim_next_print_job SQL can pick them up fresh.
+  // Fetch raw customer documents for this order
+  const { data: orderDocs } = await adminClient
+    .from("documents")
+    .select("id, original_filename, page_count")
+    .eq("order_id", order.id)
+    .eq("shop_id", shopId);
+
+  const rawDocs = (orderDocs || []).filter(
+    (d) => !d.original_filename?.toLowerCase().includes("combined"),
+  );
+
+  // Recalculate true order page count from raw documents
+  const totalRawPages = rawDocs.reduce((sum, d) => sum + Math.max(1, d.page_count || 1), 0);
+  if (totalRawPages > 0 && order.total_pages !== totalRawPages) {
+    await adminClient
+      .from("orders")
+      .update({ total_pages: totalRawPages, updated_at: new Date().toISOString() })
+      .eq("id", order.id);
+  }
+
+  // 4. Update existing print jobs to queued and clear claim metadata
   await adminClient
     .from("print_jobs")
     .update({
       status: targetJobStatus,
       duplex_step: targetDuplexStep,
-      // Clear stale claim metadata so the job is cleanly reclaimable
       claimed_by_agent_id: null,
       claim_expires_at: null,
       updated_at: new Date().toISOString(),
@@ -215,41 +231,24 @@ export async function POST(request: Request) {
     .eq("order_id", order.id)
     .eq("shop_id", shopId);
 
-  // 5. Fetch the jobs for response and self-heal if missing
+  // 5. Fetch the jobs for response and ensure every raw document has an active print job
   let { data: jobs } = await adminClient
     .from("print_jobs")
     .select("id, status, document_id, total_pages, duplex_step")
     .eq("order_id", order.id);
 
-  if (!jobs || jobs.length === 0) {
-    const { data: orderDocs } = await adminClient
-      .from("documents")
-      .select("id, original_filename, page_count")
-      .eq("order_id", order.id)
-      .eq("shop_id", shopId);
+  const existingDocJobSet = new Set((jobs || []).map((j) => j.document_id));
+  const missingDocs = rawDocs.filter((d) => !existingDocJobSet.has(d.id));
 
-    const nonCombinedDocs = (orderDocs || []).filter(
-      (d) => !d.original_filename?.toLowerCase().includes("combined"),
-    );
-
-    if (nonCombinedDocs.length > 1) {
-      await combineOrderDocumentsForPrint(adminClient, {
-        shopId,
-        orderId: order.id,
-        tokenNumber: order.token_number,
-        customerId: order.customer_id,
-        totalAmount: order.total_amount,
-        targetJobStatus: "queued",
-        duplexStep: targetDuplexStep,
-      });
-    } else if (orderDocs && orderDocs.length > 0) {
-      const doc = nonCombinedDocs[0] || orderDocs[0];
+  if (missingDocs.length > 0) {
+    for (const doc of missingDocs) {
       const jobId = crypto.randomUUID();
-      const pageCount = doc.page_count || 1;
+      const pageCount = Math.max(1, doc.page_count || 1);
       await adminClient.from("print_jobs").insert({
         id: jobId,
         order_id: order.id,
         shop_id: shopId,
+        customer_id: order.customer_id,
         document_id: doc.id,
         status: targetJobStatus,
         duplex_step: targetDuplexStep,

@@ -6,7 +6,6 @@ import { configurationSchema, validateRanges } from "@/lib/customer-print";
 import { calculatePricing, type PricingRule } from "@/lib/pricing-engine";
 import { assertShopCanPrice } from "@/lib/pricing-engine";
 import { hashGuestOrderToken } from "@/lib/guest-order";
-import { combineOrderDocumentsForPrint } from "@/lib/order-document-combiner";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
@@ -194,31 +193,9 @@ export async function POST(request: Request) {
   await client.from("print_jobs").delete().eq("order_id", orderId);
 
   let insertedJobCount = 0;
+  const allocatedDocIds = new Set<string>();
 
-  // Combine all pictures / documents for this token number into 1 single continuous print job!
-  if (parsed.data.configurations.length > 1 || (documents && documents.length > 1)) {
-    try {
-      const combinedRes = await combineOrderDocumentsForPrint(client, {
-        shopId: shop.id,
-        orderId,
-        tokenNumber,
-        customerId: order.customer_id,
-        totalAmount: pricing.total,
-        configurations: parsed.data.configurations,
-        targetJobStatus: "awaiting_payment",
-      });
-      if (combinedRes.success && combinedRes.combined) {
-        insertedJobCount = 1;
-      }
-    } catch (combineErr) {
-      console.warn("Failed to combine token documents, falling back to individual jobs:", combineErr);
-    }
-  }
-
-  if (insertedJobCount === 0) {
-    const allocatedDocIds = new Set<string>();
-
-    for (const configuration of parsed.data.configurations) {
+  for (const configuration of parsed.data.configurations) {
       let document = documentMap.get(configuration.documentId);
       // If exact ID not found (e.g. crop replaced the document ID right before token submit), match by unallocated order document
       if (!document && documents && documents.length > 0) {
@@ -271,7 +248,6 @@ export async function POST(request: Request) {
       );
       insertedJobCount++;
     }
-  }
 
   // Fallback safety: If 0 jobs were inserted but documents exist, create default jobs
   if (insertedJobCount === 0 && documents && documents.length > 0) {
