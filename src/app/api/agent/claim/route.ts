@@ -29,6 +29,22 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Database service not configured." }, { status: 503 });
   }
 
+  // Ensure the calling agent does not steal jobs if all its printers are offline
+  const { data: agentPrinters } = await adminClient
+    .from("printers")
+    .select("id, status, is_online")
+    .eq("shop_id", auth.shop.id)
+    .eq("desktop_agent_id", auth.agent.id);
+
+  if (agentPrinters && agentPrinters.length > 0) {
+    const hasOnlinePrinter = agentPrinters.some(
+      (p) => p.status === "online" || p.is_online === true,
+    );
+    if (!hasOnlinePrinter) {
+      return NextResponse.json({ success: true, job: null });
+    }
+  }
+
   // 1. Call atomic claim RPC
   const { data: claimedRows, error: claimError } = await adminClient.rpc("claim_next_print_job", {
     p_agent_id: auth.agent.id,
@@ -172,7 +188,7 @@ export async function POST(request: Request) {
       )
       .eq("order_id", claimed.order_id)
       .neq("id", claimed.job_id)
-      .in("status", ["queued", "paid", "awaiting_payment"])
+      .not("status", "in", '("completed","cancelled")')
       .order("created_at", { ascending: true });
 
     if (sibErr) {
@@ -224,6 +240,7 @@ export async function POST(request: Request) {
             claimed_at: new Date().toISOString(),
             claim_expires_at: new Date(Date.now() + leaseSeconds * 1000).toISOString(),
             print_attempts: 1,
+            failure_reason: null,
           })
           .in("id", validSiblingIds);
 

@@ -61,8 +61,19 @@ export async function GET(request: Request) {
     return NextResponse.json({ error: "Document does not match print job." }, { status: 400 });
   }
 
+  // If this print job belongs to this shop but was claimed by another agent or lease expired,
+  // adopt and renew the claim for this active agent so downloads and batch execution proceed seamlessly.
   if (job.claimed_by_agent_id !== auth.agent.id) {
-    return NextResponse.json({ error: "Print job is not claimed by this agent." }, { status: 403 });
+    await adminClient
+      .from("print_jobs")
+      .update({
+        claimed_by_agent_id: auth.agent.id,
+        claim_expires_at: new Date(Date.now() + 120000).toISOString(),
+        status: "claimed",
+        updated_at: new Date().toISOString(),
+      })
+      .eq("id", job.id)
+      .eq("shop_id", auth.shop.id);
   }
 
   // 2. Fetch document storage path

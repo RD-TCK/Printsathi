@@ -218,7 +218,7 @@ export async function POST(request: Request) {
       .eq("id", order.id);
   }
 
-  // 4. Update existing print jobs to queued and clear claim metadata
+  // 4. Update existing print jobs to queued and clear claim/failure metadata
   await adminClient
     .from("print_jobs")
     .update({
@@ -226,6 +226,8 @@ export async function POST(request: Request) {
       duplex_step: targetDuplexStep,
       claimed_by_agent_id: null,
       claim_expires_at: null,
+      print_attempts: 0,
+      failure_reason: null,
       updated_at: new Date().toISOString(),
     })
     .eq("order_id", order.id)

@@ -52,8 +52,10 @@ export class AgentWebServer {
     const isAllowedOrigin =
       !origin ||
       /^https?:\/\/(127\.0\.0\.1|localhost)(:\d+)?$/.test(origin) ||
-      // Exact host match: a substring test would also accept "printiva.co.in.attacker.example".
-      /^https:\/\/([a-z0-9-]+\.)?printiva\.co\.in$/.test(origin);
+      /^https:\/\/([a-z0-9-]+\.)?printiva\.co\.in$/.test(origin) ||
+      /^https:\/\/([a-z0-9-]+\.)?printsathi\.(com|in|co\.in)$/.test(origin) ||
+      /\.vercel\.app$/.test(origin) ||
+      (process.env.NEXT_PUBLIC_APP_URL && origin === process.env.NEXT_PUBLIC_APP_URL.replace(/\/+$/, ""));
     if (!isAllowedOrigin) {
       res.writeHead(403);
       res.end("Origin not allowed");

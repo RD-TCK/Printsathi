@@ -1,5 +1,19 @@
-import sharp from "sharp";
 import zlib from "node:zlib";
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+let sharpModule: any = undefined;
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function getSharp(): any {
+  if (sharpModule === undefined) {
+    try {
+      // eslint-disable-next-line @typescript-eslint/no-require-imports
+      sharpModule = require("sharp");
+    } catch {
+      sharpModule = null;
+    }
+  }
+  return sharpModule;
+}
 
 /**
  * Attempts to extract an embedded JPEG or PNG/Flate image from a PDF buffer.
@@ -7,6 +21,7 @@ import zlib from "node:zlib";
  */
 export async function extractImageFromPdf(pdfBuffer: Buffer): Promise<{ buffer: Buffer; mimeType: string } | null> {
   try {
+    const sharpFn = getSharp();
     // 1. Search for JPEG image stream: SOI marker 0xFF 0xD8 0xFF ... 0xFF 0xD9
     let searchStart = 0;
     while (searchStart < pdfBuffer.length) {
@@ -16,8 +31,11 @@ export async function extractImageFromPdf(pdfBuffer: Buffer): Promise<{ buffer: 
       if (eoi === -1) break;
       const candidate = pdfBuffer.subarray(soi, eoi + 2);
       if (candidate.length > 50) {
+        if (!sharpFn) {
+          return { buffer: candidate, mimeType: "image/jpeg" };
+        }
         try {
-          const meta = await sharp(candidate).metadata();
+          const meta = await sharpFn(candidate).metadata();
           if (meta.width && meta.height && meta.format === "jpeg") {
             return { buffer: candidate, mimeType: "image/jpeg" };
           }
@@ -38,8 +56,11 @@ export async function extractImageFromPdf(pdfBuffer: Buffer): Promise<{ buffer: 
       if (iend === -1) break;
       const candidate = pdfBuffer.subarray(pngStart, iend + 8);
       if (candidate.length > 50) {
+        if (!sharpFn) {
+          return { buffer: candidate, mimeType: "image/png" };
+        }
         try {
-          const meta = await sharp(candidate).metadata();
+          const meta = await sharpFn(candidate).metadata();
           if (meta.width && meta.height && meta.format === "png") {
             return { buffer: candidate, mimeType: "image/png" };
           }
@@ -78,8 +99,8 @@ export async function extractImageFromPdf(pdfBuffer: Buffer): Promise<{ buffer: 
         try {
           const inflated = zlib.inflateSync(streamBytes);
           const channels = isRGB ? 3 : isGray ? 1 : 3;
-          if (inflated.length >= width * height * channels) {
-            const converted = await sharp(inflated.subarray(0, width * height * channels), {
+          if (sharpFn && inflated.length >= width * height * channels) {
+            const converted = await sharpFn(inflated.subarray(0, width * height * channels), {
               raw: { width, height, channels },
             })
               .jpeg({ quality: 95 })

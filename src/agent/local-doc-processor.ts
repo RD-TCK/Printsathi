@@ -5,7 +5,20 @@ import crypto from "node:crypto";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { PDFDocument, StandardFonts, rgb, PDFFont, PDFPage } from "pdf-lib";
-import sharp from "sharp";
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+let sharpModule: any = undefined;
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function getSharp(): any {
+  if (sharpModule === undefined) {
+    try {
+      // eslint-disable-next-line @typescript-eslint/no-require-imports
+      sharpModule = require("sharp");
+    } catch {
+      sharpModule = null;
+    }
+  }
+  return sharpModule;
+}
 import mammoth from "mammoth";
 import { getDocumentCacheDirectory } from "./config";
 import { logger } from "./logger";
@@ -120,8 +133,9 @@ export async function processAndCacheDocument(
     // Try extracting page 1 thumbnail from PDF
     try {
       const extracted = await extractImageFromPdf(rawBuffer);
-      if (extracted?.buffer) {
-        previewBuffer = await sharp(extracted.buffer, { limitInputPixels: 268402689 })
+      const sharpFn = getSharp();
+      if (extracted?.buffer && sharpFn) {
+        previewBuffer = await sharpFn(extracted.buffer, { limitInputPixels: 268402689 })
           .rotate()
           .resize({ width: 640, height: 900, fit: "inside", withoutEnlargement: true })
           .jpeg({ quality: 75, mozjpeg: true })
@@ -131,27 +145,47 @@ export async function processAndCacheDocument(
       // ignore
     }
   } else if (isImage) {
-    // Normalize image: rotate EXIF, tone-map HDR/Display-P3 to sRGB, flatten transparency onto white
-    const baseSharp = sharp(rawBuffer, { limitInputPixels: 268402689 })
-      .rotate()
-      .toColorspace("srgb")
-      .flatten({ background: "white" });
+    const sharpFn = getSharp();
+    let processedJpeg: Buffer = rawBuffer;
+    let thumbBuf: Buffer | undefined = undefined;
 
-    // Generate high-quality JPEG for PDF embedding & compact thumbnail for mobile preview in parallel
-    const [processedJpeg, thumbBuf] = await Promise.all([
-      baseSharp.clone().jpeg({ quality: 95, chromaSubsampling: "4:4:4" }).toBuffer(),
-      baseSharp
-        .clone()
-        .resize({ width: 640, height: 900, fit: "inside", withoutEnlargement: true })
-        .jpeg({ quality: 75, mozjpeg: true })
-        .toBuffer(),
-    ]);
+    if (sharpFn) {
+      try {
+        const baseSharp = sharpFn(rawBuffer, { limitInputPixels: 268402689 })
+          .rotate()
+          .toColorspace("srgb")
+          .flatten({ background: "white" });
+
+        const [jpeg, thumb] = await Promise.all([
+          baseSharp.clone().jpeg({ quality: 95, chromaSubsampling: "4:4:4" }).toBuffer(),
+          baseSharp
+            .clone()
+            .resize({ width: 640, height: 900, fit: "inside", withoutEnlargement: true })
+            .jpeg({ quality: 75, mozjpeg: true })
+            .toBuffer(),
+        ]);
+        processedJpeg = jpeg;
+        thumbBuf = thumb;
+      } catch (err) {
+        logger.warn("Sharp image processing fallback:", { error: err });
+      }
+    }
 
     previewBuffer = thumbBuf;
 
     // Embed high-res image into standard A4 PDF sheet (auto-orient landscape vs portrait)
     const pdf = await PDFDocument.create();
-    const embeddedImage = await pdf.embedJpg(processedJpeg);
+    let embeddedImage;
+    const isPng = rawBuffer.subarray(0, 4).toString("hex") === "89504e47";
+    try {
+      embeddedImage = (isPng && !sharpFn) ? await pdf.embedPng(processedJpeg) : await pdf.embedJpg(processedJpeg);
+    } catch {
+      try {
+        embeddedImage = await pdf.embedJpg(processedJpeg);
+      } catch {
+        embeddedImage = await pdf.embedPng(processedJpeg);
+      }
+    }
 
     const isLandscape = embeddedImage.width > embeddedImage.height * 1.15;
     const pageWidth = isLandscape ? 841.89 : 595.28;
@@ -298,8 +332,9 @@ export async function processAndCacheDocument(
   if (!previewBuffer && finalPdfBuffer.length > 0) {
     try {
       const extracted = await extractImageFromPdf(finalPdfBuffer);
-      if (extracted?.buffer) {
-        previewBuffer = await sharp(extracted.buffer, { limitInputPixels: 268402689 })
+      const sharpFn = getSharp();
+      if (extracted?.buffer && sharpFn) {
+        previewBuffer = await sharpFn(extracted.buffer, { limitInputPixels: 268402689 })
           .rotate()
           .resize({ width: 640, height: 900, fit: "inside", withoutEnlargement: true })
           .jpeg({ quality: 75, mozjpeg: true })
@@ -923,13 +958,24 @@ async function renderDocxHtmlToPdf(html: string, filename: string): Promise<Buff
     } else if (block.type === "image" && block.imageBase64) {
       try {
         const imgBuffer = Buffer.from(block.imageBase64, "base64");
-        const pngBuffer = await sharp(imgBuffer, { limitInputPixels: 268402689 })
-          .rotate()
-          .flatten({ background: "white" })
-          .png()
-          .toBuffer();
+        const sharpFn = getSharp();
+        let pngBuffer: Buffer;
+        if (sharpFn) {
+          pngBuffer = await sharpFn(imgBuffer, { limitInputPixels: 268402689 })
+            .rotate()
+            .flatten({ background: "white" })
+            .png()
+            .toBuffer();
+        } else {
+          pngBuffer = imgBuffer;
+        }
 
-        const embeddedImage = await pdfDoc.embedPng(pngBuffer);
+        let embeddedImage;
+        try {
+          embeddedImage = await pdfDoc.embedPng(pngBuffer);
+        } catch {
+          embeddedImage = await pdfDoc.embedJpg(pngBuffer);
+        }
         const maxImgWidth = contentWidth;
         const maxImgHeight = 350;
         const scale = Math.min(maxImgWidth / embeddedImage.width, maxImgHeight / embeddedImage.height, 1);

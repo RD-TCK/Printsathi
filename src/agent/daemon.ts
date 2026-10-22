@@ -447,16 +447,15 @@ export class AgentDaemon {
     if (this.isRealtimeConnected) {
       // Realtime is connected and active:
       // WebSocket pushes immediately upon any new job.
-      // Background poll acts as a low-frequency heartbeat safety net.
-      if (this.idlePollCount === 1) return 3000;  // 3s grace cycle
-      if (this.idlePollCount === 2) return 8000;  // 8s
-      return 20000; // 20s steady-state idle heartbeat
+      // Fast fallback poll safety net (max 8s).
+      if (this.idlePollCount === 1) return 2000;
+      if (this.idlePollCount === 2) return 4000;
+      return 8000;
     } else {
-      // Realtime is offline / degraded network / no anon key:
-      // Fall back to periodic polling so jobs are never missed.
-      if (this.idlePollCount === 1) return 2000;  // 2s
-      if (this.idlePollCount === 2) return 4000;  // 4s
-      return 6000; // 6s max fallback
+      // Realtime is offline / degraded network / polling mode:
+      if (this.idlePollCount === 1) return 1500;
+      if (this.idlePollCount === 2) return 2500;
+      return 3500;
     }
   }
 
@@ -581,11 +580,8 @@ export class AgentDaemon {
       if (this.discoveredPrinters.length === 0) {
         await this.refreshPrinters();
       }
-      const defaultPrinter = findDefaultPrinter(this.discoveredPrinters, this.config.selectedPrinter, true);
-      if (!defaultPrinter) {
-        logger.warn(
-          "No physical printer detected by Windows Spooler. Please ensure a physical printer is installed in Windows Printers & Scanners.",
-        );
+      const defaultPrinter = findDefaultPrinter(this.discoveredPrinters, this.config.selectedPrinter, false);
+      if (!defaultPrinter || defaultPrinter.status === "offline") {
         return false;
       }
       const job = await this.client.claimNextJob(45); // 45 second fast-recovery lease
