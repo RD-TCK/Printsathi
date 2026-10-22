@@ -165,96 +165,119 @@ export async function POST(request: Request) {
   }> = [];
 
   if (claimed.order_id && effectiveDuplexStep !== "odd") {
-    const { data: rawSiblings } = await adminClient
+    const { data: rawSiblings, error: sibErr } = await adminClient
       .from("print_jobs")
-      .select(`
-        id, order_id, document_id, shop_id, status, total_pages, total_amount, currency,
-        print_attempts, max_attempts, duplex_step, duplex_printer_name,
-        documents ( id, storage_path, original_filename, mime_type, size_bytes, page_count ),
-        print_job_pages ( start_page, end_page, color_mode, paper_size, side_mode, copies )
-      `)
+      .select(
+        "id, order_id, document_id, shop_id, status, total_pages, total_amount, currency, print_attempts, max_attempts, duplex_step, duplex_printer_name",
+      )
       .eq("order_id", claimed.order_id)
       .neq("id", claimed.job_id)
-      .in("status", ["queued", "paid"])
+      .in("status", ["queued", "paid", "awaiting_payment"])
       .order("created_at", { ascending: true });
 
+    if (sibErr) {
+      console.error(`Failed to query sibling jobs for order ${claimed.order_id}:`, sibErr);
+    }
+
     if (rawSiblings && rawSiblings.length > 0) {
-      const siblingIds = rawSiblings.map((s) => s.id);
-      await adminClient
-        .from("print_jobs")
-        .update({
-          status: "claimed",
-          claimed_by_agent_id: auth.agent.id,
-          claimed_at: new Date().toISOString(),
-          claim_expires_at: new Date(Date.now() + leaseSeconds * 1000).toISOString(),
-          print_attempts: 1,
-        })
-        .in("id", siblingIds);
+      const siblingDocIds = Array.from(new Set(rawSiblings.map((s) => s.document_id).filter(Boolean)));
+      const { data: docs } = await adminClient
+        .from("documents")
+        .select("id, storage_path, original_filename, mime_type, size_bytes, page_count")
+        .in("id", siblingDocIds);
+      const docsMap = new Map((docs || []).map((d) => [d.id, d]));
 
-      for (let sIdx = 0; sIdx < rawSiblings.length; sIdx++) {
-        const s = rawSiblings[sIdx];
-        let sDoc = Array.isArray(s.documents) ? s.documents[0] : s.documents;
-        if (!sDoc && s.document_id) {
-          const { data: fallbackDoc } = await adminClient
-            .from("documents")
-            .select("id, storage_path, original_filename, mime_type, size_bytes, page_count")
-            .eq("id", s.document_id)
-            .maybeSingle();
-          if (fallbackDoc) sDoc = fallbackDoc;
-        }
+      const siblingJobIds = rawSiblings.map((s) => s.id);
+      const { data: allPages } = await adminClient
+        .from("print_job_pages")
+        .select("print_job_id, start_page, end_page, color_mode, paper_size, side_mode, copies")
+        .in("print_job_id", siblingJobIds)
+        .order("start_page", { ascending: true });
 
-        let sPages = Array.isArray(s.print_job_pages) ? s.print_job_pages : [];
-        if (!sPages.length) {
-          const { data: fallbackPages } = await adminClient
-            .from("print_job_pages")
-            .select("start_page, end_page, color_mode, paper_size, side_mode, copies")
-            .eq("print_job_id", s.id)
-            .order("start_page", { ascending: true });
-          if (fallbackPages && fallbackPages.length > 0) sPages = fallbackPages;
-        }
-
-        if (!sDoc || !sPages.length) continue;
-
-        const sResolvedPages = sPages.map((p: {
+      const pagesMap = new Map<
+        string,
+        Array<{
           start_page: number;
           end_page: number;
           color_mode?: string;
           paper_size?: string;
           side_mode?: string;
           copies?: number;
-        }) => ({
-          startPage: Math.max(1, p.start_page),
-          endPage: Math.max(Math.max(1, p.start_page), p.end_page),
-          colorMode: (p.color_mode || "black_and_white") as "color" | "black_and_white",
-          paperSize: (p.paper_size || "a4") as "a4" | "a3",
-          sideMode: (p.side_mode || "single_sided") as "single_sided" | "double_sided",
-          copies: Math.max(1, p.copies ?? 1),
-        }));
+        }>
+      >();
+      for (const p of allPages || []) {
+        const list = pagesMap.get(p.print_job_id) || [];
+        list.push(p);
+        pagesMap.set(p.print_job_id, list);
+      }
 
-        siblingJobs.push({
-          id: s.id,
-          orderId: s.order_id,
-          documentId: s.document_id,
-          shopId: s.shop_id,
-          totalPages: s.total_pages,
-          totalAmount: Number(s.total_amount),
-          currency: s.currency,
-          printAttempts: s.print_attempts,
-          maxAttempts: s.max_attempts,
-          defaultPrinter: defaultPrinter?.name || null,
-          requiredPrinterName,
-          duplexStep: s.duplex_step || "none",
-          document: {
-            id: sDoc.id,
-            storagePath: sDoc.storage_path,
-            originalFilename: sDoc.original_filename,
-            mimeType: sDoc.mime_type,
-            sizeBytes: Number(sDoc.size_bytes),
-            pageCount: sDoc.page_count,
-          },
-          pagesConfig: sResolvedPages,
-          isLastJobForOrder: sIdx === rawSiblings.length - 1,
-        });
+      // Filter to siblings that have an existing document record
+      const validSiblings = rawSiblings.filter((s) => docsMap.has(s.document_id));
+      const validSiblingIds = validSiblings.map((s) => s.id);
+
+      if (validSiblingIds.length > 0) {
+        await adminClient
+          .from("print_jobs")
+          .update({
+            status: "claimed",
+            claimed_by_agent_id: auth.agent.id,
+            claimed_at: new Date().toISOString(),
+            claim_expires_at: new Date(Date.now() + leaseSeconds * 1000).toISOString(),
+            print_attempts: 1,
+          })
+          .in("id", validSiblingIds);
+
+        for (let sIdx = 0; sIdx < validSiblings.length; sIdx++) {
+          const s = validSiblings[sIdx];
+          const sDoc = docsMap.get(s.document_id)!;
+          let sPages = pagesMap.get(s.id) || [];
+          if (!sPages.length) {
+            sPages = [
+              {
+                start_page: 1,
+                end_page: Math.max(1, sDoc.page_count || s.total_pages || 1),
+                color_mode: "black_and_white",
+                paper_size: "a4",
+                side_mode: "single_sided",
+                copies: 1,
+              },
+            ];
+          }
+
+          const sResolvedPages = sPages.map((p) => ({
+            startPage: Math.max(1, p.start_page),
+            endPage: Math.max(Math.max(1, p.start_page), p.end_page),
+            colorMode: (p.color_mode || "black_and_white") as "color" | "black_and_white",
+            paperSize: (p.paper_size || "a4") as "a4" | "a3",
+            sideMode: (p.side_mode || "single_sided") as "single_sided" | "double_sided",
+            copies: Math.max(1, p.copies ?? 1),
+          }));
+
+          siblingJobs.push({
+            id: s.id,
+            orderId: s.order_id,
+            documentId: s.document_id,
+            shopId: s.shop_id,
+            totalPages: s.total_pages,
+            totalAmount: Number(s.total_amount),
+            currency: s.currency,
+            printAttempts: s.print_attempts,
+            maxAttempts: s.max_attempts,
+            defaultPrinter: defaultPrinter?.name || null,
+            requiredPrinterName,
+            duplexStep: s.duplex_step || "none",
+            document: {
+              id: sDoc.id,
+              storagePath: sDoc.storage_path,
+              originalFilename: sDoc.original_filename,
+              mimeType: sDoc.mime_type,
+              sizeBytes: Number(sDoc.size_bytes),
+              pageCount: sDoc.page_count,
+            },
+            pagesConfig: sResolvedPages,
+            isLastJobForOrder: sIdx === validSiblings.length - 1,
+          });
+        }
       }
     }
   }

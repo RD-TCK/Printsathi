@@ -775,9 +775,9 @@ export class WhatsAppAgentService {
 
       const mimetype = documentMsg?.mimetype || imageMsg?.mimetype || "application/octet-stream";
 
-      // 2. Queue into sender batch with debounce window (1.5s) to bundle multiple images/PDFs into ONE order
-      const DEBOUNCE_MS = 1500;
-      const MAX_BATCH_WAIT_MS = 25000;
+      // 2. Queue into sender batch with debounce window (3.0s) to bundle multiple images/PDFs into ONE order
+      const DEBOUNCE_MS = 3000;
+      const MAX_BATCH_WAIT_MS = 30000;
       const existingBatch = this.pendingBatches.get(remoteJid) || this.retryBatches.get(remoteJid);
       const now = Date.now();
 

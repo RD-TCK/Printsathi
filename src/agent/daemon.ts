@@ -567,9 +567,14 @@ export class AgentDaemon {
         (p) => isPhysicalPrinter(p) && p.capabilities?.colorSupport === true,
       );
 
+      const anyJobInBatchRequiresColor = batchJobs.some((b) =>
+        (b.pagesConfig || []).some((c) => c.colorMode === "color"),
+      );
+
       const plan = groups.map((ranges) => {
+        const reqColor = anyJobInBatchRequiresColor || ranges[0].colorMode === "color";
         const printer = findBestPrinterForJob(this.discoveredPrinters, {
-          colorMode: hasColorPrinterInShop ? ranges[0].colorMode : "black_and_white",
+          colorMode: hasColorPrinterInShop && reqColor ? "color" : "black_and_white",
           paperSize: ranges[0].paperSize,
           preferredName: this.config.selectedPrinter || job.defaultPrinter,
           requiredPrinterName: isDuplexEvenStep ? reservedPrinterForJob : null,
