@@ -39,7 +39,12 @@ export class AgentDaemon {
   private processedJobIds: Set<string> = new Set();
 
   private heartbeatTimer: NodeJS.Timeout | null = null;
-  private pollTimer: NodeJS.Timeout | null = null;
+  private pollTimeout: NodeJS.Timeout | null = null;
+  private isRealtimeConnected: boolean = false;
+  private idlePollCount: number = 0;
+  private hasPendingWakeup: boolean = false;
+  private isPollRunning: boolean = false;
+  private lastPollTimestamp: number = 0;
 
   private stats = {
     jobsProcessed: 0,
@@ -110,7 +115,11 @@ export class AgentDaemon {
     this.instanceLock = null;
     if (this.discoveryTimer) clearInterval(this.discoveryTimer);
     if (this.heartbeatTimer) clearInterval(this.heartbeatTimer);
-    if (this.pollTimer) clearInterval(this.pollTimer);
+    if (this.pollTimeout) {
+      clearTimeout(this.pollTimeout);
+      this.pollTimeout = null;
+    }
+    this.isRealtimeConnected = false;
     if (this.jobsChannel && this.supabaseClient) {
       void this.supabaseClient.removeChannel(this.jobsChannel);
       this.jobsChannel = null;
@@ -338,7 +347,7 @@ export class AgentDaemon {
       this.isConnected = true;
       logger.debug("Heartbeat acknowledged by server.", { timestamp: result.timestamp });
 
-      if (!this.supabaseClient) {
+      if (!this.supabaseClient || !this.isRealtimeConnected || !this.jobsChannel) {
         void this.setupRealtimeSubscription();
       }
     } catch (error) {
@@ -355,6 +364,7 @@ export class AgentDaemon {
       this.heartbeatBusy = false;
     }
   }
+
   private async setupRealtimeSubscription() {
     if (!this.isRunning || !isConfigPaired(this.config) || !this.isConnected) return;
     
@@ -372,6 +382,7 @@ export class AgentDaemon {
 
       if (this.jobsChannel) {
         await this.supabaseClient.removeChannel(this.jobsChannel);
+        this.jobsChannel = null;
       }
 
       logger.info(`Subscribing to realtime job events for shop ${this.config.shopId}`);
@@ -380,7 +391,7 @@ export class AgentDaemon {
           'postgres_changes',
           { event: 'INSERT', schema: 'public', table: 'print_jobs', filter: `shop_id=eq.${this.config.shopId}` },
           () => {
-             logger.info("Realtime event received: new print job");
+             logger.info("⚡ Realtime event: new print job created. Waking up agent immediately...");
              void this.triggerPoll();
           }
         )
@@ -388,33 +399,115 @@ export class AgentDaemon {
           'postgres_changes',
           { event: 'UPDATE', schema: 'public', table: 'print_jobs', filter: `shop_id=eq.${this.config.shopId}` },
           (payload) => {
-             if (payload.new && (payload.new.status === 'queued' || payload.new.status === 'pending')) {
-                 logger.info(`Realtime event received: print job updated to ${payload.new.status}`);
+             if (payload.new && (payload.new.status === 'queued' || payload.new.status === 'pending' || payload.new.status === 'paid')) {
+                 logger.info(`⚡ Realtime event: print job status updated to "${payload.new.status}". Waking up agent immediately...`);
                  void this.triggerPoll();
              }
           }
         )
         .subscribe((status) => {
            if (status === 'SUBSCRIBED') {
-             logger.debug("Realtime subscription active.");
-           } else if (status === 'CHANNEL_ERROR') {
-             logger.warn("Realtime subscription error.");
+             this.isRealtimeConnected = true;
+             logger.info("Supabase Realtime subscription active for print jobs. Adaptive polling sleeping (fallback: 20s).");
+           } else if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT' || status === 'CLOSED') {
+             this.isRealtimeConnected = false;
+             logger.warn(`Supabase Realtime subscription status: ${status}. Active polling safety net engaged.`);
+             void this.triggerPoll();
            }
         });
 
     } catch (err) {
+      this.isRealtimeConnected = false;
       logger.error("Failed to setup realtime subscription:", { error: err instanceof Error ? err.message : String(err) });
     }
   }
 
-  private startJobPollingLoop(): void {
-    const runPoll = async () => {
-      if (!this.isRunning || !isConfigPaired(this.config) || !this.isConnected || this.isProcessingJob) return;
-      await this.pollAndProcessNextJob();
-    };
+  private getNextPollDelay(): number {
+    if (this.isProcessingJob || this.hasPendingWakeup) {
+      return 1000;
+    }
+    if (this.idlePollCount === 0) {
+      return 1000;
+    }
+    if (this.isRealtimeConnected) {
+      // Realtime is connected and active:
+      // WebSocket pushes immediately upon any new job.
+      // Background poll acts as a low-frequency heartbeat safety net.
+      if (this.idlePollCount === 1) return 3000;  // 3s grace cycle
+      if (this.idlePollCount === 2) return 8000;  // 8s
+      return 20000; // 20s steady-state idle heartbeat
+    } else {
+      // Realtime is offline / degraded network / no anon key:
+      // Fall back to periodic polling so jobs are never missed.
+      if (this.idlePollCount === 1) return 2000;  // 2s
+      if (this.idlePollCount === 2) return 4000;  // 4s
+      return 6000; // 6s max fallback
+    }
+  }
 
-    void runPoll();
-    this.pollTimer = setInterval(runPoll, this.config.pollIntervalMs);
+  private scheduleNextPoll(overrideDelayMs?: number): void {
+    if (this.pollTimeout) {
+      clearTimeout(this.pollTimeout);
+      this.pollTimeout = null;
+    }
+    if (!this.isRunning || !isConfigPaired(this.config) || !this.isConnected) return;
+
+    const delay = overrideDelayMs !== undefined ? overrideDelayMs : this.getNextPollDelay();
+    this.pollTimeout = setTimeout(() => {
+      void this.runAdaptivePollCycle();
+    }, delay);
+  }
+
+  private startJobPollingLoop(): void {
+    if (this.pollTimeout) {
+      clearTimeout(this.pollTimeout);
+      this.pollTimeout = null;
+    }
+    this.idlePollCount = 0;
+    this.scheduleNextPoll(0);
+  }
+
+  private async runAdaptivePollCycle(): Promise<void> {
+    if (!this.isRunning || !isConfigPaired(this.config) || !this.isConnected) return;
+    if (this.isProcessingJob || this.isPollRunning) {
+      this.hasPendingWakeup = true;
+      return;
+    }
+
+    const now = Date.now();
+    if (this.lastPollTimestamp && now - this.lastPollTimestamp > 40000) {
+      logger.info("System wake-from-sleep or network gap detected. Re-syncing printers and checking queue...");
+      void this.refreshPrinters();
+      if (!this.isRealtimeConnected) {
+        void this.setupRealtimeSubscription();
+      }
+    }
+    this.lastPollTimestamp = now;
+
+    this.isPollRunning = true;
+    let didProcessJob = false;
+
+    try {
+      didProcessJob = await this.pollAndProcessNextJob();
+    } catch (err) {
+      logger.warn("Error during adaptive poll cycle:", {
+        error: err instanceof Error ? err.message : String(err),
+      });
+    } finally {
+      this.isPollRunning = false;
+      if (didProcessJob) {
+        this.idlePollCount = 0;
+      } else {
+        this.idlePollCount++;
+      }
+
+      if (this.hasPendingWakeup) {
+        this.hasPendingWakeup = false;
+        this.scheduleNextPoll(0);
+      } else {
+        this.scheduleNextPoll();
+      }
+    }
   }
 
   private async resolveJobDocumentPath(job: ClaimedJob): Promise<{ filePath: string; isLocalCacheHit: boolean }> {
@@ -465,7 +558,7 @@ export class AgentDaemon {
     return { filePath: printFilePath, isLocalCacheHit };
   }
 
-  private async pollAndProcessNextJob(): Promise<void> {
+  private async pollAndProcessNextJob(): Promise<boolean> {
     this.isProcessingJob = true;
     try {
       if (this.discoveredPrinters.length === 0) {
@@ -476,11 +569,11 @@ export class AgentDaemon {
         logger.warn(
           "No physical printer detected by Windows Spooler. Please ensure a physical printer is installed in Windows Printers & Scanners.",
         );
-        return;
+        return false;
       }
       const job = await this.client.claimNextJob(45); // 45 second fast-recovery lease
       if (!job) {
-        return;
+        return false;
       }
 
       const jobKey = `${job.id}:${job.duplexStep || "standard"}`;
@@ -608,7 +701,7 @@ export class AgentDaemon {
         await this.client.reportFailure(job.id, reason, true);
         this.stats.jobsFailed += 1;
         this.currentJob = null;
-        return;
+        return false;
       }
 
       // Allow B&W jobs to print on color printer when needed
@@ -689,7 +782,7 @@ export class AgentDaemon {
           logger.info(
             `✅ Order #${job.orderId.slice(0, 8)}: Continuous batch of ${batchJobs.length} documents (${batchResult.pagesSubmitted} pages) physically printed successfully.`,
           );
-          return;
+          return true;
         } catch (batchErr) {
           const errorMsg = batchErr instanceof Error ? batchErr.message : "Batch print execution error";
           logger.error(`Continuous batch print failed for Order #${job.orderId.slice(0, 8)}: ${errorMsg}`);
@@ -700,7 +793,7 @@ export class AgentDaemon {
             await this.client.reportFailure(bJob.id, errorMsg.slice(0, 500), !batchSubmissionStarted);
           }
           this.stats.jobsFailed += batchJobs.length;
-          return;
+          return false;
         } finally {
           for (const part of plan) {
             if (part.printer) {
@@ -812,6 +905,7 @@ export class AgentDaemon {
         this.stats.jobsSubmitted += 1;
         this.stats.totalPagesSubmitted += pagesSubmitted;
         logger.info(`Job #${job.id.slice(0, 8)} successfully submitted and physically printed.`);
+        return true;
       } catch (printErr) {
         const errorMsg = printErr instanceof Error ? printErr.message : "Print execution error";
         logger.error(`Print execution failed for Job #${job.id.slice(0, 8)}: ${errorMsg}`);
@@ -821,6 +915,7 @@ export class AgentDaemon {
         }
         await this.client.reportFailure(job.id, errorMsg.slice(0, 500), !submissionStarted);
         this.stats.jobsFailed += 1;
+        return false;
       } finally {
         // Unmark active printing status
         for (const part of plan) {
@@ -851,10 +946,12 @@ export class AgentDaemon {
           error: error instanceof Error ? error.message : String(error),
         });
       }
+      return false;
     } finally {
       this.currentJob = null;
       this.isProcessingJob = false;
     }
+    return false;
   }
 
   getStatus(): AgentStatusSnapshot {
@@ -866,6 +963,7 @@ export class AgentDaemon {
       serverUrl: this.config.serverUrl,
       isPaired: isConfigPaired(this.config),
       isConnected: this.isConnected,
+      isRealtimeActive: this.isRealtimeConnected,
       lastHeartbeat: this.lastHeartbeatTime,
       version: this.config.version,
       printers: this.discoveredPrinters,
@@ -877,8 +975,13 @@ export class AgentDaemon {
   }
 
   async triggerPoll(): Promise<void> {
-    if (!this.isRunning || !isConfigPaired(this.config) || !this.isConnected || this.isProcessingJob) return;
-    await this.pollAndProcessNextJob();
+    if (!this.isRunning || !isConfigPaired(this.config) || !this.isConnected) return;
+    this.idlePollCount = 0;
+    if (this.isProcessingJob || this.isPollRunning) {
+      this.hasPendingWakeup = true;
+      return;
+    }
+    this.scheduleNextPoll(0);
   }
 
   async getCounterQueue() {

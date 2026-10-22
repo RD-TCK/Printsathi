@@ -81,6 +81,7 @@ export interface AgentStatusSnapshot {
   serverUrl: string;
   isPaired: boolean;
   isConnected: boolean;
+  isRealtimeActive?: boolean;
   lastHeartbeat: string | null;
   version: string;
   printers: DiscoveredPrinter[];
