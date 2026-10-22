@@ -1246,18 +1246,18 @@ export class AgentWebServer {
       }
 
       list.innerHTML = errorNoticeHtml + items.map(function(item) {
+        var isDouble = item.sideMode === "double_sided";
         var isCompleted = item.status === "completed" || (Array.isArray(item.jobs) && item.jobs.length > 0 && item.jobs.every(function(j) { return j.status === 'completed'; }));
-        var isPrinting = !isCompleted && item.status === "paid" && Array.isArray(item.jobs) && item.jobs.some(function(j) { return j.status === 'print_submitted'; });
-        var isProcessing = !isCompleted && !isPrinting && (item.status === "paid" || (Array.isArray(item.jobs) && item.jobs.some(function(j) { return j.status === 'queued' || j.status === 'claimed'; })));
+        var isPrinting = !isCompleted && (item.status === "paid" || item.status === "printing" || item.status === "partially_printed") && Array.isArray(item.jobs) && item.jobs.some(function(j) { return j.status === 'print_submitted'; });
+        var isProcessing = !isCompleted && !isPrinting && (item.status === "paid" || item.status === "printing" || (Array.isArray(item.jobs) && item.jobs.some(function(j) { return j.status === 'queued' || j.status === 'claimed'; })));
         var isCancelled = item.status === "cancelled";
         var isPartiallyPrinted = item.status === "partially_printed";
-        var isOddDone = item.status === "partially_printed" || item.duplexStep === "odd_printed" || item.duplexStep === "even";
+        var isOddDone = isDouble && (item.status === "partially_printed" || item.duplexStep === "odd_printed" || item.duplexStep === "even");
         var isExpired = !isCompleted && !isPrinting && !isProcessing && !isCancelled && !isPartiallyPrinted && (item.isExpired || item.status === "expired" || (typeof item.remainingSeconds === "number" && item.remainingSeconds <= 0) || (item.expiresAt && new Date(item.expiresAt).getTime() <= Date.now()));
         var totalSecs = Math.max(0, item.remainingSeconds || 0);
         var minutesLeft = Math.floor(totalSecs / 60);
         var secondsLeft = totalSecs % 60;
         var validText = minutesLeft > 0 ? (minutesLeft + "m valid") : (secondsLeft + "s valid");
-        var isDouble = item.sideMode === "double_sided";
         var docNames = (item.documents || []).map(function(d) { return escapeHtml(d.filename); }).join(", ");
         var tokenLabel = item.tokenNumber ? ("#" + item.tokenNumber) : ("#" + (item.publicId || '').slice(0, 4));
 
@@ -1271,6 +1271,8 @@ export class AgentWebServer {
           ? "Processing..."
           : isOddDone
           ? "Front Side Printed — Reload Tray for Back Side"
+          : (!isDouble && isPartiallyPrinted)
+          ? "Partially Printed"
           : isExpired
           ? "Expired (1 hr)"
           : validText;
@@ -1284,6 +1286,8 @@ export class AgentWebServer {
           : isProcessing
           ? "#2563eb"
           : isOddDone
+          ? "#d97706"
+          : (!isDouble && isPartiallyPrinted)
           ? "#d97706"
           : isExpired
           ? "#dc2626"
@@ -1299,6 +1303,8 @@ export class AgentWebServer {
           ? "#bfdbfe"
           : isOddDone
           ? "#fde68a"
+          : (!isDouble && isPartiallyPrinted)
+          ? "#fde68a"
           : isExpired
           ? "#e2e8f0"
           : "#fde68a";
@@ -1313,6 +1319,8 @@ export class AgentWebServer {
           ? "#eff6ff"
           : isOddDone
           ? "#fffbeb"
+          : (!isDouble && isPartiallyPrinted)
+          ? "#fffbeb"
           : isExpired
           ? "#f8fafc"
           : "#fffbeb";
@@ -1326,6 +1334,8 @@ export class AgentWebServer {
           : isProcessing
           ? "#1d4ed8"
           : isOddDone
+          ? "#b45309"
+          : (!isDouble && isPartiallyPrinted)
           ? "#b45309"
           : isExpired
           ? "#64748b"
@@ -1376,6 +1386,13 @@ export class AgentWebServer {
               ')">Cancel</button>'
             ].join("");
           }
+        } else if (!isDouble && isPartiallyPrinted) {
+          actionHtml = [
+            '<span style="font-size:12px; font-weight:700; color:#b45309; background:#fffbeb; border:1px solid #fde68a; padding:6px 10px; border-radius:8px;">⚠️ Partially Printed</span>',
+            '<button type="button" class="btn-secondary" style="font-size:11px; padding:6px 10px; cursor:pointer;" onclick="approveCounterOrder(',
+            "'", item.id, "', 'all', this",
+            ')" title="Re-dispatch all pages">🖨️ Re-Print</button>'
+          ].join("");
         } else if (!isCancelled && !isExpired) {
           actionHtml = [
             '<button type="button" class="btn-primary" style="width:auto; padding:7px 14px; font-size:12px;" onclick="approveCounterOrder(',

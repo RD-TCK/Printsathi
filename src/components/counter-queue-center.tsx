@@ -281,7 +281,7 @@ export function CounterQueueCenter({ shopName }: { shopName: string }) {
 
   // Filter active pending orders that need immediate attention and are not dismissed
   const activePendingOrders = queue.filter(
-    (item) => (item.status === "awaiting_payment" || item.status === "partially_printed") && !isItemExpired(item),
+    (item) => (item.status === "awaiting_payment" || (item.sideMode === "double_sided" && item.status === "partially_printed")) && !isItemExpired(item),
   );
   const popupOrders = activePendingOrders.filter((item) => !dismissedPopups.has(item.id));
 
@@ -311,7 +311,7 @@ export function CounterQueueCenter({ shopName }: { shopName: string }) {
             const timeLabel = minutesLeft > 0 ? `${minutesLeft}m` : `${secondsLeft}s`;
             const isDouble = item.sideMode === "double_sided";
             // isOddDone: front side has been physically printed and job is awaiting back-side print
-            const isOddDone = item.duplexStep === "odd_printed" || item.status === "partially_printed";
+            const isOddDone = isDouble && (item.duplexStep === "odd_printed" || item.status === "partially_printed");
             const totalSheets = isDouble ? Math.ceil(item.totalPages / 2) : item.totalPages;
 
             return (
@@ -561,20 +561,27 @@ export function CounterQueueCenter({ shopName }: { shopName: string }) {
                     item.jobs.length > 0 &&
                     item.jobs.every((j) => j.status === "completed"));
                 const isPrinting =
-                  item.status === "paid" &&
+                  !isCompleted &&
+                  (item.status === "paid" || item.status === "printing" || item.status === "partially_printed") &&
                   Array.isArray(item.jobs) &&
                   item.jobs.some((j) => j.status === "print_submitted");
                 const isProcessing =
-                  (item.status === "paid" || item.status === "awaiting_payment") &&
+                  !isCompleted &&
+                  !isPrinting &&
+                  (item.status === "paid" ||
+                    item.status === "printing" ||
+                    (!item.sideMode?.includes("double") && item.status === "partially_printed") ||
+                    item.status === "awaiting_payment") &&
                   (actionLoading?.startsWith(item.id) ||
                     (Array.isArray(item.jobs) &&
                       item.jobs.some((j) => j.status === "queued" || j.status === "claimed")));
                 const isPaid = isCompleted;
                 const isCancelled = item.status === "cancelled";
-                const isExpired = !isCompleted && !isPrinting && !isProcessing && item.status !== "paid" && !isCancelled && isItemExpired(item);
+                const isPartiallyPrinted = item.status === "partially_printed";
                 const isDouble = item.sideMode === "double_sided";
+                const isExpired = !isCompleted && !isPrinting && !isProcessing && !isPartiallyPrinted && item.status !== "paid" && !isCancelled && isItemExpired(item);
                 // isOddDone: front side has been physically printed and job is awaiting back-side print
-                const isOddDone = item.duplexStep === "odd_printed" || item.status === "partially_printed";
+                const isOddDone = isDouble && (item.duplexStep === "odd_printed" || item.status === "partially_printed");
                 const totalSheets = isDouble ? Math.ceil(item.totalPages / 2) : item.totalPages;
                 const oddPages = item.oddPagesCount ?? Math.ceil(item.totalPages / 2);
                 const evenPages = item.evenPagesCount ?? Math.floor(item.totalPages / 2);
@@ -703,7 +710,7 @@ export function CounterQueueCenter({ shopName }: { shopName: string }) {
 
                       {/* Right: Actions inside Token Bar */}
                       <div className="flex flex-wrap items-center gap-2 shrink-0">
-                        {!isPaid && !isProcessing && !isPrinting && item.status !== "paid" && !isCancelled && !isExpired ? (
+                        {!isPaid && !isProcessing && !isPrinting && item.status !== "paid" && !isCancelled && !isExpired && (isDouble || !isPartiallyPrinted) ? (
                           <>
                             {isDouble ? (
                               !isOddDone ? (
@@ -769,6 +776,21 @@ export function CounterQueueCenter({ shopName }: { shopName: string }) {
                               <span>Cancel</span>
                             </button>
                           </>
+                        ) : !isDouble && isPartiallyPrinted && !isProcessing && !isPrinting ? (
+                          <div className="flex flex-wrap items-center gap-2">
+                            <span className="inline-flex items-center gap-1 rounded-lg bg-amber-50 border border-amber-200 px-2.5 py-1 text-[11px] font-bold text-amber-800 shadow-2xs">
+                              ⚠️ Partially Printed
+                            </span>
+                            <button
+                              type="button"
+                              disabled={actionLoading === `${item.id}-all`}
+                              className="inline-flex items-center justify-center gap-1.5 whitespace-nowrap rounded-lg bg-gradient-to-b from-slate-100 via-slate-200 to-slate-300 px-3 py-1.5 text-xs font-bold text-slate-800 border border-slate-300 shadow-[0_2px_0_0_#94a3b8] hover:from-slate-50 hover:to-slate-200 active:translate-y-[1px] active:shadow-none transition-all cursor-pointer select-none"
+                              onClick={() => handleApprovePrint(item.id, "all")}
+                            >
+                              <Printer className="size-3.5 shrink-0" />
+                              <span>Re-Print</span>
+                            </button>
+                          </div>
                         ) : isCompleted ? (
                           <div className="flex flex-wrap items-center gap-2">
                             <span className="inline-flex items-center gap-1 rounded-lg bg-emerald-50 border border-emerald-200 px-2.5 py-1 text-[11px] font-bold text-emerald-800 shadow-2xs">

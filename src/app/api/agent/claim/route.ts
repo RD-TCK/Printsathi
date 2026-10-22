@@ -193,8 +193,26 @@ export async function POST(request: Request) {
 
       for (let sIdx = 0; sIdx < rawSiblings.length; sIdx++) {
         const s = rawSiblings[sIdx];
-        const sDoc = Array.isArray(s.documents) ? s.documents[0] : s.documents;
-        const sPages = Array.isArray(s.print_job_pages) ? s.print_job_pages : [];
+        let sDoc = Array.isArray(s.documents) ? s.documents[0] : s.documents;
+        if (!sDoc && s.document_id) {
+          const { data: fallbackDoc } = await adminClient
+            .from("documents")
+            .select("id, storage_path, original_filename, mime_type, size_bytes, page_count")
+            .eq("id", s.document_id)
+            .maybeSingle();
+          if (fallbackDoc) sDoc = fallbackDoc;
+        }
+
+        let sPages = Array.isArray(s.print_job_pages) ? s.print_job_pages : [];
+        if (!sPages.length) {
+          const { data: fallbackPages } = await adminClient
+            .from("print_job_pages")
+            .select("start_page, end_page, color_mode, paper_size, side_mode, copies")
+            .eq("print_job_id", s.id)
+            .order("start_page", { ascending: true });
+          if (fallbackPages && fallbackPages.length > 0) sPages = fallbackPages;
+        }
+
         if (!sDoc || !sPages.length) continue;
 
         const sResolvedPages = sPages.map((p: {

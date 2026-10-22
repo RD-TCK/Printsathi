@@ -362,4 +362,95 @@ describe("agent dashboard status", () => {
     expect(listHtml).toContain("✅ Printed");
     expect(listHtml).toContain("Re-Print");
   });
+
+  it("handles single-sided partially_printed orders without showing Print & Approve or duplex prompt", async () => {
+    const server = new AgentWebServer();
+    const html = (server as unknown as { getDashboardHtml(): string }).getDashboardHtml();
+    const script = html.match(/<script>([\s\S]*?)<\/script>/)?.[1];
+    expect(script).toBeTruthy();
+
+    const elements = new Map<string, Record<string, unknown>>();
+    elements.set("counterQueueCard", { style: { display: "block" } });
+    elements.set("counterQueueBadge", { innerText: "", style: {} });
+    elements.set("counterQueueList", { innerHTML: "" });
+    elements.set("agentTokenSearchInput", { value: "" });
+
+    const queueData = {
+      queue: [
+        {
+          id: "order-single-partial",
+          tokenNumber: 3,
+          status: "partially_printed",
+          sideMode: "single_sided",
+          totalAmount: 10,
+          totalPages: 2,
+          blackAndWhitePages: 2,
+          colorPages: 0,
+          remainingSeconds: 3500,
+          isExpired: false,
+          documents: [{ filename: "photo_1.jpg" }, { filename: "photo_2.jpg" }],
+          jobs: [
+            { id: "job-1", status: "completed", totalPages: 1 },
+            { id: "job-2", status: "queued", totalPages: 1 },
+          ],
+        },
+      ],
+    };
+
+    const context = vm.createContext({
+      document: {
+        getElementById: (id: string) => {
+          if (!elements.has(id)) elements.set(id, {});
+          return elements.get(id);
+        },
+      },
+      fetch: async (url: string) => {
+        if (url === "/api/counter-queue") {
+          return { ok: true, json: async () => structuredClone(queueData) };
+        }
+        if (url === "/api/status") {
+          return {
+            ok: true,
+            json: async () => ({
+              isPaired: true,
+              isConnected: true,
+              printers: [],
+              stats: { jobsProcessed: 0, jobsSubmitted: 0, jobsFailed: 0, totalPagesSubmitted: 0 },
+              recentLogs: [],
+            }),
+          };
+        }
+        return { ok: true, json: async () => ({}) };
+      },
+      setInterval: () => 0,
+      window: {},
+    });
+
+    new vm.Script(script!).runInContext(context);
+
+    // 1. While job-2 is queued / claimed, it should show Processing...
+    await vm.runInContext("refreshCounterQueue()", context);
+    let listHtml = elements.get("counterQueueList")?.innerHTML as string;
+    expect(listHtml).toContain("Token #3");
+    expect(listHtml).toContain("Processing...");
+    expect(listHtml).not.toContain("Print &amp; Approve");
+    expect(listHtml).not.toContain("Front Side Printed");
+
+    // 2. While job-2 is print_submitted, it should show Printing Pages...
+    queueData.queue[0].jobs[1].status = "print_submitted";
+    await vm.runInContext("refreshCounterQueue()", context);
+    listHtml = elements.get("counterQueueList")?.innerHTML as string;
+    expect(listHtml).toContain("Printing Pages...");
+    expect(listHtml).not.toContain("Print &amp; Approve");
+    expect(listHtml).not.toContain("Front Side Printed");
+
+    // 3. If finished without all jobs completed (e.g. idle partially printed), shows Partially Printed with Re-Print
+    queueData.queue[0].jobs = [];
+    await vm.runInContext("refreshCounterQueue()", context);
+    listHtml = elements.get("counterQueueList")?.innerHTML as string;
+    expect(listHtml).toContain("Partially Printed");
+    expect(listHtml).toContain("Re-Print");
+    expect(listHtml).not.toContain("Print &amp; Approve");
+    expect(listHtml).not.toContain("Front Side Printed");
+  });
 });

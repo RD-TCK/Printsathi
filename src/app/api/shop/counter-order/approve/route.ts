@@ -81,7 +81,7 @@ export async function POST(request: Request) {
     );
   }
 
-  if (["paid", "completed"].includes(order.status) && duplexStep !== "even") {
+  if (["paid", "completed", "partially_printed"].includes(order.status) && duplexStep !== "even") {
     // If order is already paid or completed, re-queue the jobs and set order to 'paid' so the agent claims and re-prints cleanly
     await adminClient
       .from("orders")
