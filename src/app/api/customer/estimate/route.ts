@@ -107,7 +107,7 @@ export async function POST(request: Request) {
   }
   if (allRanges.some((range) => range.colorMode === "color") && !colorPrinterIsOnline) {
     return NextResponse.json(
-      { error: "No color printer is currently connected at this shop. Please select Black & White printing." },
+      { error: "Color printer might not be connected. Please re-try in a few moments, or switch to Black & White printing." },
       { status: 409 },
     );
   }

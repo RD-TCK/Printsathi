@@ -62,7 +62,7 @@ export async function POST(request: Request) {
   const onlinePrinters = availablePrinters(printers || [], agents || []);
   if (!onlinePrinters.length)
     return NextResponse.json(
-      { error: "No physical printer is connected. Wait for the shop to reconnect its printer before paying." },
+      { error: "Printer might not be connected. Please re-try in a few moments, or ask the shopkeeper to check the printer." },
       { status: 409 },
     );
 
@@ -101,14 +101,14 @@ export async function POST(request: Request) {
   const destinations = onlinePrinters;
   if (allRanges.some((r) => !destinations.some((p) => supportsPrint(p, r.colorMode, r.paperSize))))
     return NextResponse.json(
-      { error: "No connected printer supports the selected color and paper size." },
+      { error: "Printer might not be connected for this print type. Please re-try in a few moments or ask the shopkeeper." },
       { status: 409 },
     );
   const requestsColor = allRanges.some((r) => r.colorMode === "color");
   const hasColorPrinter = onlinePrinters.some((p) => Boolean(p.capabilities?.colorSupport));
   if (requestsColor && !hasColorPrinter) {
     return NextResponse.json(
-      { error: "No color printer is currently connected at this shop. Please select Black & White printing." },
+      { error: "Color printer might not be connected. Please re-try in a few moments, or switch to Black & White printing." },
       { status: 409 },
     );
   }

@@ -118,8 +118,16 @@ export async function POST(request: Request) {
           return NextResponse.json({ error: "Could not register the detected printer." }, { status: 500 });
       }
     }
+    }
+  } else {
+    // Touch last_seen_at for all online printers of this connected agent so they never expire while agent is active
+    await adminClient
+      .from("printers")
+      .update({ last_seen_at: now })
+      .eq("shop_id", auth.shop.id)
+      .eq("desktop_agent_id", auth.agent.id)
+      .eq("is_online", true);
   }
-}
 
   return NextResponse.json({
     success: true,

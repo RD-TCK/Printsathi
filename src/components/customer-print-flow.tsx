@@ -2116,7 +2116,7 @@ function UploadStep({
         ) : (
           <div className="rounded-xl bg-amber-50/80 px-3.5 py-2 text-xs text-amber-900 border border-amber-200/80 flex items-center gap-2 shadow-2xs">
             <Printer className="size-4 text-amber-600 shrink-0" />
-            <span>Printer offline at shop. You can still generate a 1-hour counter token!</span>
+            <span>Printer might not be connected. Please re-try in a few moments, or generate a 1-hour counter token!</span>
           </div>
         )}
       </div>

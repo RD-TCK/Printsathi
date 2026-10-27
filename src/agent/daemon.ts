@@ -339,9 +339,8 @@ export class AgentDaemon {
         })),
       );
 
-      // Only send full printer inventory when changed or on initial pulse
-      const printersToSend =
-        this.lastSentPrintersSignature !== currentSignature ? this.discoveredPrinters : undefined;
+      // Always transmit detected printers on heartbeat so server & customer checkout stay continuously fresh
+      const printersToSend = this.discoveredPrinters;
 
       const result = await this.client.sendHeartbeat({
         printers: printersToSend,

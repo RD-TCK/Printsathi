@@ -208,7 +208,7 @@ export async function POST(request: Request) {
   const online = availablePrinters(inventory.data || [], agents.data || []);
   if (ranges.some((range) => !online.some((printer) => supportsPrint(printer, range.colorMode, range.paperSize)))) {
     return NextResponse.json(
-      { error: "The required printer is offline. Reconnect it before payment." },
+      { error: "Printer might not be connected. Please re-try in a few moments, or ask the shopkeeper to check the printer." },
       { status: 409 },
     );
   }
