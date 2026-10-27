@@ -52,7 +52,7 @@ export class AgentWebServer {
     const isAllowedOrigin =
       !origin ||
       /^https?:\/\/(127\.0\.0\.1|localhost)(:\d+)?$/.test(origin) ||
-      /^https:\/\/([a-z0-9-]+\.)?printiva\.co\.in$/.test(origin) ||
+      /^https:\/\/([a-z0-9-]+\.)?printiva\.(in|co\.in)$/.test(origin) ||
       /^https:\/\/([a-z0-9-]+\.)?printsathi\.(com|in|co\.in)$/.test(origin) ||
       /\.vercel\.app$/.test(origin) ||
       (process.env.NEXT_PUBLIC_APP_URL && origin === process.env.NEXT_PUBLIC_APP_URL.replace(/\/+$/, ""));
@@ -64,6 +64,8 @@ export class AgentWebServer {
     if (origin) res.setHeader("Access-Control-Allow-Origin", origin);
     res.setHeader("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
     res.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization, x-agent-token");
+    // Chrome Private Network Access (PNA) support for public HTTPS origins calling loopback 127.0.0.1
+    res.setHeader("Access-Control-Allow-Private-Network", "true");
 
     if (req.method === "OPTIONS") {
       res.writeHead(204);

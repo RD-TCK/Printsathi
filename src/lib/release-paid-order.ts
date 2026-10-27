@@ -18,14 +18,14 @@ export async function releasePaidOrder(client: SupabaseClient, orderId: string) 
       .from("orders")
       .update({ status: isDouble ? "partially_printed" : "paid" })
       .eq("id", orderId)
-      .in("status", ["draft", "awaiting_payment"]),
+      .in("status", ["draft", "awaiting_payment", "paid"]),
     // Set to "queued" so the agent's claim_next_print_job RPC can pick them up.
-    // "paid" is not a valid print_job status (it belongs to orders only).
+    // Handles jobs created as draft/awaiting_payment, as well as jobs set to paid by the DB trigger.
     client
       .from("print_jobs")
       .update({ status: "queued", duplex_step: isDouble ? "odd" : "none" })
       .eq("order_id", orderId)
-      .in("status", ["draft", "awaiting_payment"]),
+      .in("status", ["draft", "awaiting_payment", "paid"]),
   ]);
   if (results.some((result) => result.error))
     throw new Error("Payment verified, but print queue update failed. Retry verification; do not pay again.");

@@ -206,6 +206,9 @@ export function CounterQueueCenter({ shopName }: { shopName: string }) {
       }
 
       await fetchQueue();
+      // Fast refresh bursts so the queue center reflects claiming/printing in real time
+      setTimeout(() => void fetchQueue(), 1500);
+      setTimeout(() => void fetchQueue(), 3500);
     } catch (err) {
       setStatusMessage({ text: err instanceof Error ? err.message : "Could not approve order", type: "error" });
     } finally {

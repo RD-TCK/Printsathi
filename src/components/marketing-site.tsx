@@ -51,7 +51,7 @@ export function MarketingFooter() {
           <div className="mt-6 flex items-center gap-3">
             <span className="inline-flex items-center gap-1.5 rounded-full border border-emerald-500/20 bg-emerald-950/80 px-3 py-1 text-xs font-medium text-emerald-400/80">
               <span className="size-1.5 rounded-full bg-emerald-400 animate-pulse" />
-              Agent v1.8.18 Live
+              Agent v1.8.19 Live
             </span>
           </div>
         </div>

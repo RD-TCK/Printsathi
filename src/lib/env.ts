@@ -56,7 +56,7 @@ export function getAgentDownloadUrl(): string {
   if (envUrl) {
     return envUrl.replace(/PrintSaathiAgent\.exe/gi, "PrintivaAgent.exe");
   }
-  return "https://github.com/RD-TCK/Printsathi/releases/download/v1.8.18/PrintivaAgent.exe";
+  return "https://github.com/RD-TCK/Printsathi/releases/download/v1.8.19/PrintivaAgent.exe";
 }
 
 export function getAppUrl(): string {

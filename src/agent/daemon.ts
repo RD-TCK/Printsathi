@@ -502,9 +502,7 @@ export class AgentDaemon {
     let didProcessJob = false;
 
     try {
-      if (this.isConnected) {
-        didProcessJob = await this.pollAndProcessNextJob();
-      }
+      didProcessJob = await this.pollAndProcessNextJob();
     } catch (err) {
       logger.warn("Error during adaptive poll cycle:", {
         error: err instanceof Error ? err.message : String(err),
@@ -585,6 +583,7 @@ export class AgentDaemon {
         return false;
       }
       const job = await this.client.claimNextJob(45); // 45 second fast-recovery lease
+      this.isConnected = true;
       if (!job) {
         return false;
       }
@@ -761,11 +760,11 @@ export class AgentDaemon {
             resolvedItems.push({ sourcePath: resolved.filePath, job: bJob, isLocalCacheHit: resolved.isLocalCacheHit });
           }
 
-          batchSubmissionStarted = true;
           for (const bJob of batchJobs) {
             bJob.allowColorFallback = true;
             await this.client.reportSubmit(bJob.id, targetPrinterName, bJob.duplexStep);
           }
+          batchSubmissionStarted = true;
 
           const shouldIncludeSeparator = this.config.enableSeparatorPage !== false;
           const batchResult = await prepareAndPrintBatch(
@@ -839,11 +838,9 @@ export class AgentDaemon {
         printFilePath = resolved.filePath;
         isLocalCacheHit = resolved.isLocalCacheHit;
 
-        // Persist the no-retry boundary BEFORE invoking the renderer.
-        // Also tells the server which printer and duplex step is handling this job.
-        submissionStarted = true;
         const firstPrinterName = plan[0]?.printer?.name;
         await this.client.reportSubmit(job.id, firstPrinterName, job.duplexStep);
+        submissionStarted = true;
 
         let pagesSubmitted = 0;
         for (let i = 0; i < plan.length; i++) {

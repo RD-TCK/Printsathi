@@ -55,6 +55,7 @@ async function main() {
     const child = spawn(agentExePath, [], {
       detached: true,
       stdio: "ignore",
+      cwd: path.dirname(agentExePath),
     });
     child.unref();
     console.log("   Printiva Desktop Agent launched successfully in background.");
