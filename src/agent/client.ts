@@ -225,24 +225,36 @@ export class AgentApiClient {
     return true;
   }
 
-  async reportComplete(jobId: string): Promise<boolean> {
+  async reportComplete(jobId: string, retries = 3): Promise<boolean> {
     if (!this.token) {
       throw new Error("Agent is not authenticated.");
     }
 
     const url = `${this.serverUrl}/api/agent/complete`;
-    const response = await fetch(url, {
-      method: "POST",
-      headers: this.getHeaders(),
-      body: JSON.stringify({ jobId }),
-    });
+    let lastError: Error | null = null;
 
-    const data = await response.json();
-    if (!response.ok || !data.success) {
-      throw new Error(data.error || `Job completion report failed with status ${response.status}`);
+    for (let attempt = 1; attempt <= retries; attempt++) {
+      try {
+        const response = await fetch(url, {
+          method: "POST",
+          headers: this.getHeaders(),
+          body: JSON.stringify({ jobId }),
+        });
+
+        const data = await response.json().catch(() => ({}));
+        if (response.ok && data.success) {
+          return true;
+        }
+        throw new Error(data.error || `Job completion report failed with status ${response.status}`);
+      } catch (err) {
+        lastError = err instanceof Error ? err : new Error(String(err));
+        if (attempt < retries) {
+          await new Promise((resolve) => setTimeout(resolve, 1000 * attempt));
+        }
+      }
     }
 
-    return true;
+    throw lastError || new Error("Job completion report failed.");
   }
 
   async getRealtimeConfig(): Promise<{ success: boolean; supabaseUrl: string; supabaseAnonKey: string }> {
@@ -369,5 +381,25 @@ export class AgentApiClient {
     }
 
     throw new Error(data.error || `Cancellation failed with HTTP ${response.status}`);
+  }
+
+  async completeCounterOrder(orderId: string): Promise<{ success: boolean }> {
+    if (!this.token) {
+      throw new Error("Agent is not authenticated.");
+    }
+
+    const url = `${this.serverUrl}/api/shop/complete-job`;
+    const response = await fetch(url, {
+      method: "POST",
+      headers: this.getHeaders(),
+      body: JSON.stringify({ orderId, status: "completed" }),
+    });
+
+    const data = await response.json().catch(() => ({}));
+    if (response.ok && data.success) {
+      return data;
+    }
+
+    throw new Error(data.error || `Completion failed with HTTP ${response.status}`);
   }
 }

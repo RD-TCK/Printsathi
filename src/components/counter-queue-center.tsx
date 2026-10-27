@@ -277,6 +277,27 @@ export function CounterQueueCenter({ shopName }: { shopName: string }) {
     }
   };
 
+  // Handle Mark Order Printed (Fallback when physical pages are already out)
+  const handleMarkOrderCompleted = async (orderId: string) => {
+    setActionLoading(`complete-${orderId}`);
+    setStatusMessage(null);
+    try {
+      const res = await fetch("/api/shop/complete-job", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ orderId, status: "completed" }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Failed to mark order completed");
+      setStatusMessage({ text: "Print request marked as completed.", type: "success" });
+      await fetchQueue();
+    } catch (err) {
+      setStatusMessage({ text: err instanceof Error ? err.message : "Could not complete print request.", type: "error" });
+    } finally {
+      setActionLoading(null);
+    }
+  };
+
   // Dismiss popup
   const handleDismissPopup = (orderId: string) => {
     setDismissedPopups((prev) => new Set([...prev, orderId]));
@@ -815,6 +836,16 @@ export function CounterQueueCenter({ shopName }: { shopName: string }) {
                             <span className="inline-flex items-center gap-1.5 rounded-lg bg-amber-50 border border-amber-300 px-2.5 py-1 text-[11px] font-bold text-amber-900 shadow-2xs animate-pulse">
                               <Printer className="size-3.5 text-amber-700 animate-bounce" /> Printing Pages...
                             </span>
+                            <button
+                              type="button"
+                              disabled={actionLoading === `complete-${item.id}`}
+                              className="inline-flex items-center justify-center gap-1 whitespace-nowrap rounded-lg bg-gradient-to-b from-emerald-500 via-emerald-600 to-emerald-700 px-2.5 py-1 text-[11px] font-black uppercase tracking-wider text-white shadow-[0_2.5px_0_0_#064e3b,0_4px_8px_rgba(5,150,105,0.25)] border-t border-emerald-300/40 hover:from-emerald-400 hover:to-emerald-600 active:translate-y-[2px] active:shadow-[0_1px_0_0_#064e3b] disabled:opacity-50 transition-all cursor-pointer select-none"
+                              onClick={() => handleMarkOrderCompleted(item.id)}
+                              title="Click to mark as completed if physical pages are already out"
+                            >
+                              <CheckCircle2 className="size-3 shrink-0 drop-shadow-xs" />
+                              <span>Mark Printed</span>
+                            </button>
                           </div>
                         ) : isProcessing || item.status === "paid" ? (
                           <div className="flex flex-wrap items-center gap-2">

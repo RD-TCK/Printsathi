@@ -37,6 +37,7 @@ export class AgentDaemon {
   private heartbeatBusy = false;
   private lastSentPrintersSignature: string | null = null;
   private processedJobIds: Set<string> = new Set();
+  private pendingCompletionJobIds: Set<string> = new Set();
 
   private heartbeatTimer: NodeJS.Timeout | null = null;
   private pollTimeout: NodeJS.Timeout | null = null;
@@ -572,12 +573,28 @@ export class AgentDaemon {
     return { filePath: printFilePath, isLocalCacheHit };
   }
 
+  private async flushPendingCompletions(): Promise<void> {
+    if (this.pendingCompletionJobIds.size === 0) return;
+    for (const jobId of Array.from(this.pendingCompletionJobIds)) {
+      try {
+        await this.client.reportComplete(jobId);
+        this.pendingCompletionJobIds.delete(jobId);
+        logger.info(`Previously pending Job #${jobId.slice(0, 8)} successfully reported as COMPLETED to server.`);
+      } catch {
+        // Will retry on next cycle
+      }
+    }
+  }
+
   private async pollAndProcessNextJob(): Promise<boolean> {
     this.isProcessingJob = true;
     try {
       if (this.discoveredPrinters.length === 0) {
         await this.refreshPrinters();
       }
+      // Retry any completions that previously encountered temporary network gaps
+      await this.flushPendingCompletions();
+
       const defaultPrinter = findDefaultPrinter(this.discoveredPrinters, this.config.selectedPrinter, false);
       if (!defaultPrinter || defaultPrinter.status === "offline") {
         return false;
@@ -760,11 +777,11 @@ export class AgentDaemon {
             resolvedItems.push({ sourcePath: resolved.filePath, job: bJob, isLocalCacheHit: resolved.isLocalCacheHit });
           }
 
+          batchSubmissionStarted = true;
           for (const bJob of batchJobs) {
             bJob.allowColorFallback = true;
             await this.client.reportSubmit(bJob.id, targetPrinterName, bJob.duplexStep);
           }
-          batchSubmissionStarted = true;
 
           const shouldIncludeSeparator = this.config.enableSeparatorPage !== false;
           const batchResult = await prepareAndPrintBatch(
@@ -787,9 +804,13 @@ export class AgentDaemon {
           for (const bJob of batchJobs) {
             try {
               await this.client.reportComplete(bJob.id);
+              this.pendingCompletionJobIds.delete(bJob.id);
               logger.info(`Batch Job #${bJob.id.slice(0, 8)} reported as physically COMPLETED to server.`);
             } catch (compErr) {
-              logger.warn(`Could not report batch job #${bJob.id.slice(0, 8)} completed:`, { error: compErr });
+              this.pendingCompletionJobIds.add(bJob.id);
+              logger.warn(`Could not report batch job #${bJob.id.slice(0, 8)} completed (queued for auto-retry):`, {
+                error: compErr instanceof Error ? compErr.message : String(compErr),
+              });
             }
           }
 
@@ -839,8 +860,8 @@ export class AgentDaemon {
         isLocalCacheHit = resolved.isLocalCacheHit;
 
         const firstPrinterName = plan[0]?.printer?.name;
-        await this.client.reportSubmit(job.id, firstPrinterName, job.duplexStep);
         submissionStarted = true;
+        await this.client.reportSubmit(job.id, firstPrinterName, job.duplexStep);
 
         let pagesSubmitted = 0;
         for (let i = 0; i < plan.length; i++) {
@@ -913,9 +934,13 @@ export class AgentDaemon {
         if (job.duplexStep !== "odd") {
           try {
             await this.client.reportComplete(job.id);
+            this.pendingCompletionJobIds.delete(job.id);
             logger.info(`Job #${job.id.slice(0, 8)} reported as physically COMPLETED to server.`);
           } catch (compErr) {
-            logger.warn(`Could not report job #${job.id.slice(0, 8)} completed to server:`, { error: compErr });
+            this.pendingCompletionJobIds.add(job.id);
+            logger.warn(`Could not report job #${job.id.slice(0, 8)} completed to server (queued for auto-retry):`, {
+              error: compErr instanceof Error ? compErr.message : String(compErr),
+            });
           }
         }
 
@@ -1035,6 +1060,11 @@ export class AgentDaemon {
       this.orderToReservedPrinter.delete(orderId);
     }
     return await this.client.cancelCounterOrder(orderId);
+  }
+
+  async completeCounterOrder(orderId: string) {
+    this.clearProcessedJob(orderId);
+    return await this.client.completeCounterOrder(orderId);
   }
 }
 

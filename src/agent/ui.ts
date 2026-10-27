@@ -243,6 +243,25 @@ export class AgentWebServer {
       return;
     }
 
+    if (url.pathname === "/api/complete-counter-order" && req.method === "POST") {
+      const body = await this.readJsonBody(req);
+      const orderId = String(body?.orderId || "");
+      if (!orderId) {
+        res.writeHead(400, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({ error: "Missing orderId" }));
+        return;
+      }
+      try {
+        const data = await agentDaemon.completeCounterOrder(orderId);
+        res.writeHead(200, { "Content-Type": "application/json" });
+        res.end(JSON.stringify(data));
+      } catch (err) {
+        res.writeHead(500, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({ error: err instanceof Error ? err.message : "Failed to complete order" }));
+      }
+      return;
+    }
+
     if (url.pathname === "/api/whatsapp/status" && req.method === "GET") {
       res.writeHead(200, { "Content-Type": "application/json" });
       res.end(JSON.stringify(whatsAppAgent.getStatus()));
@@ -1227,6 +1246,48 @@ export class AgentWebServer {
       promptCancelCounterOrder(orderId);
     }
 
+    async function completeCounterOrder(orderId, btnEl) {
+      if (btnEl) {
+        btnEl.disabled = true;
+        btnEl.innerHTML = '⏳ Marking...';
+      }
+      queueErrorNotice = null;
+      try {
+        const res = await fetch('/api/complete-counter-order', {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({ orderId })
+        });
+        const data = await res.json().catch(() => ({}));
+        if (res.ok && (data.success || !data.error)) {
+          const item = cachedCounterQueue.find(i => i.id === orderId);
+          if (item) {
+            item.status = 'completed';
+            if (Array.isArray(item.jobs)) {
+              item.jobs.forEach(function(j) { j.status = 'completed'; });
+            }
+          }
+          renderAgentQueueWithFilter();
+          updateQueueBadge();
+          await refreshCounterQueue();
+        } else {
+          queueErrorNotice = 'Could not mark printed: ' + (data.error || 'Server error');
+          renderAgentQueueWithFilter();
+          if (btnEl) {
+            btnEl.disabled = false;
+            btnEl.innerHTML = 'Mark Printed';
+          }
+        }
+      } catch (e) {
+        queueErrorNotice = 'Network error marking order printed';
+        renderAgentQueueWithFilter();
+        if (btnEl) {
+          btnEl.disabled = false;
+          btnEl.innerHTML = 'Mark Printed';
+        }
+      }
+    }
+
     function renderAgentQueueWithFilter() {
       const list = document.getElementById('counterQueueList');
       if (!list) return;
@@ -1371,7 +1432,12 @@ export class AgentWebServer {
         } else if (isProcessing) {
           actionHtml = '<span style="font-size:12px; font-weight:700; color:#2563eb; background:#eff6ff; border:1px solid #bfdbfe; padding:6px 12px; border-radius:8px; display:inline-flex; align-items:center; gap:6px;">⏳ Processing...</span>';
         } else if (isPrinting) {
-          actionHtml = '<span style="font-size:12px; font-weight:700; color:#b45309; background:#fffbeb; border:1px solid #fde68a; padding:6px 12px; border-radius:8px; display:inline-flex; align-items:center; gap:6px;">🖨️ Printing Pages...</span>';
+          actionHtml = [
+            '<span style="font-size:12px; font-weight:700; color:#b45309; background:#fffbeb; border:1px solid #fde68a; padding:6px 12px; border-radius:8px; display:inline-flex; align-items:center; gap:6px;">🖨️ Printing Pages...</span>',
+            '<button type="button" class="btn-primary" style="width:auto; padding:6px 12px; font-size:11px; font-weight:700; background:#059669; border-color:#059669; cursor:pointer;" onclick="completeCounterOrder(',
+            "'", item.id, "', this",
+            ')">Mark Printed</button>'
+          ].join("");
         } else if (isCompleted) {
           actionHtml = [
             '<span style="font-size:12px; font-weight:700; color:#059669; background:#ecfdf5; border:1px solid #a7f3d0; padding:6px 10px; border-radius:8px;">✅ Printed</span>',
