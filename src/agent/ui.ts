@@ -1145,10 +1145,29 @@ export class AgentWebServer {
       }
       duplexStep = duplexStep || 'all';
       queueErrorNotice = null;
-      if (btnEl) {
+
+      // Optimistic instant UI update: immediately show "Printing Pages..." with 0ms delay!
+      const item = cachedCounterQueue.find(i => i.id === orderId);
+      const originalStatus = item ? item.status : null;
+      if (item) {
+        if (duplexStep === 'odd') {
+          item.status = 'partially_printed';
+          item.duplexStep = 'odd_printed';
+        } else {
+          item.status = 'paid';
+          if (!Array.isArray(item.jobs) || item.jobs.length === 0) {
+            item.jobs = [{ id: 'pending', status: 'queued', totalPages: item.totalPages }];
+          } else {
+            item.jobs.forEach(function(j) { j.status = 'queued'; });
+          }
+        }
+        renderAgentQueueWithFilter();
+        updateQueueBadge();
+      } else if (btnEl) {
         btnEl.disabled = true;
         btnEl.innerHTML = '⏳ Processing...';
       }
+
       try {
         const res = await fetch('/api/approve-counter-order', {
           method: 'POST',
@@ -1157,28 +1176,12 @@ export class AgentWebServer {
         });
         const data = await res.json().catch(() => ({}));
         if (res.ok && (data.success || !data.error)) {
-          const item = cachedCounterQueue.find(i => i.id === orderId);
-          if (item) {
-            if (duplexStep === 'odd') {
-              item.status = 'partially_printed';
-              item.duplexStep = 'odd_printed';
-            } else {
-              item.status = 'paid';
-              if (!Array.isArray(item.jobs) || item.jobs.length === 0) {
-                item.jobs = [{ id: 'pending', status: 'queued', totalPages: item.totalPages }];
-              } else {
-                item.jobs.forEach(function(j) { j.status = 'queued'; });
-              }
-            }
-          }
-          if (btnEl) {
-            btnEl.innerHTML = '⏳ Processing...';
-          }
-          renderAgentQueueWithFilter();
-          updateQueueBadge();
           await refreshCounterQueue();
           await refreshStatus(false);
         } else {
+          if (item && originalStatus) {
+            item.status = originalStatus;
+          }
           queueErrorNotice = 'Approval failed: ' + (data.error || 'Server error');
           renderAgentQueueWithFilter();
           if (btnEl) {
@@ -1187,6 +1190,9 @@ export class AgentWebServer {
           }
         }
       } catch (e) {
+        if (item && originalStatus) {
+          item.status = originalStatus;
+        }
         queueErrorNotice = 'Failed to approve order: Network error';
         renderAgentQueueWithFilter();
         if (btnEl) {

@@ -134,46 +134,24 @@ export async function POST(request: Request) {
       .eq("id", order.id)
       .eq("shop_id", shopId);
   } else {
-    // 1. Create or update verified counter payment record
+    // 1. Concurrently record verified counter payment and release order to print queue
     const providerPaymentId = `counter_${order.id.slice(0, 8)}_${Date.now()}`;
-    const { error: paymentError } = await adminClient.from("payments").insert({
-      order_id: order.id,
-      provider: "counter",
-      payment_method: "counter_cash",
-      status: "verified",
-      provider_payment_id: providerPaymentId,
-      amount: order.total_amount,
-      currency: "INR",
-      verified_at: new Date().toISOString(),
-    });
-
-    if (paymentError) {
-      // If unique constraint triggers on order_id, update the existing payment
-      await adminClient
-        .from("payments")
-        .update({
-          provider: "counter",
-          payment_method: "counter_cash",
-          status: "verified",
-          provider_payment_id: providerPaymentId,
-          amount: order.total_amount,
-          verified_at: new Date().toISOString(),
-        })
-        .eq("order_id", order.id);
-    }
-
-    // 2. Safely release paid order to print queue using the exact same atomic pipeline as Pay Online!
-    // This updates orders and print_jobs to queued/partially_printed safely without wiping active claims.
-    await releasePaidOrder(adminClient, order.id);
+    await Promise.all([
+      adminClient.from("payments").insert({
+        order_id: order.id,
+        provider: "counter",
+        payment_method: "counter_cash",
+        status: "verified",
+        provider_payment_id: providerPaymentId,
+        amount: order.total_amount,
+        currency: "INR",
+        verified_at: new Date().toISOString(),
+      }),
+      releasePaidOrder(adminClient, order.id),
+    ]);
   }
 
-  // Fetch current jobs and order status for response
-  const [{ data: refreshedOrder }, { data: jobs }] = await Promise.all([
-    adminClient.from("orders").select("id, token_number, status").eq("id", order.id).maybeSingle(),
-    adminClient.from("print_jobs").select("id, status, document_id, total_pages, duplex_step").eq("order_id", order.id),
-  ]);
-
-  const targetOrderStatus = refreshedOrder?.status || (isOddStep ? "partially_printed" : "paid");
+  const targetOrderStatus = isOddStep ? "partially_printed" : "paid";
   const targetDuplexStep = isOddStep ? "odd" : isEvenStep ? "even" : "none";
 
   const stepMessage = isOddStep
@@ -192,6 +170,5 @@ export async function POST(request: Request) {
       status: targetOrderStatus,
       duplexStep: targetDuplexStep,
     },
-    jobs: jobs || [],
   });
 }
