@@ -776,12 +776,12 @@ export class AgentDaemon {
             resolvedItems.push({ sourcePath: resolved.filePath, job: bJob, isLocalCacheHit: resolved.isLocalCacheHit });
           }
 
-          batchSubmissionStarted = true;
           for (const bJob of batchJobs) {
             bJob.allowColorFallback = true;
             await this.client.reportSubmit(bJob.id, targetPrinterName, bJob.duplexStep);
           }
 
+          batchSubmissionStarted = true;
           const shouldIncludeSeparator = this.config.enableSeparatorPage !== false;
           const batchResult = await prepareAndPrintBatch(
             resolvedItems.map((item) => ({ sourcePath: item.sourcePath, job: item.job })),

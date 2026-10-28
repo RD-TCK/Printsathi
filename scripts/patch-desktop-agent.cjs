@@ -5,14 +5,30 @@ const { execSync, spawn } = require("child_process");
 const asar = require("@electron/asar");
 
 async function main() {
-  const agentExePath = "D:\\updated\\Printiva Desktop Agent\\Printiva Desktop Agent.exe";
-  const asarPath = "D:\\updated\\Printiva Desktop Agent\\resources\\app.asar";
+  const candidateDirs = [
+    "D:\\F orders\\Printiva Desktop Agent",
+    "D:\\updated\\Printiva Desktop Agent",
+    path.join(process.env.LOCALAPPDATA || "", "Programs", "Printiva Desktop Agent"),
+  ];
+
+  let agentExePath = "";
+  let asarPath = "";
+  for (const dir of candidateDirs) {
+    const candidateAsar = path.join(dir, "resources", "app.asar");
+    if (fs.existsSync(candidateAsar)) {
+      asarPath = candidateAsar;
+      agentExePath = path.join(dir, "Printiva Desktop Agent.exe");
+      break;
+    }
+  }
+
   const sourceAgentDist = path.resolve(__dirname, "..", "dist", "agent");
 
-  if (!fs.existsSync(asarPath)) {
-    console.error("Target asar file not found at:", asarPath);
+  if (!asarPath || !fs.existsSync(asarPath)) {
+    console.error("Target asar file not found in any known locations.");
     process.exit(1);
   }
+  console.log("Found agent installation at:", path.dirname(asarPath));
 
   console.log("1. Stopping running Printiva Desktop Agent process...");
   try {

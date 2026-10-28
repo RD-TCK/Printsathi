@@ -55,7 +55,7 @@ export async function POST(request: Request) {
   // Fetch the order
   const { data: order, error: orderError } = await adminClient
     .from("orders")
-    .select("id, public_id, status, total_amount, token_number, total_pages, expires_at, payment_mode, color_pages, created_at, customer_id")
+    .select("id, status, total_amount, token_number, total_pages, expires_at, color_pages, created_at")
     .eq("id", orderId)
     .eq("shop_id", shopId)
     .maybeSingle();
@@ -74,10 +74,12 @@ export async function POST(request: Request) {
     !["paid", "completed", "partially_printed"].includes(order.status) &&
     (order.status === "expired" || (orderExpiresAt ? orderExpiresAt.getTime() <= Date.now() : false));
 
+  const displayToken = order.token_number ? String(order.token_number) : order.id.slice(0, 8);
+
   if (isExpired) {
     return NextResponse.json(
       {
-        error: `Token #${order.token_number || order.public_id} has expired (tokens have 1-hour validity). Please ask the customer to generate a new token.`,
+        error: `Token #${displayToken} has expired (tokens have 1-hour validity). Please ask the customer to generate a new token.`,
       },
       { status: 410 },
     );
@@ -102,12 +104,12 @@ export async function POST(request: Request) {
     if (alreadyQueuedOrDone) {
       return NextResponse.json({
         success: true,
-        message: `Token #${order.token_number || order.public_id}: Back side is already queued or printed.`,
-        order: { id: order.id, publicId: order.public_id, tokenNumber: order.token_number, status: order.status },
+        message: `Token #${displayToken}: Back side is already queued or printed.`,
+        order: { id: order.id, publicId: displayToken, tokenNumber: order.token_number, status: order.status },
       });
     }
 
-    // Transition odd-printed jobs to even step
+    // Transition odd-printed or failed even jobs to even step
     await adminClient
       .from("print_jobs")
       .update({
@@ -121,7 +123,7 @@ export async function POST(request: Request) {
       })
       .eq("order_id", order.id)
       .eq("shop_id", shopId)
-      .in("duplex_step", ["odd", "odd_printed"]);
+      .in("duplex_step", ["odd", "odd_printed", "even"]);
 
     await adminClient
       .from("orders")
@@ -133,7 +135,7 @@ export async function POST(request: Request) {
       .eq("shop_id", shopId);
   } else {
     // 1. Create or update verified counter payment record
-    const providerPaymentId = `counter_${order.public_id}_${Date.now()}`;
+    const providerPaymentId = `counter_${order.id.slice(0, 8)}_${Date.now()}`;
     const { error: paymentError } = await adminClient.from("payments").insert({
       order_id: order.id,
       provider: "counter",
@@ -167,7 +169,7 @@ export async function POST(request: Request) {
 
   // Fetch current jobs and order status for response
   const [{ data: refreshedOrder }, { data: jobs }] = await Promise.all([
-    adminClient.from("orders").select("id, public_id, token_number, status").eq("id", order.id).maybeSingle(),
+    adminClient.from("orders").select("id, token_number, status").eq("id", order.id).maybeSingle(),
     adminClient.from("print_jobs").select("id, status, document_id, total_pages, duplex_step").eq("order_id", order.id),
   ]);
 
@@ -175,17 +177,17 @@ export async function POST(request: Request) {
   const targetDuplexStep = isOddStep ? "odd" : isEvenStep ? "even" : "none";
 
   const stepMessage = isOddStep
-    ? `Token #${order.token_number || order.public_id}: Odd pages (Front Side) queued! Flip sheets and reload in tray for back side once printed.`
+    ? `Token #${displayToken}: Odd pages (Front Side) queued! Flip sheets and reload in tray for back side once printed.`
     : isEvenStep
-      ? `Token #${order.token_number || order.public_id}: Even pages (Back Side) queued! Job complete.`
-      : `Token #${order.token_number || order.public_id} approved for printing.`;
+      ? `Token #${displayToken}: Even pages (Back Side) queued! Job complete.`
+      : `Token #${displayToken} approved for printing.`;
 
   return NextResponse.json({
     success: true,
     message: stepMessage,
     order: {
       id: order.id,
-      publicId: order.public_id,
+      publicId: displayToken,
       tokenNumber: order.token_number,
       status: targetOrderStatus,
       duplexStep: targetDuplexStep,

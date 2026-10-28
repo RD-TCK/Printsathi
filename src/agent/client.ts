@@ -201,28 +201,42 @@ export class AgentApiClient {
     jobId: string,
     printerName?: string,
     duplexStep?: "none" | "odd" | "even" | "all" | "completed",
+    retries = 3,
   ): Promise<boolean> {
     if (!this.token) {
       throw new Error("Agent is not authenticated.");
     }
 
     const url = `${this.serverUrl}/api/agent/submit`;
-    const response = await fetch(url, {
-      method: "POST",
-      headers: this.getHeaders(),
-      body: JSON.stringify({
-        jobId,
-        ...(printerName ? { printerName } : {}),
-        ...(duplexStep ? { duplexStep } : {}),
-      }),
-    });
+    let lastError: Error | null = null;
 
-    const data = await response.json();
-    if (!response.ok || !data.success) {
-      throw new Error(data.error || `Job submission report failed with status ${response.status}`);
+    for (let attempt = 1; attempt <= retries; attempt++) {
+      try {
+        const response = await fetch(url, {
+          method: "POST",
+          headers: this.getHeaders(),
+          body: JSON.stringify({
+            jobId,
+            ...(printerName ? { printerName } : {}),
+            ...(duplexStep ? { duplexStep } : {}),
+          }),
+        });
+
+        const data = await response.json().catch(() => ({}));
+        if (response.ok && data.success) {
+          return true;
+        }
+
+        throw new Error(data.error || `Job submission report failed with status ${response.status}`);
+      } catch (err) {
+        lastError = err instanceof Error ? err : new Error(String(err));
+        if (attempt < retries) {
+          await new Promise((resolve) => setTimeout(resolve, 1000 * attempt));
+        }
+      }
     }
 
-    return true;
+    throw lastError || new Error("Job submission report failed after retries");
   }
 
   async reportComplete(jobId: string, retries = 3): Promise<boolean> {
