@@ -24,7 +24,7 @@ function getStandardFontDataUrl(): string {
       path.resolve(__dirname, "node_modules/pdfjs-dist/standard_fonts"),
     ];
     for (const d of candidateDirs) {
-      if (existsSync(d)) {
+      if (existsSync(/*turbopackIgnore: true*/ d)) {
         return d.endsWith(path.sep) ? d : `${d}${path.sep}`;
       }
     }

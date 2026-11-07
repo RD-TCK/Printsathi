@@ -62,6 +62,7 @@ import { Alert } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
+import { PrinterLoader } from "@/components/ui/printer-loader";
 import { cn } from "@/lib/utils";
 
 export type CustomerDocument = {
@@ -3684,8 +3685,8 @@ const TURBO_PRINT_FACTS = [
     text: "The shop's local engine is pre-caching your document into high-speed memory right now. When approved at counter, printing kicks off in 0.0 seconds!",
   },
   {
-    icon: "🏎️",
-    tag: "TURBOCHARGED HARDWARE",
+    icon: "🖨️",
+    tag: "HIGH-SPEED PRINTING",
     text: "Modern laser printers use polygon mirror scanners spinning at over 30,000 RPM to draw your pages with microsecond precision!",
   },
   {
@@ -3714,7 +3715,7 @@ const TURBO_PRINT_FACTS = [
     text: "Laser printers use ceramic fuser rollers heated to 200°C to permanently melt toner polymer particles directly into the paper fibers!",
   },
   {
-    icon: "🚀",
+    icon: "⚡",
     tag: "NO MORE WAITING",
     text: "Printiva eliminates the pen-and-paper queue: your exact pages and settings are securely transmitted directly to the physical tray!",
   },
@@ -3733,256 +3734,32 @@ function RocketPrinterAnimation({ prepStatus }: { prepStatus: string }) {
   const currentFact = TURBO_PRINT_FACTS[factIndex] || TURBO_PRINT_FACTS[0];
 
   return (
-    <Card className="overflow-hidden border-emerald-300 bg-gradient-to-b from-slate-900 via-slate-950 to-slate-900 p-5 sm:p-8 shadow-2xl rounded-3xl text-center text-white animate-in fade-in zoom-in-95 duration-200 relative">
-      <style>{`
-        @keyframes carVibration {
-          0%, 100% { transform: translateY(0px); }
-          50% { transform: translateY(-1.5px); }
-        }
-        @keyframes wheelRoll {
-          0% { transform: rotate(0deg); }
-          100% { transform: rotate(360deg); }
-        }
-        @keyframes boosterFlicker {
-          0%, 100% { transform: scaleX(1) scaleY(1); opacity: 0.95; }
-          25% { transform: scaleX(1.35) scaleY(0.9); opacity: 1; filter: drop-shadow(0 0 8px #f97316); }
-          50% { transform: scaleX(0.9) scaleY(1.1); opacity: 0.85; }
-          75% { transform: scaleX(1.25) scaleY(0.95); opacity: 1; filter: drop-shadow(0 0 10px #e11d48); }
-        }
-        @keyframes innerFlame {
-          0%, 100% { transform: scaleX(1); opacity: 0.95; }
-          50% { transform: scaleX(1.4); opacity: 1; filter: drop-shadow(0 0 6px #38bdf8); }
-        }
-        @keyframes paperFlyOut {
-          0% { transform: translate(0, 0) rotate(0deg); opacity: 0; }
-          20% { opacity: 0.9; }
-          100% { transform: translate(-38px, -18px) rotate(-16deg); opacity: 0; }
-        }
-        @keyframes roadDashes {
-          0% { stroke-dashoffset: 0; }
-          100% { stroke-dashoffset: -48; }
-        }
-        @keyframes speedStreak {
-          0% { transform: translateX(120px); opacity: 0; }
-          50% { opacity: 0.8; }
-          100% { transform: translateX(-120px); opacity: 0; }
-        }
-      `}</style>
-
-      {/* Turbo Header Pill */}
-      <div className="inline-flex items-center gap-2 rounded-full bg-emerald-500/15 border border-emerald-500/30 px-3.5 py-1 text-xs font-black text-emerald-400 backdrop-blur-xs tracking-wider uppercase">
-        <span className="size-2 rounded-full bg-emerald-400 animate-pulse" />
-        <span>PREPARING FOR ZERO-DELAY PRINTING · 0s SPEED</span>
+    <Card className="overflow-hidden border-emerald-200/90 bg-white p-5 sm:p-8 shadow-xl rounded-3xl text-center animate-in fade-in zoom-in-95 duration-200 relative">
+      {/* Top Header Pill */}
+      <div className="inline-flex items-center gap-2 rounded-full bg-emerald-50 border border-emerald-200 px-3.5 py-1 text-xs font-black text-emerald-800 tracking-wider uppercase">
+        <span className="size-2 rounded-full bg-emerald-500 animate-pulse" />
+        <span>Optimizing For Instant Counter Pickup</span>
       </div>
 
-      {/* The Rocket-Car Printer Stage */}
-      <div className="relative mx-auto my-4 w-full max-w-[340px] h-36 flex items-center justify-center overflow-hidden rounded-2xl bg-gradient-to-b from-slate-900/80 to-slate-950/90 border border-slate-800 shadow-inner">
-        {/* Speed background lines */}
-        <div className="absolute inset-0 pointer-events-none opacity-40">
-          <div
-            className="absolute top-4 left-0 right-0 h-px bg-gradient-to-r from-transparent via-cyan-400 to-transparent"
-            style={{ animation: "speedStreak 1.2s linear infinite" }}
-          />
-          <div
-            className="absolute top-8 left-0 right-0 h-px bg-gradient-to-r from-transparent via-emerald-400 to-transparent"
-            style={{ animation: "speedStreak 0.9s linear infinite 0.3s" }}
-          />
-          <div
-            className="absolute top-20 left-0 right-0 h-px bg-gradient-to-r from-transparent via-amber-400 to-transparent"
-            style={{ animation: "speedStreak 1.1s linear infinite 0.6s" }}
-          />
-        </div>
-
-        {/* Dynamic Animated SVG */}
-        <svg
-          viewBox="0 0 320 140"
-          className="w-full h-full drop-shadow-lg"
-          style={{ animation: "carVibration 0.18s infinite ease-in-out" }}
-        >
-          <defs>
-            <linearGradient id="carBodyGrad" x1="0%" y1="0%" x2="100%" y2="0%">
-              <stop offset="0%" stopColor="#047857" />
-              <stop offset="50%" stopColor="#10b981" />
-              <stop offset="100%" stopColor="#34d399" />
-            </linearGradient>
-            <linearGradient id="boosterOuter" x1="0%" y1="0%" x2="100%" y2="0%">
-              <stop offset="0%" stopColor="#ef4444" />
-              <stop offset="50%" stopColor="#f97316" />
-              <stop offset="100%" stopColor="#facc15" />
-            </linearGradient>
-            <linearGradient id="boosterCore" x1="0%" y1="0%" x2="100%" y2="0%">
-              <stop offset="0%" stopColor="#38bdf8" />
-              <stop offset="100%" stopColor="#ffffff" />
-            </linearGradient>
-            <linearGradient id="printerBody" x1="0%" y1="0%" x2="0%" y2="100%">
-              <stop offset="0%" stopColor="#f8fafc" />
-              <stop offset="100%" stopColor="#cbd5e1" />
-            </linearGradient>
-          </defs>
-
-          {/* Road surface & fast rushing dashed lane markings */}
-          <line x1="10" y1="126" x2="310" y2="126" stroke="#334155" strokeWidth="3" />
-          <line
-            x1="10"
-            y1="126"
-            x2="310"
-            y2="126"
-            stroke="#10b981"
-            strokeWidth="2.5"
-            strokeDasharray="16 16"
-            style={{ animation: "roadDashes 0.4s linear infinite" }}
-          />
-
-          {/* Exhaust booster flames emitting to the left (rear) */}
-          <g transform="translate(68, 98)">
-            {/* Outer flame */}
-            <path
-              d="M0,0 Q-42,-8 -65,0 Q-42,8 0,0 Z"
-              fill="url(#boosterOuter)"
-              style={{
-                transformOrigin: "0px 0px",
-                animation: "boosterFlicker 0.14s infinite alternate",
-              }}
-            />
-            {/* Superheated Core flame */}
-            <path
-              d="M0,0 Q-26,-4 -40,0 Q-26,4 0,0 Z"
-              fill="url(#boosterCore)"
-              style={{
-                transformOrigin: "0px 0px",
-                animation: "innerFlame 0.1s infinite alternate",
-              }}
-            />
-          </g>
-
-          {/* Lower dual booster flame */}
-          <g transform="translate(74, 107)">
-            <path
-              d="M0,0 Q-32,-6 -50,0 Q-32,6 0,0 Z"
-              fill="url(#boosterOuter)"
-              style={{
-                transformOrigin: "0px 0px",
-                animation: "boosterFlicker 0.16s infinite alternate 0.05s",
-              }}
-            />
-            <path
-              d="M0,0 Q-20,-3 -32,0 Q-20,3 0,0 Z"
-              fill="url(#boosterCore)"
-              style={{
-                transformOrigin: "0px 0px",
-                animation: "innerFlame 0.11s infinite alternate 0.03s",
-              }}
-            />
-          </g>
-
-          {/* Booster thruster nozzles mounted on back of car */}
-          <rect x="68" y="94" width="10" height="9" rx="2" fill="#0f172a" stroke="#475569" strokeWidth="1" />
-          <rect x="74" y="103" width="9" height="8" rx="2" fill="#0f172a" stroke="#475569" strokeWidth="1" />
-
-          {/* Race Car Body */}
-          {/* Rear aerodynamic spoiler */}
-          <path d="M72,82 L84,82 L80,94 L68,94 Z" fill="#065f46" />
-          <rect x="62" y="78" width="28" height="4" rx="2" fill="#10b981" />
-
-          {/* Car chassis */}
-          <path
-            d="M74,108 L95,88 L190,88 L235,102 L260,105 Q265,115 255,118 L85,118 Q72,118 74,108 Z"
-            fill="url(#carBodyGrad)"
-          />
-          {/* Racing stripe */}
-          <path d="M96,93 L232,105 L231,108 L94,96 Z" fill="#facc15" opacity="0.9" />
-
-          {/* Aerodynamic cockpit glass */}
-          <path d="M125,88 L145,72 L185,72 L202,88 Z" fill="#0f172a" opacity="0.75" />
-          <path d="M130,86 L146,74 L180,74 L194,86 Z" fill="#38bdf8" opacity="0.4" />
-
-          {/* Headlight beam */}
-          <polygon points="260,107 315,95 315,124 260,115" fill="#fef08a" opacity="0.25" />
-          <circle cx="258" cy="111" r="3" fill="#fef08a" />
-
-          {/* Rear Wheel */}
-          <g transform="translate(108, 118)">
-            <circle cx="0" cy="0" r="14" fill="#090d16" stroke="#475569" strokeWidth="2" />
-            <circle cx="0" cy="0" r="7" fill="#64748b" />
-            <circle cx="0" cy="0" r="3" fill="#10b981" />
-            <g style={{ animation: "wheelRoll 0.25s linear infinite", transformOrigin: "0 0" }}>
-              <line x1="-7" y1="0" x2="7" y2="0" stroke="#f1f5f9" strokeWidth="1.5" />
-              <line x1="0" y1="-7" x2="0" y2="-7" stroke="#f1f5f9" strokeWidth="1.5" />
-            </g>
-          </g>
-
-          {/* Front Wheel */}
-          <g transform="translate(225, 118)">
-            <circle cx="0" cy="0" r="14" fill="#090d16" stroke="#475569" strokeWidth="2" />
-            <circle cx="0" cy="0" r="7" fill="#64748b" />
-            <circle cx="0" cy="0" r="3" fill="#10b981" />
-            <g style={{ animation: "wheelRoll 0.25s linear infinite", transformOrigin: "0 0" }}>
-              <line x1="-7" y1="0" x2="7" y2="0" stroke="#f1f5f9" strokeWidth="1.5" />
-              <line x1="0" y1="-7" x2="0" y2="-7" stroke="#f1f5f9" strokeWidth="1.5" />
-            </g>
-          </g>
-
-          {/* THE PRINTER - Mounted on top of the car */}
-          <g transform="translate(138, 38)">
-            {/* Mounting rack */}
-            <rect x="6" y="32" width="46" height="4" rx="1" fill="#334155" />
-            <line x1="12" y1="36" x2="10" y2="40" stroke="#475569" strokeWidth="2" />
-            <line x1="46" y1="36" x2="48" y2="40" stroke="#475569" strokeWidth="2" />
-
-            {/* Paper feeder stack (top-rear) */}
-            <path d="M12,4 L38,4 L36,14 L14,14 Z" fill="#ffffff" stroke="#cbd5e1" strokeWidth="1" />
-            <line x1="16" y1="7" x2="34" y2="7" stroke="#94a3b8" strokeWidth="1" />
-            <line x1="18" y1="10" x2="32" y2="10" stroke="#94a3b8" strokeWidth="1" />
-
-            {/* Printer Main Chassis */}
-            <rect
-              x="8"
-              y="13"
-              width="42"
-              height="20"
-              rx="3"
-              fill="url(#printerBody)"
-              stroke="#94a3b8"
-              strokeWidth="1"
-            />
-            {/* Top scanner lid accent */}
-            <rect x="10" y="14" width="38" height="4" rx="1.5" fill="#e2e8f0" />
-            {/* Output tray slit */}
-            <rect x="12" y="24" width="34" height="4" rx="1" fill="#0f172a" />
-            {/* Control panel buttons & LED */}
-            <circle cx="44" cy="19" r="1.5" fill="#10b981" className="animate-pulse" />
-            <rect x="36" y="18" width="5" height="2" rx="0.5" fill="#64748b" />
-
-            {/* Flying Printed Sheets fluttering back in the wind! */}
-            <g style={{ animation: "paperFlyOut 0.8s ease-out infinite" }}>
-              <rect x="5" y="22" width="12" height="15" rx="1" fill="#ffffff" stroke="#047857" strokeWidth="0.8" />
-              <line x1="7" y1="25" x2="14" y2="25" stroke="#10b981" strokeWidth="1" />
-              <line x1="7" y1="28" x2="15" y2="28" stroke="#0f172a" strokeWidth="0.8" />
-              <line x1="7" y1="31" x2="13" y2="31" stroke="#0f172a" strokeWidth="0.8" />
-            </g>
-            <g style={{ animation: "paperFlyOut 0.8s ease-out infinite 0.4s" }}>
-              <rect x="5" y="22" width="12" height="15" rx="1" fill="#ffffff" stroke="#047857" strokeWidth="0.8" />
-              <line x1="7" y1="25" x2="14" y2="25" stroke="#10b981" strokeWidth="1" />
-              <line x1="7" y1="28" x2="15" y2="28" stroke="#0f172a" strokeWidth="0.8" />
-            </g>
-          </g>
-        </svg>
+      {/* Printer Loading Animation */}
+      <div className="my-2 flex justify-center">
+        <PrinterLoader label="" />
       </div>
 
       {/* Main Heading */}
-      <h2 className="text-lg sm:text-xl font-black text-white tracking-tight flex items-center justify-center gap-2">
-        <Sparkles className="size-4.5 text-amber-400 shrink-0 animate-spin" />
-        <span>Pre-Caching Your Print Order...</span>
+      <h2 className="text-lg sm:text-xl font-black text-slate-900 tracking-tight flex items-center justify-center gap-2">
+        <Sparkles className="size-4.5 text-emerald-600 shrink-0 animate-spin" />
+        <span>Preparing Your Print Order...</span>
       </h2>
-      <p className="mt-1 text-xs text-slate-300 max-w-sm mx-auto">
+      <p className="mt-1 text-xs text-slate-600 max-w-sm mx-auto">
         Your document is warming up in local SSD cache so it starts physical printing with zero delay.
       </p>
 
-      {/* Rotating Fun Campus & Printing Trivia Card */}
-      <div className="mt-4 rounded-2xl border border-slate-700/80 bg-slate-800/80 p-3.5 text-left shadow-lg backdrop-blur-xs relative min-h-[76px] flex flex-col justify-center">
+      {/* Rotating Printing Trivia Card */}
+      <div className="mt-4 rounded-2xl border border-slate-200/90 bg-slate-50/80 p-3.5 text-left shadow-xs relative min-h-[76px] flex flex-col justify-center">
         <div className="flex items-center gap-2 mb-1">
           <span className="text-base">{currentFact.icon}</span>
-          <span className="text-[10px] font-black uppercase tracking-wider text-amber-400">
+          <span className="text-[10px] font-black uppercase tracking-wider text-emerald-800">
             {currentFact.tag}
           </span>
           <div className="ml-auto flex items-center gap-1">
@@ -3990,31 +3767,31 @@ function RocketPrinterAnimation({ prepStatus }: { prepStatus: string }) {
               <span
                 key={i}
                 className={`size-1.5 rounded-full transition-all duration-300 ${
-                  factIndex % 5 === i ? "bg-amber-400 w-3" : "bg-slate-600"
+                  factIndex % 5 === i ? "bg-emerald-600 w-3" : "bg-slate-300"
                 }`}
               />
             ))}
           </div>
         </div>
-        <p className="text-xs text-slate-200 leading-relaxed font-medium transition-opacity duration-300">
+        <p className="text-xs text-slate-700 leading-relaxed font-medium transition-opacity duration-300">
           {currentFact.text}
         </p>
       </div>
 
       {/* Progress Checklist */}
-      <div className="mt-4 rounded-2xl border border-slate-800 bg-slate-900/90 p-3 text-left space-y-2">
+      <div className="mt-4 rounded-2xl border border-emerald-100 bg-emerald-50/60 p-3 text-left space-y-2">
         <div className="flex items-center gap-2.5">
-          <CheckCircle2 className="size-4 text-emerald-400 shrink-0" />
-          <span className="text-xs font-bold text-slate-200">Page ranges &amp; settings verified</span>
+          <CheckCircle2 className="size-4 text-emerald-600 shrink-0" />
+          <span className="text-xs font-bold text-slate-800">Page ranges &amp; settings verified</span>
         </div>
         <div className="flex items-center gap-2.5">
-          <CheckCircle2 className="size-4 text-emerald-400 shrink-0" />
-          <span className="text-xs font-bold text-slate-200">Printable documents formatted &amp; secured</span>
+          <CheckCircle2 className="size-4 text-emerald-600 shrink-0" />
+          <span className="text-xs font-bold text-slate-800">Printable documents formatted &amp; secured</span>
         </div>
         <div className="flex items-center gap-2.5">
-          <LoaderCircle className="size-4 text-emerald-400 animate-spin shrink-0" />
-          <span className="text-xs font-bold text-emerald-300 truncate">
-            {prepStatus}
+          <LoaderCircle className="size-4 text-emerald-600 animate-spin shrink-0" />
+          <span className="text-xs font-bold text-emerald-800 truncate">
+            {prepStatus || "Connecting to shop counter queue..."}
           </span>
         </div>
       </div>
