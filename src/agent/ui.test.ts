@@ -1,7 +1,14 @@
 import { describe, expect, it, vi } from "vitest";
 import vm from "node:vm";
 vi.mock("./daemon", () => ({ agentDaemon: { getStatus: () => ({ serverUrl: "https://printiva.co.in" }) } }));
-vi.mock("./logger", () => ({ logger: {} }));
+vi.mock("./logger", () => ({
+  logger: {
+    info: vi.fn(),
+    warn: vi.fn(),
+    error: vi.fn(),
+    debug: vi.fn(),
+  },
+}));
 import { AgentWebServer } from "./ui";
 
 describe("agent dashboard status", () => {

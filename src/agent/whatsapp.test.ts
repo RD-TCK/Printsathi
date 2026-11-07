@@ -2,7 +2,7 @@ import path from "node:path";
 import os from "node:os";
 import fs from "node:fs";
 import { describe, expect, it } from "vitest";
-import { WhatsAppAgentService } from "./whatsapp";
+import { WhatsAppAgentService, isSupportedWhatsAppPrintFile } from "./whatsapp";
 
 describe("WhatsApp Agent Service", () => {
   it("initializes in disconnected state with empty events", () => {
@@ -169,5 +169,112 @@ describe("WhatsApp Agent Service", () => {
 
     (service2 as unknown as { deleteBatchFromDisk(j: string): void }).deleteBatchFromDisk("919876543210@s.whatsapp.net");
     if (fs.existsSync(testDir)) fs.rmSync(testDir, { recursive: true, force: true });
+  });
+
+  describe("File Format Validation & Rejection", () => {
+    it("identifies supported and unsupported print file formats correctly", () => {
+      // Supported: PDF, Word, PowerPoint, Excel, Images, Text
+      expect(isSupportedWhatsAppPrintFile("invoice.pdf", "application/pdf")).toBe(true);
+      expect(isSupportedWhatsAppPrintFile("document.PDF", "")).toBe(true);
+      expect(isSupportedWhatsAppPrintFile("contract.docx", "application/vnd.openxmlformats-officedocument.wordprocessingml.document")).toBe(true);
+      expect(isSupportedWhatsAppPrintFile("bio.doc", "application/msword")).toBe(true);
+      expect(isSupportedWhatsAppPrintFile("presentation.pptx", "application/vnd.openxmlformats-officedocument.presentationml.presentation")).toBe(true);
+      expect(isSupportedWhatsAppPrintFile("slides.ppt", "")).toBe(true);
+      expect(isSupportedWhatsAppPrintFile("data.xlsx", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")).toBe(true);
+      expect(isSupportedWhatsAppPrintFile("sheet.xls", "")).toBe(true);
+      expect(isSupportedWhatsAppPrintFile("photo.jpg", "image/jpeg")).toBe(true);
+      expect(isSupportedWhatsAppPrintFile("screenshot.png", "image/png")).toBe(true);
+      expect(isSupportedWhatsAppPrintFile("image.webp", "image/webp")).toBe(true);
+      expect(isSupportedWhatsAppPrintFile("scan.heic", "")).toBe(true);
+      expect(isSupportedWhatsAppPrintFile("notes.txt", "text/plain")).toBe(true);
+
+      // Unsupported / Forbidden: HTML, Scripts, Audio, Video, Zip, Executables
+      expect(isSupportedWhatsAppPrintFile("index.html", "text/html")).toBe(false);
+      expect(isSupportedWhatsAppPrintFile("page.htm", "text/html")).toBe(false);
+      expect(isSupportedWhatsAppPrintFile("script.js", "application/javascript")).toBe(false);
+      expect(isSupportedWhatsAppPrintFile("archive.zip", "application/zip")).toBe(false);
+      expect(isSupportedWhatsAppPrintFile("setup.exe", "application/x-msdownload")).toBe(false);
+      expect(isSupportedWhatsAppPrintFile("game.apk", "application/vnd.android.package-archive")).toBe(false);
+      expect(isSupportedWhatsAppPrintFile("audio.mp3", "audio/mpeg")).toBe(false);
+      expect(isSupportedWhatsAppPrintFile("clip.mp4", "video/mp4")).toBe(false);
+    });
+
+    it("rejects unsupported document files (.zip, .exe, etc.) and queues a rejection reply", async () => {
+      const testDir = path.join(os.tmpdir(), "wa_test_auth_" + (Date.now() + 8));
+      fs.mkdirSync(testDir, { recursive: true });
+
+      const service = new WhatsAppAgentService(testDir);
+      const unsupportedMsg = {
+        key: {
+          remoteJid: "919876543210@s.whatsapp.net",
+          fromMe: false,
+          id: "msg_unsupported_zip",
+        },
+        message: {
+          documentMessage: {
+            fileName: "project.zip",
+            mimetype: "application/zip",
+          },
+        },
+        messageTimestamp: Math.floor(Date.now() / 1000),
+        pushName: "Amit Sharma",
+      };
+
+      await (service as unknown as { handleIncomingMessage(m: unknown): Promise<void> }).handleIncomingMessage(unsupportedMsg);
+
+      // Verify that no pending batch was created for the sender
+      const pendingBatches = (service as unknown as { pendingBatches: Map<string, unknown> }).pendingBatches;
+      expect(pendingBatches.has("919876543210@s.whatsapp.net")).toBe(false);
+
+      // Verify that an error event was recorded in recentEvents
+      const events = service.getStatus().recentEvents;
+      expect(events.length).toBeGreaterThan(0);
+      expect(events[0].filename).toBe("project.zip");
+      expect(events[0].status).toBe("error");
+      expect(events[0].errorMessage).toContain("Unsupported format");
+
+      // Verify reply was queued for the sender
+      const replies = (service as unknown as { pendingRepliesQueue: Array<{ replyText: string; remoteJid: string }> }).pendingRepliesQueue;
+      expect(replies.length).toBeGreaterThan(0);
+      expect(replies[0].remoteJid).toBe("919876543210@s.whatsapp.net");
+      expect(replies[0].replyText).toContain("Unsupported File Format");
+      expect(replies[0].replyText).toContain("PDF");
+
+      if (fs.existsSync(testDir)) fs.rmSync(testDir, { recursive: true, force: true });
+    });
+
+    it("rejects non-printable media (audio/video/stickers) and queues a rejection reply", async () => {
+      const testDir = path.join(os.tmpdir(), "wa_test_auth_" + (Date.now() + 9));
+      fs.mkdirSync(testDir, { recursive: true });
+
+      const service = new WhatsAppAgentService(testDir);
+      const audioMsg = {
+        key: {
+          remoteJid: "919876543210@s.whatsapp.net",
+          fromMe: false,
+          id: "msg_voice_note",
+        },
+        message: {
+          audioMessage: {
+            mimetype: "audio/ogg; codecs=opus",
+          },
+        },
+        messageTimestamp: Math.floor(Date.now() / 1000),
+        pushName: "Priya",
+      };
+
+      await (service as unknown as { handleIncomingMessage(m: unknown): Promise<void> }).handleIncomingMessage(audioMsg);
+
+      // Verify that no pending batch was created
+      const pendingBatches = (service as unknown as { pendingBatches: Map<string, unknown> }).pendingBatches;
+      expect(pendingBatches.has("919876543210@s.whatsapp.net")).toBe(false);
+
+      // Verify reply was queued for the sender
+      const replies = (service as unknown as { pendingRepliesQueue: Array<{ replyText: string; remoteJid: string }> }).pendingRepliesQueue;
+      expect(replies.length).toBeGreaterThan(0);
+      expect(replies[0].replyText).toContain("Unsupported Format");
+
+      if (fs.existsSync(testDir)) fs.rmSync(testDir, { recursive: true, force: true });
+    });
   });
 });

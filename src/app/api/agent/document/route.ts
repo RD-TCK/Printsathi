@@ -36,8 +36,8 @@ export async function GET(request: Request) {
   const documentId = searchParams.get("documentId");
   const jobId = searchParams.get("jobId");
 
-  if (!documentId || !jobId) {
-    return NextResponse.json({ error: "Missing documentId or jobId parameter." }, { status: 400 });
+  if (!documentId) {
+    return NextResponse.json({ error: "Missing documentId parameter." }, { status: 400 });
   }
 
   const adminClient = createSupabaseAdminClient();
@@ -45,35 +45,41 @@ export async function GET(request: Request) {
     return NextResponse.json({ error: "Database service not configured." }, { status: 503 });
   }
 
-  // 1. Verify that this job belongs to this agent's shop and is claimed by this agent
-  const { data: job, error: jobError } = await adminClient
-    .from("print_jobs")
-    .select("id, shop_id, document_id, order_id, claimed_by_agent_id, status")
-    .eq("id", jobId)
-    .eq("shop_id", auth.shop.id)
-    .maybeSingle();
+  let effectiveOrderId: string | null = null;
 
-  if (jobError || !job) {
-    return NextResponse.json({ error: "Print job not found." }, { status: 404 });
-  }
-
-  if (job.document_id !== documentId) {
-    return NextResponse.json({ error: "Document does not match print job." }, { status: 400 });
-  }
-
-  // If this print job belongs to this shop but was claimed by another agent or lease expired,
-  // adopt and renew the claim for this active agent so downloads and batch execution proceed seamlessly.
-  if (job.claimed_by_agent_id !== auth.agent.id) {
-    await adminClient
+  if (jobId) {
+    // 1. Verify that this job belongs to this agent's shop and is claimed by this agent
+    const { data: job, error: jobError } = await adminClient
       .from("print_jobs")
-      .update({
-        claimed_by_agent_id: auth.agent.id,
-        claim_expires_at: new Date(Date.now() + 120000).toISOString(),
-        status: "claimed",
-        updated_at: new Date().toISOString(),
-      })
-      .eq("id", job.id)
-      .eq("shop_id", auth.shop.id);
+      .select("id, shop_id, document_id, order_id, claimed_by_agent_id, status")
+      .eq("id", jobId)
+      .eq("shop_id", auth.shop.id)
+      .maybeSingle();
+
+    if (jobError || !job) {
+      return NextResponse.json({ error: "Print job not found." }, { status: 404 });
+    }
+
+    if (job.document_id !== documentId) {
+      return NextResponse.json({ error: "Document does not match print job." }, { status: 400 });
+    }
+
+    effectiveOrderId = job.order_id;
+
+    // If this print job belongs to this shop but was claimed by another agent or lease expired,
+    // adopt and renew the claim for this active agent so downloads and batch execution proceed seamlessly.
+    if (job.claimed_by_agent_id !== auth.agent.id) {
+      await adminClient
+        .from("print_jobs")
+        .update({
+          claimed_by_agent_id: auth.agent.id,
+          claim_expires_at: new Date(Date.now() + 120000).toISOString(),
+          status: "claimed",
+          updated_at: new Date().toISOString(),
+        })
+        .eq("id", job.id)
+        .eq("shop_id", auth.shop.id);
+    }
   }
 
   // 2. Fetch document storage path
@@ -88,7 +94,9 @@ export async function GET(request: Request) {
     return NextResponse.json({ error: "Document record not found." }, { status: 404 });
   }
 
-  const effectiveOrderId = job.order_id || document.order_id;
+  if (!effectiveOrderId) {
+    effectiveOrderId = document.order_id;
+  }
   let fileBuffer: Buffer | null = null;
   let effectiveMime = "application/pdf";
 

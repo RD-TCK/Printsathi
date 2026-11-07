@@ -102,6 +102,46 @@ function isNetworkError(err: unknown): boolean {
   );
 }
 
+export function isSupportedWhatsAppPrintFile(filename: string, mimetype?: string): boolean {
+  const ext = path.extname(filename || "").toLowerCase();
+  const mime = (mimetype || "").toLowerCase();
+
+  // Explicitly block and reject dangerous or web formats (HTML, scripts, executables, archives)
+  const forbiddenExts = new Set([
+    ".html", ".htm", ".xhtml", ".js", ".mjs", ".ts", ".jsx", ".tsx",
+    ".exe", ".bat", ".cmd", ".ps1", ".vbs", ".sh", ".zip", ".rar", ".7z", ".tar", ".gz"
+  ]);
+  if (forbiddenExts.has(ext) || mime.includes("html") || mime.includes("javascript")) {
+    return false;
+  }
+
+  const isPdf = ext === ".pdf" || mime.includes("pdf");
+  const isImage =
+    mime.startsWith("image/") ||
+    [".jpg", ".jpeg", ".png", ".webp", ".heic", ".heif", ".avif", ".bmp", ".tif", ".tiff"].includes(ext);
+  const isDoc =
+    ext === ".doc" ||
+    ext === ".docx" ||
+    mime.includes("word") ||
+    mime.includes("officedocument.wordprocessingml");
+  const isPresentation =
+    ext === ".ppt" ||
+    ext === ".pptx" ||
+    ext === ".odp" ||
+    mime.includes("presentation") ||
+    mime.includes("powerpoint");
+  const isSpreadsheet =
+    ext === ".xls" ||
+    ext === ".xlsx" ||
+    ext === ".ods" ||
+    mime.includes("spreadsheet") ||
+    mime.includes("sheet") ||
+    mime.includes("excel");
+  const isText = ext === ".txt" || ext === ".csv" || (mime.startsWith("text/plain") && !mime.includes("html"));
+
+  return isPdf || isImage || isDoc || isPresentation || isSpreadsheet || isText;
+}
+
 export class WhatsAppAgentService {
   private socket: WASocket | null = null;
   private state: "disconnected" | "connecting" | "qr_ready" | "connected" = "disconnected";
@@ -689,6 +729,7 @@ export class WhatsAppAgentService {
       getNested(rawMsg, "viewOnceMessageV2", "message", "imageMessage") ||
       getNested(currentContainer, "imageMessage")) as { mimetype?: string } | undefined;
 
+
     let senderPhone = "";
     if (
       msg.key.participant &&
@@ -702,6 +743,38 @@ export class WhatsAppAgentService {
     }
 
     const senderName = msg.pushName || "Customer";
+
+    const audioMsg = (getNested(normalizedContent, "audioMessage") ||
+      getNested(rawMsg, "audioMessage") ||
+      getNested(currentContainer, "audioMessage")) as { mimetype?: string } | undefined;
+
+    const videoMsg = (getNested(normalizedContent, "videoMessage") ||
+      getNested(rawMsg, "videoMessage") ||
+      getNested(currentContainer, "videoMessage")) as { mimetype?: string } | undefined;
+
+    const stickerMsg = (getNested(normalizedContent, "stickerMessage") ||
+      getNested(rawMsg, "stickerMessage") ||
+      getNested(currentContainer, "stickerMessage")) as { mimetype?: string } | undefined;
+
+    // Reject non-printable media (audio, video, stickers) immediately
+    if (audioMsg || videoMsg || stickerMsg) {
+      this.processedMessageIds.add(msgId);
+      logger.info(
+        `Rejected non-printable media (${audioMsg ? "audio" : videoMsg ? "video" : "sticker"}) from ${senderName} (+${senderPhone})`,
+      );
+
+      const rejectText =
+        `❌ *Unsupported Format / अमान्य फाइल*\n\n` +
+        `Namaste ${senderName}! 🙏 We can only print *PDF, Word (.docx, .doc), or Photos/Images (JPG, PNG)*.\n\n` +
+        `📄 *Please send your document in a supported format:*\n` +
+        `• *PDF* (.pdf)\n` +
+        `• *Word Document* (.docx, .doc)\n` +
+        `• *Photos / Images* (JPG, PNG, JPEG)\n\n` +
+        `_कृपया अपनी फाइल को *PDF, Word या Photo* फॉर्मेट में भेजें।_ 🙏`;
+
+      await this.sendOrQueueReply(remoteJid, senderPhone, rejectText, msg);
+      return;
+    }
 
     if (!documentMsg && !imageMsg) {
       const textContent = (
@@ -721,6 +794,47 @@ export class WhatsAppAgentService {
       return;
     }
 
+    const rawFilename =
+      documentMsg?.fileName ||
+      (imageMsg ? `photo_${Date.now()}_${Math.floor(Math.random() * 1000)}.jpg` : "document.pdf");
+    const filename = rawFilename.replace(/[/\\?%*:|"<>]/g, "_");
+    const mimetype = documentMsg?.mimetype || imageMsg?.mimetype || "application/octet-stream";
+
+    // Strictly validate that document/image is PDF, Word (.docx/.doc), or Image
+    if (!isSupportedWhatsAppPrintFile(filename, mimetype)) {
+      this.processedMessageIds.add(msgId);
+      logger.info(
+        `Rejected unsupported file "${filename}" (mime: ${mimetype}) from ${senderName} (+${senderPhone})`,
+      );
+
+      this.recentEvents.unshift({
+        id: crypto.randomUUID(),
+        timestamp: new Date().toLocaleTimeString(),
+        senderPhone: `+${senderPhone}`,
+        senderName,
+        filename,
+        pageCount: 0,
+        configUrl: "",
+        status: "error",
+        errorMessage:
+          "Unsupported format. Please send PDF, Word (.docx/.doc), PowerPoint (.pptx), Excel (.xlsx), or Photos (JPG/PNG).",
+      });
+
+      const rejectText =
+        `❌ *Unsupported File Format / अमान्य फाइल*\n\n` +
+        `Namaste ${senderName}! 🙏 We cannot print this file format (*${filename}*).\n\n` +
+        `📄 *Please send your file in a supported format:*\n` +
+        `• *PDF* (.pdf)\n` +
+        `• *Word Document* (.docx, .doc)\n` +
+        `• *PowerPoint Presentation* (.pptx, .ppt)\n` +
+        `• *Excel Spreadsheet* (.xlsx, .xls)\n` +
+        `• *Photos / Images* (JPG, PNG, JPEG)\n\n` +
+        `_कृपया अपनी फाइल को *PDF, Word, PPT, Excel या Photo* फॉर्मेट में भेजें।_ 🙏`;
+
+      await this.sendOrQueueReply(remoteJid, senderPhone, rejectText, msg);
+      return;
+    }
+
     // Mark as processed so we never duplicate
     this.processedMessageIds.add(msgId);
     if (this.processedMessageIds.size > 1000) {
@@ -729,11 +843,6 @@ export class WhatsAppAgentService {
         this.processedMessageIds.delete(id);
       }
     }
-
-    const rawFilename =
-      documentMsg?.fileName ||
-      (imageMsg ? `photo_${Date.now()}_${Math.floor(Math.random() * 1000)}.jpg` : "document.pdf");
-    const filename = rawFilename.replace(/[/\\?%*:|"<>]/g, "_");
 
     logger.info(
       `Received WhatsApp ${documentMsg ? "document" : "image"} from ${senderName} (+${senderPhone}): "${filename}"`,

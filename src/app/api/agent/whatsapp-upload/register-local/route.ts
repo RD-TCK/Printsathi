@@ -71,7 +71,10 @@ export async function POST(request: Request) {
     // 1. Upload preview images to Supabase storage in parallel (only lightweight ~150KB thumbnails)
     await Promise.all(
       documents.map(async (doc) => {
-        if (!doc.previewBase64) return;
+        if (!doc.previewBase64) {
+          console.warn(`[register-local] No previewBase64 for document ${doc.id} (${doc.filename}), skipping preview upload`);
+          return;
+        }
         const matches = doc.previewBase64.match(/^data:(image\/(?:jpeg|png|webp));base64,(.+)$/);
         if (!matches || matches.length !== 3) return;
 
@@ -80,7 +83,9 @@ export async function POST(request: Request) {
         const previewStoragePath = `shops/${shop.id}/orders/${orderId}/documents/${doc.id}/preview.jpg`;
 
         let uploadSucceeded = false;
-        for (let attempt = 1; attempt <= 3; attempt++) {
+        let lastUploadError: unknown;
+        // 5 attempts with exponential backoff (250ms, 500ms, 1000ms, 2000ms)
+        for (let attempt = 1; attempt <= 5; attempt++) {
           const { error: uploadErr } = await client.storage
             .from("print-documents")
             .upload(previewStoragePath, buffer, {
@@ -93,12 +98,16 @@ export async function POST(request: Request) {
             uploadSucceeded = true;
             break;
           }
-          if (attempt < 3) {
-            await new Promise((r) => setTimeout(r, 250 * attempt));
+          lastUploadError = uploadErr;
+          if (attempt < 5) {
+            await new Promise((r) => setTimeout(r, 250 * Math.pow(2, attempt - 1)));
           }
         }
         if (!uploadSucceeded) {
-          console.warn(`Failed to upload preview thumbnail for document ${doc.id} after 3 attempts`);
+          console.error(
+            `[register-local] Failed to upload preview for document ${doc.id} (${doc.filename}) after 5 attempts. Last error:`,
+            lastUploadError,
+          );
         }
       }),
     );

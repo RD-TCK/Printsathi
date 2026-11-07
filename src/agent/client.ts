@@ -143,14 +143,15 @@ export class AgentApiClient {
     return (data.job as ClaimedJob) || null;
   }
 
-  async downloadDocument(documentId: string, jobId: string, destinationFilePath: string): Promise<void> {
+  async downloadDocument(documentId: string, jobId: string | null | undefined, destinationFilePath: string): Promise<void> {
     if (!this.token) {
       throw new Error("Agent is not authenticated.");
     }
 
-    const url = `${this.serverUrl}/api/agent/document?documentId=${encodeURIComponent(
-      documentId,
-    )}&jobId=${encodeURIComponent(jobId)}`;
+    let url = `${this.serverUrl}/api/agent/document?documentId=${encodeURIComponent(documentId)}`;
+    if (jobId) {
+      url += `&jobId=${encodeURIComponent(jobId)}`;
+    }
 
     let lastError: Error | null = null;
     const maxRetries = 3;
@@ -186,7 +187,7 @@ export class AgentApiClient {
       } catch (err: unknown) {
         lastError = err instanceof Error ? err : new Error(String(err));
         logger.warn(
-          `Document download attempt ${attempt}/${maxRetries} for Job #${jobId.slice(0, 8)} failed: ${lastError.message}`,
+          `Document download attempt ${attempt}/${maxRetries} for ${jobId ? `Job #${jobId.slice(0, 8)}` : `Doc #${documentId.slice(0, 8)}`} failed: ${lastError.message}`,
         );
         if (attempt < maxRetries) {
           await new Promise((resolve) => setTimeout(resolve, 1500 * attempt));
@@ -415,5 +416,19 @@ export class AgentApiClient {
     }
 
     throw new Error(data.error || `Completion failed with HTTP ${response.status}`);
+  }
+
+  async reportPrecacheComplete(documentId: string, orderId: string): Promise<void> {
+    if (!this.token) return;
+    try {
+      const url = `${this.serverUrl}/api/agent/precache-complete`;
+      await fetch(url, {
+        method: "POST",
+        headers: this.getHeaders(),
+        body: JSON.stringify({ documentId, orderId }),
+      });
+    } catch {
+      // Non-fatal background report
+    }
   }
 }

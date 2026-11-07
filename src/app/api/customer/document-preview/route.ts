@@ -191,6 +191,9 @@ export async function GET(request: Request) {
   // If the document is stored strictly locally on the shop PC and has no preview image,
   // return a beautiful vector SVG document sheet so <img> tags never show broken image icons.
   if (doc.storage_path.startsWith("local://")) {
+    // For image files (e.g. WhatsApp photos), the preview thumbnail should have been uploaded
+    // to Supabase during registration. If it wasn't (upload failed), we still return the SVG
+    // placeholder — the user can still proceed; the actual image is on the shop PC.
     const svg = renderDocPlaceholderSvg({
       filename: doc.original_filename,
       pageCount: doc.page_count,
@@ -198,7 +201,7 @@ export async function GET(request: Request) {
     });
     const headers = new Headers();
     headers.set("Content-Type", "image/svg+xml");
-    headers.set("Cache-Control", "private, max-age=86400");
+    headers.set("Cache-Control", "private, max-age=60"); // short cache: preview may appear later
     headers.set("Access-Control-Allow-Origin", "*");
     headers.set("Content-Disposition", `inline; filename="${encodeURIComponent(doc.original_filename)}"`);
 
@@ -232,20 +235,28 @@ export async function GET(request: Request) {
   const arrayBuf = await fileBlob.arrayBuffer();
   const buffer = Buffer.from(arrayBuf);
 
-  // If this document is an image (or single-photo PDF), extract the original image stream
+  // If this document is an image (or single-photo PDF), extract the original image stream.
+  // For WhatsApp/image uploads the source.pdf is a single-page image PDF created by pdf-lib.
+  // First try fast binary extraction of the embedded JPEG/PNG; if that fails (e.g. pdf-lib
+  // used object streams or compressed cross-reference tables that hide the raw image bytes),
+  // fall back to rendering the PDF page via sharp so we always serve a real preview instead
+  // of the SVG placeholder card.
   if (isImageDoc || doc.mime_type === "application/pdf") {
     const extracted = await extractImageFromPdf(buffer);
-    if (extracted) {
+    const previewBuffer = extracted?.buffer ?? null;
+    const previewMimeType = extracted?.mimeType ?? null;
+
+    if (previewBuffer) {
       // Opportunistically cache preview.jpg for instant subsequent requests
       void client.storage
         .from("print-documents")
-        .upload(previewPath, extracted.buffer, {
-          contentType: extracted.mimeType,
+        .upload(previewPath, previewBuffer, {
+          contentType: previewMimeType ?? "image/jpeg",
           upsert: true,
         })
         .catch(() => {});
 
-      const { buffer: optimizedBuffer, mimeType } = await optimizePreviewImage(extracted.buffer, targetWidth);
+      const { buffer: optimizedBuffer, mimeType } = await optimizePreviewImage(previewBuffer, targetWidth);
 
       const headers = new Headers();
       headers.set("Content-Type", mimeType);
@@ -257,6 +268,33 @@ export async function GET(request: Request) {
         status: 200,
         headers,
       });
+    }
+
+    // extractImageFromPdf() returned null — this happens when pdf-lib uses compressed object
+    // streams that hide the raw JPEG bytes. For image documents we still want to show the
+    // actual photo, so render the first page of the PDF directly via sharp as a fallback.
+    if (isImageDoc) {
+      try {
+        const { buffer: optimizedBuffer, mimeType } = await optimizePreviewImage(buffer, targetWidth);
+        // Cache so the next request skips this slow fallback path entirely
+        void client.storage
+          .from("print-documents")
+          .upload(previewPath, optimizedBuffer, { contentType: mimeType, upsert: true })
+          .catch(() => {});
+
+        const headers = new Headers();
+        headers.set("Content-Type", mimeType);
+        headers.set("Cache-Control", "private, max-age=86400, stale-while-revalidate=604800");
+        headers.set("Access-Control-Allow-Origin", "*");
+        headers.set("Content-Disposition", `inline; filename="${encodeURIComponent(doc.original_filename)}"`);
+
+        return new NextResponse(new Uint8Array(optimizedBuffer), {
+          status: 200,
+          headers,
+        });
+      } catch {
+        // sharp cannot render this PDF — fall through to SVG placeholder
+      }
     }
   }
 

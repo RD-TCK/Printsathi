@@ -2,6 +2,7 @@ import { execFile } from "node:child_process";
 import os from "node:os";
 import type { DiscoveredPrinter } from "./types";
 import { logger } from "./logger";
+import { loadConfig } from "./config";
 
 function runPowerShellScript(script: string, timeoutMs: number = 8000): Promise<string> {
   return new Promise((resolve) => {
@@ -40,11 +41,12 @@ export async function discoverWindowsPrinters(forceRefresh = false): Promise<Dis
   }
 
   try {
+    const config = loadConfig();
+    const disabledSet = new Set((config.disabledPrinters || []).map((s) => s.trim().toLowerCase()));
+    const colorOverrides = config.printerColorOverrides || {};
+
     const printerScript = `
 [Console]::OutputEncoding = [System.Text.UTF8Encoding]::new()
-try {
-  Get-Printer -ErrorAction SilentlyContinue | Where-Object { $_.WorkOffline -eq $true } | Set-Printer -WorkOffline $false -ErrorAction SilentlyContinue
-} catch {}
 $printers = Get-CimInstance Win32_Printer -ErrorAction SilentlyContinue
 if (-not $printers) {
   $printers = Get-WmiObject Win32_Printer -ErrorAction SilentlyContinue
@@ -52,8 +54,29 @@ if (-not $printers) {
 if (-not $printers) {
   $printers = Get-Printer -ErrorAction SilentlyContinue
 }
-if ($printers) {
-  $printers | Select-Object Name, Default, PrinterStatus, DriverName, PortName, WorkOffline, DetectedErrorState, PrinterPaperNames | ConvertTo-Json -Compress
+$pnp = Get-PnpDevice -Class Printer -ErrorAction SilentlyContinue
+
+$results = foreach ($p in $printers) {
+  $pName = $p.Name
+  $matchedPnp = $pnp | Where-Object { $_.FriendlyName -eq $pName -or ($p.PortName -and $_.InstanceId -like "*$($p.PortName)*") } | Select-Object -First 1
+  $isPnpPresent = $null
+  if ($matchedPnp) {
+    $isPnpPresent = [bool]$matchedPnp.Present
+  }
+  [PSCustomObject]@{
+    Name = $p.Name
+    Default = [bool]$p.Default
+    PrinterStatus = [int]$p.PrinterStatus
+    DriverName = [string]$p.DriverName
+    PortName = [string]$p.PortName
+    WorkOffline = [bool]$p.WorkOffline
+    DetectedErrorState = [int]$p.DetectedErrorState
+    PrinterPaperNames = $p.PrinterPaperNames
+    PnpPresent = $isPnpPresent
+  }
+}
+if ($results) {
+  $results | ConvertTo-Json -Compress
 }
 `;
 
@@ -117,49 +140,114 @@ if ($configs) {
       .filter((item) => item && typeof item.Name === "string" && item.Name.trim().length > 0)
       .map((item) => {
         const name = String(item.Name).trim();
+        const nameLower = name.toLowerCase();
         const isDefault = Boolean(item.Default);
-        const isOffline = Boolean(item.WorkOffline) || Number(item.PrinterStatus) === 7;
         const driverName = item.DriverName ? String(item.DriverName) : undefined;
-        const systemId = name.toLowerCase().replace(/[^a-z0-9]/g, "_");
+        const portName = item.PortName ? String(item.PortName).trim() : undefined;
+        const systemId = nameLower.replace(/[^a-z0-9]/g, "_");
+
+        const statusCode = Number(item.PrinterStatus);
+        const isWorkOffline = Boolean(item.WorkOffline);
+        const isUsb = Boolean(portName && /^(usb|dot4)/i.test(portName)) || item.PnpPresent !== null;
+        const isPnpDisconnected = item.PnpPresent === false;
+        const isExplicitOffline = statusCode === 7;
+
+        // Physical Disconnection:
+        // A USB printer is disconnected ONLY when absent from the USB bus (PnpPresent === false).
+        // If PnpPresent === true, the hardware IS plugged in and powered; WorkOffline = true simply
+        // means Windows Spooler entered power-saving deep sleep / idle timeout.
+        const isPhysicallyDisconnected = isUsb
+          ? isPnpDisconnected
+          : isPnpDisconnected || (isWorkOffline && item.PnpPresent !== true) || isExplicitOffline;
+
+        // Detect if printer is in sleep / idle power-saving state:
+        const isSleeping = !isPhysicallyDisconnected && (isWorkOffline || statusCode === 11);
 
         let status: DiscoveredPrinter["status"] = "online";
-        if (isOffline) {
+        if (isPhysicallyDisconnected) {
           status = "offline";
         } else if (
-          Number(item.PrinterStatus) === 6 ||
-          [4, 6, 7, 8, 9, 10, 11].includes(Number(item.DetectedErrorState))
+          statusCode === 6 ||
+          [4, 6, 7, 8, 9, 10].includes(Number(item.DetectedErrorState))
         ) {
           status = "error";
-        } else if (Number(item.PrinterStatus) === 4) {
+        } else if (statusCode === 4) {
           status = "printing";
         }
 
-        // Determine color capability:
-        // 1. First check Win32_PrinterConfiguration Color property
-        // 2. Fall back to name/driver heuristics (e.g. LaserJet M1005 is mono)
-        const nameLower = name.toLowerCase();
-        const driverLower = (driverName || "").toLowerCase();
-        const fullDesc = `${nameLower} ${driverLower}`;
+        // Check if printer is disabled by user in agent config
+        const isDisabled = disabledSet.has(nameLower);
+        if (isDisabled) {
+          status = "offline";
+        }
 
-        let colorSupport = colorMap.get(nameLower);
-        if (colorSupport === undefined) {
-          const isKnownMono =
+        // Determine color capability:
+        // Priority 1: User manual override in agent config (highest authority)
+        // Priority 2: Win32_PrinterConfiguration Color property (2=Color, 1=Mono)
+        // Priority 3: Driver/Name model keywords (defaults safely to Monochrome for unknown office printers)
+        let isColorUserOverride = false;
+        let colorSupport: boolean | undefined;
+
+        if (colorOverrides[nameLower] !== undefined) {
+          colorSupport = Boolean(colorOverrides[nameLower]);
+          isColorUserOverride = true;
+        } else if (colorMap.has(nameLower)) {
+          colorSupport = colorMap.get(nameLower);
+        } else {
+          const driverLower = (driverName || "").toLowerCase();
+          const fullDesc = `${nameLower} ${driverLower}`;
+
+          const isExplicitColor =
+            fullDesc.includes("color") ||
+            fullDesc.includes("clp") ||
+            fullDesc.includes("c-series") ||
+            fullDesc.includes("deskjet") ||
+            fullDesc.includes("inkjet") ||
+            fullDesc.includes("pixma") ||
+            fullDesc.includes("ecotank") ||
+            fullDesc.includes("smart tank") ||
+            fullDesc.includes("tank") ||
+            fullDesc.includes("l32") ||
+            fullDesc.includes("l31") ||
+            fullDesc.includes("l130") ||
+            fullDesc.includes("g20") ||
+            fullDesc.includes("g30") ||
+            fullDesc.includes("g10") ||
+            fullDesc.includes("t510") ||
+            fullDesc.includes("dcp-t") ||
+            fullDesc.includes("mfc-t");
+
+          const isExplicitMono =
             fullDesc.includes("mono") ||
             fullDesc.includes("m1005") ||
+            fullDesc.includes("1020") ||
+            fullDesc.includes("1007") ||
+            fullDesc.includes("1008") ||
             fullDesc.includes("black") ||
-            fullDesc.includes("laserjet 1") ||
-            fullDesc.includes("laserjet p") ||
+            fullDesc.includes("laserjet") ||
+            fullDesc.includes("lbp") ||
+            fullDesc.includes("hl-") ||
+            fullDesc.includes("dcp-l") ||
+            fullDesc.includes("mfc-l") ||
+            fullDesc.includes("pantum") ||
             fullDesc.includes("thermal") ||
             fullDesc.includes("pos-");
-          // ECOSYS C-series (e.g. M6630CIDN) and all Kyocera/Taskalfa colour MFPs default to color
-          colorSupport = !isKnownMono;
+
+          if (isExplicitColor) {
+            colorSupport = true;
+          } else if (isExplicitMono) {
+            colorSupport = false;
+          } else {
+            // Default safe choice for office printers: Monochrome (never falsely assume color)
+            colorSupport = false;
+          }
         }
 
         // Determine duplex capability:
-        // 1. Check Win32_PrinterConfiguration Duplex property (authoritative — set by driver)
-        // 2. Fall back to known enterprise copiers and auto-duplex printer heuristics
         let duplexSupport = duplexMap.get(nameLower);
         if (duplexSupport === undefined || duplexSupport === false) {
+          const driverLower = (driverName || "").toLowerCase();
+          const fullDesc = `${nameLower} ${driverLower}`;
           const isKnownSimplex =
             fullDesc.includes("m1005") ||
             fullDesc.includes("1020") ||
@@ -175,32 +263,14 @@ if ($configs) {
             fullDesc.includes("pos-");
 
           const isKnownDuplex =
-            // Canon imageRUNNER / imageRUNNER ADVANCE
             fullDesc.includes("ir-adv") ||
             fullDesc.includes("ir adv") ||
             fullDesc.includes("imagerunner") ||
-            fullDesc.includes("c3326") ||
-            fullDesc.includes("c3330") ||
-            fullDesc.includes("c3520") ||
-            fullDesc.includes("c5535") ||
-            fullDesc.includes("c5540") ||
-            fullDesc.includes("c5550") ||
-            fullDesc.includes("c5560") ||
-            fullDesc.includes("6075") ||
-            fullDesc.includes("4545") ||
-            fullDesc.includes("4245") ||
-            fullDesc.includes("4045") ||
-            // Konica Minolta bizhub
             fullDesc.includes("bizhub") ||
-            // Kyocera ECOSYS / TASKalfa — all M-series MFPs (M2135, M2635, M3145, M6230, M6630, etc.) have duplex
-            // CIDN/CDN/CIWH suffix means Color + Duplex + Network
             fullDesc.includes("ecosys") ||
             fullDesc.includes("taskalfa") ||
             fullDesc.includes("kyocera") ||
-            // Generic "duplex" keyword in name or driver
             fullDesc.includes("duplex") ||
-            // Standard model suffix codes: DN = Duplex+Network, DW = Duplex+WiFi, etc.
-            // Use both word-boundary check AND end-of-token check to catch embedded suffixes like "CIDN", "CDN"
             /\b(dn|dw|cdw|fdw|dne|dtn)\b/.test(fullDesc) ||
             /(cidn|cdn|ciwh|ciph)$/.test(nameLower);
 
@@ -217,9 +287,12 @@ if ($configs) {
           status,
           isDefault,
           driverName,
-          portName: item.PortName ? String(item.PortName) : undefined,
+          portName,
+          isDisabled,
+          isSleeping,
+          isColorUserOverride,
           capabilities: {
-            colorSupport,
+            colorSupport: Boolean(colorSupport),
             duplexSupport: Boolean(duplexSupport),
             paperSizes:
               Array.isArray(item.PrinterPaperNames) && item.PrinterPaperNames.length
@@ -285,6 +358,7 @@ export function findBestPrinterForJob(
     requiredPrinterName?: string | null;
     requiresDuplex?: boolean;
     busyPrinters?: Set<string> | string[];
+    disabledPrinters?: string[];
     allowColorFallbackForMono?: boolean;
     allowOffline?: boolean;
   },
@@ -297,10 +371,25 @@ export function findBestPrinterForJob(
         : [],
   );
 
+  let configDisabled: string[] = [];
+  try {
+    const config = loadConfig();
+    configDisabled = config?.disabledPrinters || [];
+  } catch {
+    // Non-fatal if config unavailable
+  }
+
+  const disabledSet = new Set([
+    ...(options.disabledPrinters || []).map((s) => s.toLowerCase()),
+    ...configDisabled.map((s) => s.toLowerCase()),
+  ]);
+
   // If a specific printer is required (e.g. Duplex Step 2 even pages must print on the exact same printer)
   if (options.requiredPrinterName) {
     const matched = printers.find(
       (p) =>
+        !p.isDisabled &&
+        !disabledSet.has(p.name.toLowerCase()) &&
         isPhysicalPrinter(p) &&
         (options.allowOffline || p.status !== "offline") &&
         p.name.toLowerCase() === options.requiredPrinterName!.toLowerCase(),
@@ -326,9 +415,14 @@ export function findBestPrinterForJob(
     return null;
   }
 
-  // Filter for physical printers that are NOT currently busy or reserved.
+  // Filter for physical printers that are enabled and NOT currently busy, disabled, or reserved.
   const availablePrinters = printers.filter(
-    (p) => isPhysicalPrinter(p) && (options.allowOffline || p.status !== "offline") && !busySet.has(p.name.toLowerCase()),
+    (p) =>
+      !p.isDisabled &&
+      !disabledSet.has(p.name.toLowerCase()) &&
+      isPhysicalPrinter(p) &&
+      (options.allowOffline || p.status !== "offline") &&
+      !busySet.has(p.name.toLowerCase()),
   );
 
   const compatiblePrinters = availablePrinters.filter(
@@ -347,6 +441,10 @@ export function findBestPrinterForJob(
     const onlineDefault = candidates.find((p) => p.isDefault && (p.status === "online" || p.status === "printing"));
     if (onlineDefault) return onlineDefault;
 
+    // Prefer active awake printers first over sleeping ones if multiple are available
+    const awakeOnline = candidates.find((p) => !p.isSleeping && (p.status === "online" || p.status === "printing"));
+    if (awakeOnline) return awakeOnline;
+
     const firstOnline = candidates.find((p) => p.status === "online" || p.status === "printing");
     if (firstOnline) return firstOnline;
 
@@ -356,26 +454,50 @@ export function findBestPrinterForJob(
     return candidates[0] || null;
   };
 
-  // If user requested a preferred printer and it satisfies strict capabilities, use it
+  if (options.colorMode === "color") {
+    // STRICT COLOR AUTO-ROUTING:
+    // Color jobs MUST route ONLY to a physical printer that explicitly supports Color!
+    // A B&W printer marked as "default" will NEVER receive color prints under any circumstances!
+    const colorPrinters = compatiblePrinters.filter((p) => p.capabilities?.colorSupport === true);
+    if (colorPrinters.length === 0) return null;
+
+    // Use preferred printer ONLY if it is an actual color printer
+    if (options.preferredName) {
+      const preferred = colorPrinters.find((p) => p.name.toLowerCase() === options.preferredName!.toLowerCase());
+      if (preferred) {
+        const hasOnlineCandidate = colorPrinters.some(
+          (p) =>
+            (p.status === "online" || p.status === "printing") &&
+            (!options.requiresDuplex || p.capabilities?.duplexSupport === true),
+        );
+        if (preferred.status !== "offline" || !hasOnlineCandidate) {
+          return preferred;
+        }
+      }
+    }
+
+    if (options.requiresDuplex) {
+      const duplexColor = colorPrinters.filter((p) => p.capabilities?.duplexSupport === true);
+      if (duplexColor.length > 0) return pickBestCandidate(duplexColor);
+    }
+
+    return pickBestCandidate(colorPrinters);
+  }
+
+  // B&W ROUTING:
+  // If user selected a preferred default printer, use it ONLY if it is a B&W printer (or fallback is allowed)
   if (options.preferredName) {
     const matched = compatiblePrinters.find((p) => p.name.toLowerCase() === options.preferredName!.toLowerCase());
     if (matched) {
       const satisfiesDuplex = !options.requiresDuplex || matched.capabilities?.duplexSupport === true;
-      const satisfiesColor =
-        options.colorMode === "color"
-          ? matched.capabilities?.colorSupport === true
-          : !matched.capabilities?.colorSupport || options.allowColorFallbackForMono === true;
+      const satisfiesMono = !matched.capabilities?.colorSupport || options.allowColorFallbackForMono === true;
 
-      if (satisfiesDuplex && satisfiesColor) {
-        // Zero-touch: If preferred printer is OFFLINE, but an ONLINE compatible printer is available,
-        // do not blindly route to the offline printer!
+      if (satisfiesDuplex && satisfiesMono) {
         const hasOnlineCandidate = compatiblePrinters.some(
           (p) =>
             (p.status === "online" || p.status === "printing") &&
             (!options.requiresDuplex || p.capabilities?.duplexSupport === true) &&
-            (options.colorMode === "color"
-              ? p.capabilities?.colorSupport === true
-              : !p.capabilities?.colorSupport || options.allowColorFallbackForMono === true),
+            !p.capabilities?.colorSupport,
         );
         if (matched.status !== "offline" || !hasOnlineCandidate) {
           return matched;
@@ -384,22 +506,6 @@ export function findBestPrinterForJob(
     }
   }
 
-  if (options.colorMode === "color") {
-    // STRICT COLOR ROUTING:
-    // Must find a printer that explicitly supports color.
-    // NEVER fall back to monochrome/B&W printers for color jobs.
-    let colorPrinters = compatiblePrinters.filter((p) => p.capabilities?.colorSupport === true);
-    if (colorPrinters.length === 0) return null;
-
-    if (options.requiresDuplex) {
-      colorPrinters = colorPrinters.filter((p) => p.capabilities?.duplexSupport === true);
-      return pickBestCandidate(colorPrinters);
-    }
-
-    return pickBestCandidate(colorPrinters);
-  }
-
-  // B&W ROUTING:
   if (options.requiresDuplex) {
     // 1. Prioritize dedicated monochrome duplex printer
     const duplexMono = compatiblePrinters.filter(
@@ -440,7 +546,7 @@ export function findDefaultPrinter(
   preferredName?: string | null,
   allowOffline = false,
 ): DiscoveredPrinter | null {
-  const physicalPrinters = printers.filter((p) => isPhysicalPrinter(p) && (allowOffline || p.status !== "offline"));
+  const physicalPrinters = printers.filter((p) => !p.isDisabled && isPhysicalPrinter(p) && (allowOffline || p.status !== "offline"));
   if (physicalPrinters.length === 0) return null;
 
   if (preferredName) {

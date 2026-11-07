@@ -140,6 +140,8 @@ export async function processAndCacheDocument(
           .resize({ width: 640, height: 900, fit: "inside", withoutEnlargement: true })
           .jpeg({ quality: 75, mozjpeg: true })
           .toBuffer();
+      } else if (extracted?.buffer && extracted.buffer.length <= 2.5 * 1024 * 1024) {
+        previewBuffer = extracted.buffer;
       }
     } catch {
       // ignore
@@ -171,7 +173,8 @@ export async function processAndCacheDocument(
       }
     }
 
-    previewBuffer = thumbBuf;
+    // Use generated thumbnail, or fall back directly to rawBuffer if under 2.5 MB (e.g. WhatsApp photos)
+    previewBuffer = thumbBuf || (rawBuffer.length <= 2.5 * 1024 * 1024 ? rawBuffer : undefined);
 
     // Embed high-res image into standard A4 PDF sheet (auto-orient landscape vs portrait)
     const pdf = await PDFDocument.create();
@@ -339,6 +342,8 @@ export async function processAndCacheDocument(
           .resize({ width: 640, height: 900, fit: "inside", withoutEnlargement: true })
           .jpeg({ quality: 75, mozjpeg: true })
           .toBuffer();
+      } else if (extracted?.buffer && extracted.buffer.length <= 2.5 * 1024 * 1024) {
+        previewBuffer = extracted.buffer;
       }
     } catch {
       // ignore
@@ -354,13 +359,22 @@ export async function processAndCacheDocument(
     `Cached document "${rawFilename}" locally as doc_${documentId}.pdf (${pageCount} pages, ${(finalPdfBuffer.length / 1024 / 1024).toFixed(1)} MB)`,
   );
 
+  let previewMime = "image/jpeg";
+  if (previewBuffer) {
+    if (previewBuffer.subarray(0, 4).toString("hex") === "89504e47") {
+      previewMime = "image/png";
+    } else if (previewBuffer.subarray(0, 4).toString("hex").startsWith("52494646")) {
+      previewMime = "image/webp";
+    }
+  }
+
   return {
     id: documentId,
     filename: rawFilename,
     cachedPdfPath,
     pageCount,
     sizeBytes: finalPdfBuffer.length,
-    previewBase64: previewBuffer ? `data:image/jpeg;base64,${previewBuffer.toString("base64")}` : undefined,
+    previewBase64: previewBuffer ? `data:${previewMime};base64,${previewBuffer.toString("base64")}` : undefined,
   };
 }
 

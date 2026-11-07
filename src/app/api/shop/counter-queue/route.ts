@@ -50,6 +50,8 @@ export async function GET(request: Request) {
   const istStartOfDay = new Date(
     Date.UTC(istNow.getUTCFullYear(), istNow.getUTCMonth(), istNow.getUTCDate(), 0, 0, 0) - istOffset,
   );
+  // Include tokens created today (IST) OR within the last 2 hours to avoid dropping active tokens at midnight
+  const queueSince = new Date(Math.min(istStartOfDay.getTime(), now.getTime() - 2 * 60 * 60 * 1000));
 
   // Fetch shop settings for payment mode
   const { data: settings } = await adminClient
@@ -58,7 +60,7 @@ export async function GET(request: Request) {
     .eq("shop_id", shopId)
     .maybeSingle();
 
-  // Fetch counter orders created today (IST)
+  // Fetch counter orders created today (IST) or with active 1-hr token window across midnight
   const { data: orders, error } = await adminClient
     .from("orders")
     .select(
@@ -81,6 +83,7 @@ export async function GET(request: Request) {
       ),
       print_jobs (
         id,
+        document_id,
         status,
         total_pages,
         total_amount,
@@ -96,7 +99,7 @@ export async function GET(request: Request) {
     )
     .eq("shop_id", shopId)
     .eq("payment_mode", "counter")
-    .gte("created_at", istStartOfDay.toISOString())
+    .gte("created_at", queueSince.toISOString())
     .order("token_number", { ascending: false, nullsFirst: false })
     .order("created_at", { ascending: false });
 
@@ -213,6 +216,7 @@ export async function GET(request: Request) {
       })),
       jobs: rawJobs.map((j) => ({
         id: j.id,
+        documentId: j.document_id,
         status: j.status,
         totalPages: j.total_pages,
         duplexStep: j.duplex_step || "none",

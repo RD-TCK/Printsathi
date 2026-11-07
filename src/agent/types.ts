@@ -10,6 +10,8 @@ export interface AgentConfig {
   pollIntervalMs: number;
   heartbeatIntervalMs: number;
   enableSeparatorPage?: boolean;
+  disabledPrinters?: string[];
+  printerColorOverrides?: Record<string, boolean>;
 }
 
 export interface DiscoveredPrinter {
@@ -19,6 +21,9 @@ export interface DiscoveredPrinter {
   isDefault: boolean;
   driverName?: string;
   portName?: string;
+  isDisabled?: boolean;
+  isSleeping?: boolean;
+  isColorUserOverride?: boolean;
   capabilities?: {
     colorSupport?: boolean;
     duplexSupport?: boolean;
@@ -89,6 +94,8 @@ export interface AgentStatusSnapshot {
   selectedPrinter: string | null;
   currentJob: ClaimedJob | null;
   enableSeparatorPage?: boolean;
+  disabledPrinters?: string[];
+  printerColorOverrides?: Record<string, boolean>;
   stats: {
     jobsProcessed: number;
     jobsSubmitted: number;

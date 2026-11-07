@@ -281,6 +281,18 @@ describe("Printiva pricing engine", () => {
     expect(validateRanges([range(1, 4), range(6, 10)], 10)).toBeNull();
     expect(validateRanges([range(1, 5), range(5, 10)], 10)).toContain("overlap");
     expect(validateRanges([range(1, 11)], 10)).toBeTruthy();
+
+    // "Pehla page color chahiye?" Preset validation (Range 1: P.1 Color, Range 2: P.2-N B&W)
+    const firstPageColorPreset = [
+      range(1, 1, "color"),
+      range(2, 10, "black_and_white"),
+    ];
+    expect(validateRanges(firstPageColorPreset, 10)).toBeNull();
+
+    const result = calculatePricing(firstPageColorPreset, rules);
+    expect(result.colorPages).toBe(1);
+    expect(result.blackAndWhitePages).toBe(9);
+    expect(result.totalPages).toBe(10);
   });
 
   it("rejects missing pricing and invalid shop state", () => {

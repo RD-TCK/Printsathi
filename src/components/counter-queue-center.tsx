@@ -678,7 +678,7 @@ export function CounterQueueCenter({ shopName }: { shopName: string }) {
                                 : isPrinting
                                   ? "PRINTING PAGES..."
                                   : isProcessing || item.status === "paid"
-                                    ? "PROCESSING..."
+                                    ? "DISPATCHING TO PRINTER..."
                                     : isOddDone
                                       ? "ODD PAGES PRINTED · RELOAD TRAY"
                                       : isExpired
@@ -850,8 +850,27 @@ export function CounterQueueCenter({ shopName }: { shopName: string }) {
                         ) : isProcessing || item.status === "paid" ? (
                           <div className="flex flex-wrap items-center gap-2">
                             <span className="inline-flex items-center gap-1.5 rounded-lg bg-blue-50 border border-blue-200 px-2.5 py-1 text-[11px] font-bold text-blue-800 shadow-2xs">
-                              <LoaderCircle className="size-3.5 text-blue-600 animate-spin" /> Processing...
+                              <LoaderCircle className="size-3.5 text-blue-600 animate-spin" /> Dispatching to Printer...
                             </span>
+                            <button
+                              type="button"
+                              disabled={actionLoading === `${item.id}-all`}
+                              className="inline-flex items-center justify-center gap-1 whitespace-nowrap rounded-lg bg-gradient-to-b from-blue-600 to-blue-700 px-2.5 py-1 text-[11px] font-bold text-white shadow-2xs hover:from-blue-500 hover:to-blue-600 active:translate-y-[1px] disabled:opacity-50 transition-all cursor-pointer select-none"
+                              onClick={() => handleApprovePrint(item.id, isDouble ? "odd" : "all")}
+                              title="Click to re-send print command if agent or spooler was busy"
+                            >
+                              <RotateCw className="size-3 shrink-0" />
+                              <span>Retry Print</span>
+                            </button>
+                            <button
+                              type="button"
+                              disabled={actionLoading === item.id}
+                              className="inline-flex items-center justify-center gap-1 whitespace-nowrap rounded-lg bg-gradient-to-b from-slate-100 to-slate-200 px-2 py-1 text-[11px] font-bold text-slate-700 border border-slate-300 hover:bg-slate-50 transition-all cursor-pointer select-none"
+                              onClick={() => handleCancelOrder(item.id)}
+                            >
+                              <XCircle className="size-3 text-slate-500" />
+                              <span>Cancel</span>
+                            </button>
                           </div>
                         ) : isCancelled ? (
                           <div className="flex flex-col items-end text-right">

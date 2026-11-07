@@ -15,16 +15,36 @@ export const DEFAULT_CONFIG: AgentConfig = {
   pollIntervalMs: 1000,
   heartbeatIntervalMs: 45000,
   enableSeparatorPage: true,
+  disabledPrinters: [],
+  printerColorOverrides: {},
 };
 
 export function getConfigDirectory(): string {
+  if (process.env.PRINTIVA_CONFIG_DIR) {
+    if (!fs.existsSync(process.env.PRINTIVA_CONFIG_DIR)) {
+      try {
+        fs.mkdirSync(process.env.PRINTIVA_CONFIG_DIR, { recursive: true });
+      } catch {}
+    }
+    return process.env.PRINTIVA_CONFIG_DIR;
+  }
   const appData =
     process.env.LOCALAPPDATA || path.join(os.homedir(), "AppData", "Local") || path.join(os.homedir(), ".printiva");
   const dir = path.join(appData, "PrintivaAgent");
-  if (!fs.existsSync(dir)) {
-    fs.mkdirSync(dir, { recursive: true });
+  try {
+    if (!fs.existsSync(dir)) {
+      fs.mkdirSync(dir, { recursive: true });
+    }
+    return dir;
+  } catch {
+    const tmpDir = path.join(os.tmpdir(), "PrintivaAgent");
+    if (!fs.existsSync(tmpDir)) {
+      try {
+        fs.mkdirSync(tmpDir, { recursive: true });
+      } catch {}
+    }
+    return tmpDir;
   }
-  return dir;
 }
 
 export function getConfigFilePath(): string {
@@ -33,10 +53,20 @@ export function getConfigFilePath(): string {
 
 export function getDocumentCacheDirectory(): string {
   const dir = path.join(getConfigDirectory(), "document_cache");
-  if (!fs.existsSync(dir)) {
-    fs.mkdirSync(dir, { recursive: true });
+  try {
+    if (!fs.existsSync(dir)) {
+      fs.mkdirSync(dir, { recursive: true });
+    }
+    return dir;
+  } catch {
+    const tmpDir = path.join(os.tmpdir(), "PrintivaAgent", "document_cache");
+    if (!fs.existsSync(tmpDir)) {
+      try {
+        fs.mkdirSync(tmpDir, { recursive: true });
+      } catch {}
+    }
+    return tmpDir;
   }
-  return dir;
 }
 
 export function cleanDocumentCache(
@@ -113,6 +143,8 @@ export function loadConfig(): AgentConfig {
       pollIntervalMs: parsed.pollIntervalMs ? Math.max(1000, Math.min(parsed.pollIntervalMs, 5000)) : 2000,
       heartbeatIntervalMs: parsed.heartbeatIntervalMs ? Math.max(10000, Math.min(parsed.heartbeatIntervalMs, 60000)) : 45000,
       enableSeparatorPage: parsed.enableSeparatorPage !== undefined ? Boolean(parsed.enableSeparatorPage) : true,
+      disabledPrinters: Array.isArray(parsed.disabledPrinters) ? parsed.disabledPrinters : [],
+      printerColorOverrides: parsed.printerColorOverrides && typeof parsed.printerColorOverrides === "object" ? parsed.printerColorOverrides : {},
     };
   } catch {
     return { ...DEFAULT_CONFIG };

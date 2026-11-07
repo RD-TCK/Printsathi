@@ -5,6 +5,7 @@ import { agentDaemon } from "./daemon";
 import { logger } from "./logger";
 import { whatsAppAgent } from "./whatsapp";
 import { DEFAULT_CONFIG, getDocumentCacheDirectory } from "./config";
+import { wakeWindowsPrinter } from "./print-executor";
 
 export class AgentWebServer {
   private server: http.Server | null = null;
@@ -83,6 +84,15 @@ export class AgentWebServer {
       void agentDaemon.triggerPoll();
       res.writeHead(200, { "Content-Type": "application/json" });
       res.end(JSON.stringify({ success: true, message: "Poll triggered" }));
+      return;
+    }
+
+    if (url.pathname === "/api/precache-order" && (req.method === "POST" || req.method === "GET")) {
+      const body = req.method === "POST" ? await this.readJsonBody(req) : null;
+      const orderId = body?.orderId ? String(body.orderId) : undefined;
+      void agentDaemon.precacheOrder(orderId);
+      res.writeHead(200, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({ success: true, message: "Precache triggered" }));
       return;
     }
 
@@ -176,12 +186,55 @@ export class AgentWebServer {
       return;
     }
 
+    if (url.pathname === "/api/toggle-disable-printer" && req.method === "POST") {
+      const body = await this.readJsonBody(req);
+      const printer = String(body?.printerName || "").trim();
+      if (!printer) {
+        res.writeHead(400, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({ error: "No printer name specified" }));
+        return;
+      }
+      const isDisabled = agentDaemon.toggleDisablePrinter(printer);
+      res.writeHead(200, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({ success: true, printerName: printer, isDisabled }));
+      return;
+    }
+
+    if (url.pathname === "/api/toggle-color-printer" && req.method === "POST") {
+      const body = await this.readJsonBody(req);
+      const printer = String(body?.printerName || "").trim();
+      const isColor = Boolean(body?.isColor);
+      if (!printer) {
+        res.writeHead(400, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({ error: "No printer name specified" }));
+        return;
+      }
+      agentDaemon.setPrinterColorOverride(printer, isColor);
+      res.writeHead(200, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({ success: true, printerName: printer, isColor }));
+      return;
+    }
+
     if (url.pathname === "/api/set-separator-page" && req.method === "POST") {
       const body = await this.readJsonBody(req);
       const enabled = body?.enabled !== false;
       agentDaemon.setSeparatorPage(enabled);
       res.writeHead(200, { "Content-Type": "application/json" });
       res.end(JSON.stringify({ success: true, enableSeparatorPage: enabled }));
+      return;
+    }
+
+    if (url.pathname === "/api/wake-printer" && req.method === "POST") {
+      const body = await this.readJsonBody(req);
+      const printer = String(body?.printerName || "").trim();
+      if (!printer) {
+        res.writeHead(400, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({ error: "No printer name specified" }));
+        return;
+      }
+      const ok = await wakeWindowsPrinter(printer);
+      res.writeHead(200, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({ success: ok, printerName: printer }));
       return;
     }
 
@@ -1002,38 +1055,57 @@ export class AgentWebServer {
       }
 
       // Render Printers Card
-      document.getElementById('printerCount').innerText = \`\${status.printers.length} detected\`;
+      const onlinePrinters = status.printers.filter(p => !p.isDisabled && (p.status === 'online' || p.status === 'printing'));
+      const onlineCount = onlinePrinters.length;
+      document.getElementById('printerCount').innerText = onlineCount > 0
+        ? \`\${onlineCount} online / \${status.printers.length} installed\`
+        : \`0 online (\${status.printers.length} disconnected)\`;
+
       const pList = document.getElementById('printersList');
       if (status.printers.length === 0) {
         pList.innerHTML = '<p style="font-size:13px; color:var(--text-muted); padding:10px 0;">No physical printers detected. Plug in your USB printer or turn on network printer.</p>';
       } else {
-        pList.innerHTML = \`
-          <div style="font-size:11px; color:#065f46; background:#f0fdf4; border:1px solid #bbf7d0; padding:8px 12px; border-radius:8px; margin-bottom:12px; line-height:1.4;">
-            ⚡ <b>Smart Auto-Spool:</b> Jobs are routed automatically to matching paper &amp; color hardware. Click <b>Use as Default</b> to route single-sided jobs to your preferred printer.
-          </div>
-        \` + status.printers.map(p => {
+        const headerNotice = onlineCount === 0
+          ? \`<div style="font-size:11px; color:#991b1b; background:#fef2f2; border:1px solid #fecaca; padding:8px 12px; border-radius:8px; margin-bottom:12px; line-height:1.4;">
+              ⚠️ <b>No Printer Connected:</b> All physical printers are currently offline or disconnected. Please plug in the USB cable and turn on your printer.
+            </div>\`
+          : \`<div style="font-size:11px; color:#065f46; background:#f0fdf4; border:1px solid #bbf7d0; padding:8px 12px; border-radius:8px; margin-bottom:12px; line-height:1.4;">
+              ⚡ <b>Smart Auto-Spool:</b> Jobs are routed automatically to matching paper &amp; color hardware. Click <b>Use as Default</b> to route single-sided jobs to your preferred printer.
+            </div>\`;
+
+        pList.innerHTML = headerNotice + status.printers.map(p => {
           const isColor = Boolean(p.capabilities && p.capabilities.colorSupport);
           const isOnline = ['online', 'printing'].includes(p.status);
-          const isSelected = status.selectedPrinter
+          const isSleeping = Boolean(p.isSleeping);
+          const isDisabled = (status.disabledPrinters || []).some(x => x.toLowerCase() === p.name.toLowerCase());
+          const isActive = !isDisabled && isOnline && (status.selectedPrinter
             ? status.selectedPrinter.toLowerCase() === p.name.toLowerCase()
-            : (isOnline && p.isDefault) || isOnline;
+            : p.isDefault || onlineCount === 1);
           return \`
-          <div class="printer-card" style="\${isSelected ? 'border-color:#10b981; background:#f0fdf4;' : ''}">
-            <div>
+          <div class="printer-card" style="\${isDisabled ? 'opacity:0.65; border-color:#fca5a5; background:#fff5f5;' : isActive ? 'border-color:#10b981; background:#f0fdf4;' : isSleeping ? 'border-color:#bfdbfe; background:#f8fafc;' : 'border-color:#e2e8f0; background:#f8fafc;'}">
+            <div style="flex:1; min-width:180px;">
               <div style="display:flex; align-items:center; gap:6px; flex-wrap:wrap;">
-                <span style="font-size:13px; font-weight:700; color:var(--text-main);">\${escapeHtml(p.name)}</span>
+                <span style="font-size:13px; font-weight:700; color:\${isOnline ? 'var(--text-main)' : 'var(--text-muted)'}; text-decoration:\${isDisabled ? 'line-through' : 'none'};">\${escapeHtml(p.name)}</span>
                 <span class="badge" style="font-size:9px; \${isColor ? 'background:#ecfdf5; color:#047857; border:1px solid #a7f3d0;' : 'background:#f1f5f9; color:#475569; border:1px solid #e2e8f0;'}">
                   \${isColor ? '🎨 Color' : '📄 B&W'}
                 </span>
-                \${isSelected && isOnline ? '<span class="badge" style="font-size:9px; background:#d1fae5; color:#065f46; border:1px solid #6ee7b7;">⭐ ACTIVE (AUTO-ROUTED)</span>' : ''}
+                \${isDisabled ? '<span class="badge" style="font-size:9px; background:#fee2e2; color:#991b1b; border:1px solid #fecaca;">⛔ EXCLUDED (NOT IN USE)</span>' : ''}
+                \${isActive ? '<span class="badge" style="font-size:9px; background:#d1fae5; color:#065f46; border:1px solid #6ee7b7;">⭐ ACTIVE (AUTO-ROUTED)</span>' : ''}
               </div>
               <div style="font-size:11px; color:var(--text-muted); margin-top:2px;">\${escapeHtml(p.driverName || 'Windows Spooler')}</div>
             </div>
-            <div style="display:flex; align-items:center; gap:8px;">
-              <span class="badge \${isOnline ? 'badge-online' : 'badge-offline'}" style="font-size:10px;">
-                \${isOnline ? 'ONLINE & READY' : 'OFFLINE (DISCONNECTED)'}
+            <div style="display:flex; align-items:center; gap:6px; flex-wrap:wrap; justify-content:flex-end;">
+              <span class="badge \${isDisabled ? 'badge-offline' : isSleeping ? 'badge-sleeping' : isOnline ? 'badge-online' : 'badge-offline'}" style="font-size:10px; \${isSleeping ? 'background:#eff6ff; color:#1d4ed8; border:1px solid #bfdbfe;' : ''}">
+                \${isDisabled ? 'EXCLUDED' : isSleeping ? '🌙 SLEEPING (AUTO-WAKE)' : isOnline ? 'ONLINE & READY' : 'OFFLINE (DISCONNECTED)'}
               </span>
-              \${!isSelected && isOnline ? \`<button type="button" class="btn-secondary" style="font-size:11px; padding:4px 10px; cursor:pointer;" onclick="selectDefaultPrinter('\${escapeHtml(p.name)}')">Use as Default</button>\` : ''}
+              \${isSleeping && !isDisabled ? \`<button type="button" class="btn-secondary" style="font-size:10px; padding:3px 8px; cursor:pointer; color:#1d4ed8; border-color:#bfdbfe;" onclick="wakePrinter('\${escapeHtml(p.name)}', this)" title="Send immediate wake command to printer">⚡ Wake Up</button>\` : ''}
+              <button type="button" class="btn-secondary" style="font-size:10px; padding:3px 8px; cursor:pointer;" onclick="toggleColorPrinter('\${escapeHtml(p.name)}', \${!isColor})" title="Manually set whether this printer prints Color or B&W">
+                \${isColor ? 'Switch to B&W' : 'Switch to Color'}
+              </button>
+              <button type="button" class="btn-secondary" style="font-size:10px; padding:3px 8px; cursor:pointer; color:\${isDisabled ? '#065f46' : '#b91c1c'};" onclick="toggleDisablePrinter('\${escapeHtml(p.name)}')" title="\${isDisabled ? 'Enable printer for jobs' : 'Exclude printer from all print jobs'}">
+                \${isDisabled ? '✅ Enable Printer' : '⛔ Do Not Use'}
+              </button>
+              \${!isDisabled && !isActive && isOnline ? \`<button type="button" class="btn-secondary" style="font-size:10px; padding:3px 8px; cursor:pointer;" onclick="selectDefaultPrinter('\${escapeHtml(p.name)}')">Use as Default</button>\` : ''}
             </div>
           </div>
         \`;
@@ -1111,6 +1183,71 @@ export class AgentWebServer {
       }
     }
 
+    async function toggleDisablePrinter(printerName) {
+      if (!printerName) return;
+      try {
+        const res = await fetch('/api/toggle-disable-printer', {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({ printerName })
+        });
+        if (res.ok) {
+          await refreshStatus(true);
+        } else {
+          const err = await res.json().catch(() => ({}));
+          alert('Could not toggle printer: ' + (err.error || 'Server error'));
+        }
+      } catch (err) {
+        alert('Network error updating printer setting');
+      }
+    }
+
+    async function toggleColorPrinter(printerName, isColor) {
+      if (!printerName) return;
+      try {
+        const res = await fetch('/api/toggle-color-printer', {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({ printerName, isColor })
+        });
+        if (res.ok) {
+          await refreshStatus(true);
+        } else {
+          const err = await res.json().catch(() => ({}));
+          alert('Could not update color mode: ' + (err.error || 'Server error'));
+        }
+      } catch (err) {
+        alert('Network error updating color mode');
+      }
+    }
+
+    async function wakePrinter(printerName, btnEl) {
+      if (!printerName) return;
+      if (btnEl) {
+        btnEl.disabled = true;
+        btnEl.innerText = 'Waking...';
+      }
+      try {
+        const res = await fetch('/api/wake-printer', {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({ printerName })
+        });
+        if (res.ok) {
+          await refreshStatus(true);
+        } else {
+          alert('Could not send wake command to printer.');
+        }
+      } catch (err) {
+        alert('Network error communicating with desktop agent.');
+      } finally {
+        if (btnEl) {
+          btnEl.disabled = false;
+          btnEl.innerText = '⚡ Wake Up';
+        }
+      }
+    }
+
     async function fetchCounterQueue() {
       try {
         const res = await fetch('/api/counter-queue');
@@ -1156,16 +1293,16 @@ export class AgentWebServer {
         } else {
           item.status = 'paid';
           if (!Array.isArray(item.jobs) || item.jobs.length === 0) {
-            item.jobs = [{ id: 'pending', status: 'queued', totalPages: item.totalPages }];
+            item.jobs = [{ id: 'pending', status: 'print_submitted', totalPages: item.totalPages }];
           } else {
-            item.jobs.forEach(function(j) { j.status = 'queued'; });
+            item.jobs.forEach(function(j) { j.status = 'print_submitted'; });
           }
         }
         renderAgentQueueWithFilter();
         updateQueueBadge();
       } else if (btnEl) {
         btnEl.disabled = true;
-        btnEl.innerHTML = '⏳ Processing...';
+        btnEl.innerHTML = '🖨️ Printing Now...';
       }
 
       try {
@@ -1338,8 +1475,11 @@ export class AgentWebServer {
         var minutesLeft = Math.floor(totalSecs / 60);
         var secondsLeft = totalSecs % 60;
         var validText = (isCompleted || isCancelled) ? "" : minutesLeft > 0 ? (minutesLeft + "m valid") : (secondsLeft + "s valid");
+        var isPrecached = item.isPrecached !== false;
         var docNames = (item.documents || []).map(function(d) { return escapeHtml(d.filename); }).join(", ");
-        var tokenLabel = item.tokenNumber ? ("#" + item.tokenNumber) : ("#" + (item.publicId || '').slice(0, 4));
+        var tokenLabel = (isCompleted || isPrinting || isPrecached)
+          ? (item.tokenNumber ? ("#" + item.tokenNumber) : ("#" + (item.publicId || '').slice(0, 4)))
+          : "⏳";
 
         var statusText = isCancelled
           ? "Cancelled"
@@ -1347,6 +1487,8 @@ export class AgentWebServer {
           ? "Printed"
           : isPrinting
           ? "Printing Pages..."
+          : (!isPrecached && !isCancelled && !isExpired)
+          ? "Pre-processing documents (converting to PDF)..."
           : isProcessing
           ? "Processing..."
           : isOddDone
@@ -1478,6 +1620,8 @@ export class AgentWebServer {
             "'", item.id, "', 'all', this",
             ')" title="Re-dispatch all pages">🖨️ Re-Print</button>'
           ].join("");
+        } else if (!isPrecached && !isCancelled && !isExpired) {
+          actionHtml = '<span style="font-size:12px; font-weight:700; color:#d97706; background:#fffbeb; border:1px solid #fde68a; padding:6px 12px; border-radius:8px; display:inline-flex; align-items:center; gap:6px;">⏳ Pre-processing...</span>';
         } else if (!isCancelled && !isExpired) {
           actionHtml = [
             '<button type="button" class="btn-primary" style="width:auto; padding:7px 14px; font-size:12px;" onclick="approveCounterOrder(',
@@ -1501,7 +1645,7 @@ export class AgentWebServer {
               '<div style="font-family:monospace; font-weight:800; font-size:18px; color:' + tokenCol + '; background:#ffffff; padding:6px 12px; border-radius:8px; border:1px solid #e2e8f0; min-width:54px; text-align:center;">' + tokenLabel + '</div>',
               '<div>',
                 '<div style="font-size:13px; font-weight:700; color:var(--text-main);">',
-                  'Token ' + tokenLabel + ' &bull; ' + item.totalPages + ' Pages (' + item.blackAndWhitePages + ' B&amp;W, ' + item.colorPages + ' Color)',
+                  ((isCompleted || isPrinting || isPrecached) ? ('Token ' + tokenLabel) : 'Pre-processing Documents...') + ' &bull; ' + item.totalPages + ' Pages (' + item.blackAndWhitePages + ' B&amp;W, ' + item.colorPages + ' Color)',
                 '</div>',
                 '<div style="font-size:11px; color:var(--text-muted); margin-top:2px;">',
                   '₹' + Number(item.totalAmount).toFixed(2) + ' &bull; ' + (item.copiesSummary ? ('<b style="color:var(--text-main);">' + escapeHtml(item.copiesSummary) + '</b> &bull; ') : '') + docNames + ' &bull; ',

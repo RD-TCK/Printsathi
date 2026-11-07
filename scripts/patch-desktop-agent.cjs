@@ -30,10 +30,13 @@ async function main() {
   }
   console.log("Found agent installation at:", path.dirname(asarPath));
 
-  console.log("1. Stopping running Printiva Desktop Agent process...");
+  console.log("1. Stopping running Printiva Desktop Agent / Electron processes...");
   try {
     execSync('taskkill /IM "Printiva Desktop Agent.exe" /F', { stdio: "ignore" });
-    console.log("   Process stopped.");
+  } catch {}
+  try {
+    execSync('taskkill /IM "electron.exe" /F', { stdio: "ignore" });
+    console.log("   Processes stopped.");
   } catch {
     console.log("   No active process found to stop.");
   }

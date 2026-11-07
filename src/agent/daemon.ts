@@ -403,7 +403,8 @@ export class AgentDaemon {
           'postgres_changes',
           { event: 'INSERT', schema: 'public', table: 'print_jobs', filter: `shop_id=eq.${this.config.shopId}` },
           () => {
-            logger.info("⚡ Realtime event: new print job created. Waking up agent immediately...");
+            logger.info("⚡ Realtime event: new print job created. Pre-caching documents & checking queue...");
+            void this.precachePendingCounterDocuments();
             void this.triggerPoll();
           }
         )
@@ -412,6 +413,7 @@ export class AgentDaemon {
           { event: 'UPDATE', schema: 'public', table: 'print_jobs', filter: `shop_id=eq.${this.config.shopId}` },
           (payload) => {
             const status = payload.new ? (payload.new as { status?: string }).status : undefined;
+            void this.precachePendingCounterDocuments();
             if (!status || status === 'queued' || status === 'paid') {
               logger.info(`⚡ Realtime event: print job status updated${status ? ` to "${status}"` : ""}. Waking up agent immediately...`);
               void this.triggerPoll();
@@ -503,6 +505,9 @@ export class AgentDaemon {
 
     try {
       didProcessJob = await this.pollAndProcessNextJob();
+      if (!didProcessJob) {
+        void this.precachePendingCounterDocuments();
+      }
     } catch (err) {
       logger.warn("Error during adaptive poll cycle:", {
         error: err instanceof Error ? err.message : String(err),
@@ -662,13 +667,13 @@ export class AgentDaemon {
         );
       }
 
-      // Clean up stale duplex reservations (> 30 minutes) to avoid locking printers if an order is abandoned
-      const DUPLEX_RESERVATION_TTL_MS = 30 * 60 * 1000;
+      // Clean up stale duplex reservations (> 3 minutes) to avoid locking printers if an order is abandoned
+      const DUPLEX_RESERVATION_TTL_MS = 3 * 60 * 1000;
       const now = Date.now();
       for (const [key, res] of this.reservedDuplexPrinters.entries()) {
         if (now - res.reservedAt > DUPLEX_RESERVATION_TTL_MS) {
           logger.warn(
-            `Duplex reservation for printer "${res.printerName}" (Order #${res.orderId.slice(0, 8)}) expired after 30m. Releasing printer.`,
+            `Duplex reservation for printer "${res.printerName}" (Order #${res.orderId.slice(0, 8)}) expired after 3m. Releasing printer.`,
           );
           this.reservedDuplexPrinters.delete(key);
           this.orderToReservedPrinter.delete(res.orderId);
@@ -697,10 +702,19 @@ export class AgentDaemon {
 
       const plan = groups.map((ranges) => {
         const reqColor = anyJobInBatchRequiresColor || ranges[0].colorMode === "color";
+        const selectedPrinterObj = this.discoveredPrinters.find(
+          (p) => p.name.toLowerCase() === (this.config.selectedPrinter || "").toLowerCase(),
+        );
+        // If the job requires color, NEVER prefer a monochrome default printer! Auto-route to a Color printer.
+        const preferredName =
+          reqColor && selectedPrinterObj && !selectedPrinterObj.capabilities?.colorSupport
+            ? undefined
+            : this.config.selectedPrinter || job.defaultPrinter;
+
         const printer = findBestPrinterForJob(this.discoveredPrinters, {
           colorMode: reqColor ? "color" : "black_and_white",
           paperSize: ranges[0].paperSize,
-          preferredName: this.config.selectedPrinter || job.defaultPrinter,
+          preferredName,
           requiredPrinterName: isDuplexEvenStep ? reservedPrinterForJob : null,
           requiresDuplex: isDoubleSided && hasHardwareDuplexInShop && !isDuplexEvenStep,
           busyPrinters,
@@ -786,7 +800,10 @@ export class AgentDaemon {
           const batchResult = await prepareAndPrintBatch(
             resolvedItems.map((item) => ({ sourcePath: item.sourcePath, job: item.job })),
             targetPrinterName,
-            { includeSeparatorPage: shouldIncludeSeparator },
+            {
+              includeSeparatorPage: shouldIncludeSeparator,
+              discoveredPrinter: plan[0]?.printer,
+            },
           );
 
           if (!batchResult.success) {
@@ -795,9 +812,17 @@ export class AgentDaemon {
 
           if (process.platform === "win32" || os.platform() === "win32") {
             logger.info(
-              `Monitoring physical printing on "${targetPrinterName}" for continuous batch (${batchJobs.length} documents) until pages are ejected...`,
+              `Continuous batch (${batchJobs.length} docs) spooled to "${targetPrinterName}". Monitoring queue in background...`,
             );
-            await waitForPhysicalPrintCompletion(targetPrinterName);
+            void (async () => {
+              try {
+                await waitForPhysicalPrintCompletion(targetPrinterName, 60000);
+              } catch (bgErr) {
+                logger.warn(`Spooler queue background wait notice:`, {
+                  error: bgErr instanceof Error ? bgErr.message : String(bgErr),
+                });
+              }
+            })();
           }
 
           for (const bJob of batchJobs) {
@@ -878,6 +903,7 @@ export class AgentDaemon {
           );
           const result = await prepareAndPrintDocument(printFilePath, job, printerName, part.ranges, {
             includeSeparatorPage: shouldIncludeSeparator,
+            discoveredPrinter: part.printer,
           });
           if (!result.success)
             throw new Error(
@@ -916,12 +942,20 @@ export class AgentDaemon {
           }
         }
 
-        // Wait for physical printer to finish printing all pages before confirming completion!
+        // Monitor physical printer in background so daemon and UI unblock immediately!
         const lastPrinterName = plan[plan.length - 1]?.printer?.name || firstPrinterName;
         if (lastPrinterName && (process.platform === "win32" || os.platform() === "win32")) {
           if (job.isLastJobForOrder !== false) {
-            logger.info(`Monitoring physical printing on "${lastPrinterName}" until pages are ejected...`);
-            await waitForPhysicalPrintCompletion(lastPrinterName);
+            logger.info(`Dispatched to "${lastPrinterName}". Monitoring physical printing in background...`);
+            void (async () => {
+              try {
+                await waitForPhysicalPrintCompletion(lastPrinterName, 60000);
+              } catch (bgErr) {
+                logger.warn(`Spooler queue background wait notice:`, {
+                  error: bgErr instanceof Error ? bgErr.message : String(bgErr),
+                });
+              }
+            })();
           } else {
             logger.info(
               `Job #${job.id.slice(0, 8)} is an intermediate job in order batch; skipping spooler queue wait to maintain continuous printing.`,
@@ -995,6 +1029,88 @@ export class AgentDaemon {
     return false;
   }
 
+  private precachingDocIds: Set<string> = new Set();
+
+  async precachePendingCounterDocuments(): Promise<void> {
+    if (!this.isRunning || !isConfigPaired(this.config)) return;
+    try {
+      const data = await this.client.getCounterQueue();
+      const queue = data?.queue || [];
+      if (queue.length === 0) return;
+
+      const cacheDir = getDocumentCacheDirectory();
+      if (!cacheDir) return;
+
+      const pendingOrders = queue.filter(
+        (o) =>
+          (o.status === "awaiting_payment" || o.status === "paid" || o.status === "partially_printed") &&
+          !o.isExpired,
+      );
+
+      for (const order of pendingOrders) {
+        for (const doc of order.documents || []) {
+          if (!doc.id || this.precachingDocIds.has(doc.id)) continue;
+
+          const targetPath = path.join(cacheDir, `doc_${doc.id}.pdf`);
+          if (fs.existsSync(targetPath) && fs.statSync(targetPath).size > 0) {
+            void this.client.reportPrecacheComplete(doc.id, order.id);
+            continue;
+          }
+
+          this.precachingDocIds.add(doc.id);
+          void (async () => {
+            try {
+              logger.info(`⚡ Pre-caching document "${doc.filename}" for Token #${order.tokenNumber ?? order.publicId}...`);
+              // Provide matching jobId if available so production servers requiring jobId accept the request
+              const matchingJob = (order.jobs || []).find((j: any) => j.documentId === doc.id) || order.jobs?.[0];
+              const jobIdToUse = matchingJob?.id;
+              await this.client.downloadDocument(doc.id, jobIdToUse, targetPath);
+              logger.info(`✅ Successfully pre-cached "${doc.filename}" in local SSD cache (0s latency on print).`);
+              await this.client.reportPrecacheComplete(doc.id, order.id);
+            } catch (err) {
+              logger.debug(`Background pre-cache skipped or failed for doc ${doc.id}:`, {
+                err: err instanceof Error ? err.message : String(err),
+              });
+            } finally {
+              this.precachingDocIds.delete(doc.id);
+            }
+          })();
+        }
+      }
+    } catch {
+      // Non-fatal
+    }
+  }
+
+  toggleDisablePrinter(printerName: string): boolean {
+    const disabled = new Set((this.config.disabledPrinters || []).map((p) => p.toLowerCase()));
+    let isDisabledNow = false;
+    const lowerName = printerName.toLowerCase();
+    if (disabled.has(lowerName)) {
+      disabled.delete(lowerName);
+      isDisabledNow = false;
+      logger.info(`Printer "${printerName}" re-enabled for agent use.`);
+    } else {
+      disabled.add(lowerName);
+      isDisabledNow = true;
+      logger.info(`Printer "${printerName}" marked as disabled (Do Not Use).`);
+      if (this.config.selectedPrinter?.toLowerCase() === lowerName) {
+        this.config = saveConfig({ selectedPrinter: undefined });
+      }
+    }
+    this.config = saveConfig({ disabledPrinters: Array.from(disabled) });
+    void this.refreshPrinters(true);
+    return isDisabledNow;
+  }
+
+  setPrinterColorOverride(printerName: string, isColor: boolean): void {
+    const overrides = { ...(this.config.printerColorOverrides || {}) };
+    overrides[printerName] = isColor;
+    this.config = saveConfig({ printerColorOverrides: overrides });
+    logger.info(`Printer "${printerName}" color mode override set to: ${isColor ? "Color" : "Black & White"}`);
+    void this.refreshPrinters(true);
+  }
+
   getStatus(): AgentStatusSnapshot {
     return {
       agentName: this.config.agentName,
@@ -1009,6 +1125,8 @@ export class AgentDaemon {
       version: this.config.version,
       printers: this.discoveredPrinters,
       selectedPrinter: this.config.selectedPrinter,
+      disabledPrinters: this.config.disabledPrinters || [],
+      printerColorOverrides: this.config.printerColorOverrides || {},
       currentJob: this.currentJob,
       enableSeparatorPage: this.config.enableSeparatorPage !== false,
       stats: { ...this.stats },
@@ -1027,7 +1145,21 @@ export class AgentDaemon {
   }
 
   async getCounterQueue() {
-    return await this.client.getCounterQueue();
+    const data = await this.client.getCounterQueue();
+    void this.precachePendingCounterDocuments();
+    const cacheDir = getDocumentCacheDirectory();
+    if (data?.queue && Array.isArray(data.queue) && cacheDir) {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      data.queue = data.queue.map((item: any) => {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const isPrecached = !item.documents?.length || item.documents.every((d: any) => {
+          const p = path.join(cacheDir, `doc_${d.id}.pdf`);
+          return fs.existsSync(p) && fs.statSync(p).size > 0;
+        });
+        return { ...item, isPrecached };
+      });
+    }
+    return data;
   }
 
   setSeparatorPage(enabled: boolean) {
@@ -1064,6 +1196,11 @@ export class AgentDaemon {
   async completeCounterOrder(orderId: string) {
     this.clearProcessedJob(orderId);
     return await this.client.completeCounterOrder(orderId);
+  }
+
+  async precacheOrder(orderId?: string): Promise<boolean> {
+    void this.precachePendingCounterDocuments();
+    return true;
   }
 }
 

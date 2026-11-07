@@ -6,7 +6,7 @@ import { promisify } from "node:util";
 import { createHash } from "node:crypto";
 import { discoverWindowsPrinters, isPhysicalPrinter } from "./printer-discovery";
 import { PDFDocument } from "pdf-lib";
-import type { ClaimedJob } from "./types";
+import type { ClaimedJob, DiscoveredPrinter } from "./types";
 import { logger } from "./logger";
 
 const execFileAsync = promisify(execFile);
@@ -81,6 +81,43 @@ function runPowerShellInline(script: string, timeoutMs = 5000): Promise<string> 
   });
 }
 
+export async function wakeWindowsPrinter(printerName: string): Promise<boolean> {
+  const isWindows = process.platform === "win32" || os.platform() === "win32";
+  if (!isWindows || process.env.NODE_ENV === "test") return true;
+
+  try {
+    const escaped = printerName.replace(/'/g, "''");
+    const script = `
+[Console]::OutputEncoding = [System.Text.UTF8Encoding]::new()
+$pName = '${escaped}'
+$p = [wmi]"Win32_Printer.DeviceID='$pName'"
+$woke = $false
+if ($p) {
+  if ($p.WorkOffline) {
+    $p.WorkOffline = $false
+    $p.Put() | Out-Null
+    $woke = $true
+  }
+  if ($p.Paused) {
+    $p.Resume() | Out-Null
+    $woke = $true
+  }
+}
+Get-PrintJob -PrinterName $pName -ErrorAction SilentlyContinue | Where-Object { $_.JobStatus -like "*Paused*" } | Resume-PrintJob -ErrorAction SilentlyContinue | Out-Null
+if ($woke) { "WOKE" } else { "READY" }
+`;
+    const res = await runPowerShellInline(script, 4000);
+    const trimmed = res.trim();
+    if (trimmed.includes("WOKE")) {
+      logger.info(`Wake-up signal sent to printer "${printerName}": reset WorkOffline and unpaused spooler queue.`);
+    }
+    return true;
+  } catch (err) {
+    logger.warn(`Could not send wake signal to printer "${printerName}": ${err instanceof Error ? err.message : String(err)}`);
+    return false;
+  }
+}
+
 export async function getPrinterQueueCount(printerName: string): Promise<number> {
   const isWindows = process.platform === "win32" || os.platform() === "win32";
   if (!isWindows || process.env.NODE_ENV === "test") return 0;
@@ -133,6 +170,11 @@ export interface PrintDocumentOptions {
    * In a multi-file user order, this is set to false for intermediate documents, and true only for the final document.
    */
   includeSeparatorPage?: boolean;
+  /**
+   * Pre-discovered printer object from daemon memory cache.
+   * Passing this bypasses slow PowerShell WMI discovery commands (~2s).
+   */
+  discoveredPrinter?: DiscoveredPrinter | null;
 }
 
 export async function loadSourceAsPdfDocument(filePath: string): Promise<PDFDocument> {
@@ -207,7 +249,10 @@ export async function prepareAndPrintDocument(
 
   try {
     if (!isWindows) throw new Error("Physical printing requires Windows; no job was submitted.");
-    const printer = (await discoverWindowsPrinters()).find((p) => p.name === targetPrinterName);
+    const printer =
+      options?.discoveredPrinter && options.discoveredPrinter.name === targetPrinterName
+        ? options.discoveredPrinter
+        : (await discoverWindowsPrinters()).find((p) => p.name === targetPrinterName);
     if (!printer || !isPhysicalPrinter(printer)) {
       throw new Error(`Printer "${targetPrinterName}" is not an installed physical Windows printer.`);
     }
@@ -475,6 +520,9 @@ export async function prepareAndPrintDocument(
     logger.info(
       `Rendering PDF and submitting to Windows printer "${targetPrinterName}" with settings: ${settings.join(",")}`,
     );
+    if (printer.isSleeping || printer.status === "offline") {
+      await wakeWindowsPrinter(targetPrinterName);
+    }
     await execFileAsync(
       executable,
       ["-print-to", targetPrinterName, "-silent", "-print-settings", settings.join(","), finalPdfPath],
@@ -578,7 +626,10 @@ export async function prepareAndPrintBatch(
 
   try {
     if (!isWindows) throw new Error("Physical printing requires Windows; no job was submitted.");
-    const printer = (await discoverWindowsPrinters()).find((p) => p.name === targetPrinterName);
+    const printer =
+      options?.discoveredPrinter && options.discoveredPrinter.name === targetPrinterName
+        ? options.discoveredPrinter
+        : (await discoverWindowsPrinters()).find((p) => p.name === targetPrinterName);
     if (!printer || !isPhysicalPrinter(printer)) {
       throw new Error(`Printer "${targetPrinterName}" is not an installed physical Windows printer.`);
     }
@@ -723,6 +774,9 @@ export async function prepareAndPrintBatch(
     logger.info(
       `Rendering combined batch PDF (${totalCalculatedPages} pages across ${batchItems.length} items) and submitting to Windows printer "${targetPrinterName}" with settings: ${settings.join(",")}`,
     );
+    if (printer.isSleeping || printer.status === "offline") {
+      await wakeWindowsPrinter(targetPrinterName);
+    }
     await execFileAsync(
       executable,
       ["-print-to", targetPrinterName, "-silent", "-print-settings", settings.join(","), tempExtractedPath],

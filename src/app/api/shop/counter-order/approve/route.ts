@@ -134,21 +134,31 @@ export async function POST(request: Request) {
       .eq("id", order.id)
       .eq("shop_id", shopId);
   } else {
-    // 1. Concurrently record verified counter payment and release order to print queue
-    const providerPaymentId = `counter_${order.id.slice(0, 8)}_${Date.now()}`;
-    await Promise.all([
-      adminClient.from("payments").insert({
-        order_id: order.id,
-        provider: "counter",
-        payment_method: "counter_cash",
-        status: "verified",
-        provider_payment_id: providerPaymentId,
-        amount: order.total_amount,
-        currency: "INR",
-        verified_at: new Date().toISOString(),
-      }),
-      releasePaidOrder(adminClient, order.id),
-    ]);
+    // 1. Idempotently record verified counter payment and release order to print queue
+    // Check if verified payment already exists for this order to prevent double-click unique constraint violations
+    const { data: existingPayment } = await adminClient
+      .from("payments")
+      .select("id, status")
+      .eq("order_id", order.id)
+      .maybeSingle();
+
+    if (!existingPayment || existingPayment.status !== "verified") {
+      const providerPaymentId = `counter_${order.id.slice(0, 8)}_${Date.now()}`;
+      await adminClient.from("payments").upsert(
+        {
+          order_id: order.id,
+          provider: "counter",
+          payment_method: "counter_cash",
+          status: "verified",
+          provider_payment_id: providerPaymentId,
+          amount: order.total_amount,
+          currency: "INR",
+          verified_at: new Date().toISOString(),
+        },
+        { onConflict: "order_id" },
+      );
+    }
+    await releasePaidOrder(adminClient, order.id);
   }
 
   const targetOrderStatus = isOddStep ? "partially_printed" : "paid";

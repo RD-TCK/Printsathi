@@ -79,7 +79,7 @@ export async function POST(request: Request) {
     .maybeSingle();
 
   if (!order || !["draft", "awaiting_payment"].includes(order.status)) {
-    if (order && ["in_queue", "printing", "completed"].includes(order.status)) {
+    if (order && ["in_queue", "queued", "paid", "printing", "partially_printed", "completed"].includes(order.status)) {
       const { data: fullOrder } = await client
         .from("orders")
         .select("id, public_id, status, token_number, total_amount, total_pages, color_pages, black_and_white_pages, expires_at")
