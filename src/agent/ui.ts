@@ -1700,7 +1700,7 @@ export class AgentWebServer {
             '<div style="display:flex; align-items:center; gap:12px; flex:1 1 auto; min-width:0; overflow:hidden;">',
               '<div style="display:flex; flex-direction:column; align-items:center; justify-content:center; background:#ffffff; padding:6px 10px; border-radius:10px; border:2px solid ' + (isCompleted ? '#a7f3d0' : isPrinting ? '#fde68a' : isCancelled ? '#fca5a5' : '#cbd5e1') + '; min-width:68px; text-align:center; box-shadow:0 1px 3px rgba(0,0,0,0.06); flex-shrink:0;">',
                 '<div style="font-family:monospace; font-weight:900; font-size:18px; color:' + tokenCol + '; line-height:1.1;">' + tokenLabel + '</div>',
-                '<div style="font-size:11.5px; font-weight:800; color:#047857; margin-top:3px; background:#ecfdf5; border-radius:5px; padding:1px 6px; border:1px solid #a7f3d0; white-space:nowrap; line-height:1.2;">' + amountStr + '</div>',
+                '<div style="font-size:11.5px; font-weight:800; color:' + (isCancelled ? '#991b1b' : '#047857') + '; margin-top:3px; background:' + (isCancelled ? '#fef2f2' : '#ecfdf5') + '; border-radius:5px; padding:1px 6px; border:1px solid ' + (isCancelled ? '#fecaca' : '#a7f3d0') + '; white-space:nowrap; line-height:1.2;">' + amountStr + '</div>',
               '</div>',
               '<div style="flex:1 1 auto; min-width:0; overflow:hidden;">',
                 '<div style="display:flex; align-items:center; gap:8px; flex-wrap:wrap;">',

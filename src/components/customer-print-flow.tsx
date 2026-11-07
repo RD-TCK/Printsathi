@@ -3,10 +3,12 @@
 import { useMemo, useState, useEffect, useCallback, useRef, useSyncExternalStore } from "react";
 import {
   AlertCircle,
+  AlertTriangle,
   CheckCircle2,
   CreditCard,
   FileUp,
   FileText,
+  FilePlus,
   LoaderCircle,
   Plus,
   Printer,
@@ -128,9 +130,9 @@ export type StoredToken = {
   documentNames: string[];
 };
 
-const TOKENS_STORAGE_KEY = "printsathi_customer_tokens_v1";
+export const TOKENS_STORAGE_KEY = "printsathi_customer_tokens_v1";
 
-function subscribeToTokens(callback: () => void) {
+export function subscribeToTokens(callback: () => void) {
   if (typeof window === "undefined") return () => {};
   window.addEventListener("storage", callback);
   window.addEventListener("printsathi_tokens_changed", callback);
@@ -140,12 +142,12 @@ function subscribeToTokens(callback: () => void) {
   };
 }
 
-function getTokensSnapshot(): string {
+export function getTokensSnapshot(): string {
   if (typeof window === "undefined") return "[]";
   return localStorage.getItem(TOKENS_STORAGE_KEY) || "[]";
 }
 
-function getServerSnapshot(): string {
+export function getServerSnapshot(): string {
   return "[]";
 }
 
@@ -421,9 +423,7 @@ export function CustomerPrintFlow({
     if (!initialDraftOrder?.documents || initialDraftOrder.documents.length === 0) return [];
     return initialDraftOrder.documents.map((d) => {
       const isImg = Boolean(d.filename.match(/\.(jpg|jpeg|png|webp|gif|bmp)$/i));
-      const previewUrl = isImg
-        ? `/api/customer/document-preview?documentId=${d.id}&orderId=${initialDraftOrder.orderId}&token=${initialDraftOrder.accessToken}`
-        : undefined;
+      const previewUrl = `/api/customer/document-preview?documentId=${d.id}&orderId=${initialDraftOrder.orderId}&token=${initialDraftOrder.accessToken}`;
 
       return {
         id: d.id,
@@ -532,6 +532,7 @@ export function CustomerPrintFlow({
   const [uploadProgress, setUploadProgress] = useState<number | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [failedFiles, setFailedFiles] = useState<Record<string, string>>({});
+  const [rejectedFiles, setRejectedFiles] = useState<Array<{ filename: string; reason: string }>>([]);
   const [tokenDetails, setTokenDetails] = useState<TokenDetails | null>(() => {
     if (initialDraftOrder?.isAlreadySubmitted && initialDraftOrder?.tokenNumber) {
       return {
@@ -630,16 +631,16 @@ export function CustomerPrintFlow({
     const preset = defaultPreset || "grid-2-vert";
     setMultiImageInitialPreset(preset);
 
-    // Filter to uncombined raw photos (excluding already combined multi-photo sheets)
+    const activeDoc = typeof initialDocIndex === "number" ? documents[initialDocIndex] : undefined;
+    // Pool available photos (including current active sheet if user is editing or adding more)
     const rawImageDocs = documents.filter(
       (d) =>
-        !d.isCombinedSheet &&
-        !d.filename.startsWith("multi-photo-sheet-") &&
+        (!d.isCombinedSheet || d.id === activeDoc?.id) &&
+        (!d.filename.startsWith("multi-photo-sheet-") || d.id === activeDoc?.id) &&
         (d.previewUrl || d.isImage || /\.(png|jpg|jpeg|webp|gif|bmp)$/i.test(d.filename)),
     );
 
-    if (typeof initialDocIndex === "number" && documents[initialDocIndex]) {
-      const activeDoc = documents[initialDocIndex];
+    if (activeDoc) {
       const activeRawIndex = rawImageDocs.findIndex((d) => d.id === activeDoc.id);
 
       // Order pool starting from activeDoc, followed by all remaining uncombined photos, then any prior uncombined photos
@@ -755,6 +756,13 @@ export function CustomerPrintFlow({
     }
   }, [step]);
 
+  // Open history modal when triggered from top header navbar
+  useEffect(() => {
+    const handleOpenHistory = () => setHistoryModalOpen(true);
+    window.addEventListener("printsathi_open_history", handleOpenHistory);
+    return () => window.removeEventListener("printsathi_open_history", handleOpenHistory);
+  }, []);
+
   const loadedDraftOrderIdRef = useRef<string | null>(initialDraftOrder?.orderId || null);
 
   // Auto-resume draft order created via WhatsApp
@@ -783,9 +791,7 @@ export function CustomerPrintFlow({
         const docs: CustomerDocument[] = (data.documents || []).map(
           (d: { id: string; filename: string; pageCount: number; sizeBytes?: number }) => {
             const isImg = Boolean(d.filename.match(/\.(jpg|jpeg|png|webp|gif|bmp)$/i));
-            const previewUrl = isImg
-              ? `/api/customer/document-preview?documentId=${d.id}&orderId=${data.orderId}&token=${data.accessToken}`
-              : undefined;
+            const previewUrl = `/api/customer/document-preview?documentId=${d.id}&orderId=${data.orderId}&token=${data.accessToken}`;
 
             return {
               id: d.id,
@@ -975,6 +981,7 @@ export function CustomerPrintFlow({
         accessToken: string;
         documents: CustomerDocument[];
         failedFilename?: string;
+        failedFiles?: Array<{ filename: string; reason: string }>;
       }>("/api/customer/upload", form, (percent) => {
         setUploadProgress(percent);
         if (percent >= 99) {
@@ -996,12 +1003,22 @@ export function CustomerPrintFlow({
       }
       const result = uploadRes.data;
 
+      // Handle partially failed files (e.g. 4 succeeded, 1 password-protected)
+      if (Array.isArray(result.failedFiles) && result.failedFiles.length > 0) {
+        setRejectedFiles(result.failedFiles);
+      } else {
+        setRejectedFiles([]);
+      }
+
       const newDocs: CustomerDocument[] = result.documents.map((document: CustomerDocument, index: number) => {
         const matchingFile = processedFiles[index];
         const isImg = matchingFile
           ? Boolean(matchingFile.type.startsWith("image/"))
           : Boolean(document.filename.match(/\.(jpg|jpeg|png|webp|gif|bmp)$/i));
-        const previewUrl = matchingFile && isImg ? URL.createObjectURL(matchingFile) : undefined;
+        const previewUrl =
+          matchingFile && isImg
+            ? URL.createObjectURL(matchingFile)
+            : `/api/customer/document-preview?documentId=${document.id}&orderId=${result.orderId}&token=${result.accessToken}`;
 
         return {
           ...document,
@@ -1556,25 +1573,7 @@ export function CustomerPrintFlow({
   }
 
   return (
-    <div className="mt-2.5 sm:mt-8 space-y-3.5 sm:space-y-6 pb-20 sm:pb-0">
-      {/* Header Bar with Shop Name & Print History / Saved Tokens Button */}
-      <div className="flex items-center justify-between gap-2 px-1">
-        <div className="flex items-center gap-1.5 text-xs text-slate-500 font-medium">
-          <Store className="size-3.5 text-emerald-600 shrink-0" />
-          <span className="truncate max-w-[200px] sm:max-w-xs">{shop.name}</span>
-        </div>
-        {savedTokens.length > 0 && (
-          <button
-            type="button"
-            onClick={() => setHistoryModalOpen(true)}
-            className="inline-flex items-center gap-1.5 rounded-full border border-emerald-200 bg-emerald-50/90 px-2.5 py-1 text-[11px] sm:text-xs font-bold text-emerald-800 hover:bg-emerald-100 hover:border-emerald-300 transition active:scale-95 cursor-pointer shadow-2xs"
-          >
-            <History className="size-3.5 text-emerald-600" />
-            <span>Print History ({savedTokens.length})</span>
-          </button>
-        )}
-      </div>
-
+    <div className="mt-1 sm:mt-4 space-y-3.5 sm:space-y-6 pb-20 sm:pb-0">
       {/* Active Token Recovery Banner on Step 0 */}
       {step === 0 && activeTokenForShop && (
         <div className="flex items-center justify-between gap-3 rounded-2xl border border-emerald-300 bg-emerald-50 p-3.5 sm:p-4 text-emerald-950 shadow-sm">
@@ -1616,23 +1615,45 @@ export function CustomerPrintFlow({
 
       {/* Stage 0: Upload Document */}
       {step === 0 ? (
-        <UploadStep
-          busy={busy}
-          uploadStatus={uploadStatus}
-          uploadProgress={uploadProgress}
-          failedFiles={failedFiles}
-          onClearFailedFile={(filename) => {
-            setFailedFiles((prev) => {
-              const next = { ...prev };
-              delete next[filename];
-              return next;
-            });
-            setError(null);
-          }}
-          onSubmit={(files) => uploadFiles(files, false)}
-          onOpenMultiImage={() => handleOpenMultiImage()}
-          shop={shop}
-        />
+        <>
+          {documents.length > 0 && (
+            <div className="flex items-center justify-between gap-3 rounded-2xl border border-emerald-300 bg-emerald-50/90 p-3 sm:p-3.5 text-emerald-950 shadow-xs mb-3">
+              <div className="min-w-0">
+                <p className="text-xs sm:text-sm font-bold text-slate-900 truncate">
+                  {documents.length} document{documents.length > 1 ? "s" : ""} uploaded
+                </p>
+                <p className="text-[11px] text-emerald-800">
+                  Resume configuring your print options or upload additional files.
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setStep(1)}
+                className="inline-flex items-center gap-1.5 rounded-xl bg-emerald-600 px-3.5 py-1.5 text-xs font-bold text-white hover:bg-emerald-700 transition active:scale-95 shadow-xs cursor-pointer shrink-0"
+              >
+                <span>Continue</span>
+                <ArrowRight className="size-3.5" />
+              </button>
+            </div>
+          )}
+          <UploadStep
+            busy={busy}
+            uploadStatus={uploadStatus}
+            uploadProgress={uploadProgress}
+            failedFiles={failedFiles}
+            onClearFailedFile={(filename) => {
+              setFailedFiles((prev) => {
+                const next = { ...prev };
+                delete next[filename];
+                return next;
+              });
+              setError(null);
+            }}
+            onSubmit={(files) => uploadFiles(files, false)}
+            onOpenMultiImage={() => handleOpenMultiImage()}
+            shop={shop}
+          />
+        </>
       ) : null}
 
       {/* Stage 1: Configure & Crop Options */}
@@ -1646,19 +1667,6 @@ export function CustomerPrintFlow({
 
       {step === 1 && current ? (
         <>
-          {resumedFromWhatsApp && (
-            <div className="mb-2.5 sm:mb-3 flex items-center gap-2 rounded-xl border border-emerald-300/80 bg-emerald-50/90 px-2.5 py-1.5 text-xs text-emerald-950 font-medium shadow-2xs">
-              <span className="flex size-5 sm:size-6 items-center justify-center rounded-lg bg-emerald-600 text-white font-black text-[10px] shrink-0">
-                WA
-              </span>
-              <div className="flex-1 min-w-0">
-                <p className="font-bold text-emerald-900 text-xs truncate leading-tight">Document received via WhatsApp!</p>
-                <p className="text-emerald-800 text-[10.5px] truncate leading-tight">
-                  Configure your print options below.
-                </p>
-              </div>
-            </div>
-          )}
           <ConfigureAndCropStep
             shop={shop}
             documents={documents}
@@ -1681,11 +1689,14 @@ export function CustomerPrintFlow({
             }}
             onOpenMultiImage={(docIndex, defaultPreset) => handleOpenMultiImage(docIndex, defaultPreset)}
             onAddMoreFiles={(files) => uploadFiles(files, true)}
+            rejectedFiles={rejectedFiles}
+            onDismissRejectedFiles={() => setRejectedFiles([])}
             orderId={orderId}
             accessToken={accessToken}
             onProceedToPay={handleProceedToPay}
             onProceedToCounterToken={handleProceedToCounterToken}
             onOpenPriceChart={() => setPriceChartOpen(true)}
+            onBack={() => setStep(0)}
           />
         </>
       ) : null}
@@ -1884,6 +1895,7 @@ function UploadStep({
   const [selectedFiles, setSelectedFiles] = useState<File[]>([]);
   const [isDragging, setIsDragging] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const reuploadInputRef = useRef<HTMLInputElement>(null);
   const cameraInputRef = useRef<HTMLInputElement>(null);
 
   const handleAddFiles = (newFiles: File[]) => {
@@ -2297,588 +2309,203 @@ function LazyPreviewImage({
   );
 }
 
-function ConfigureDocPreviewSection({
-  doc,
-  docIndex,
-  isFocusedView,
-  onFocusThisDoc,
-  onOpenFullscreen,
-  orderId,
-  accessToken,
-}: {
-  doc: CustomerDocument;
-  docIndex: number;
-  isFocusedView: boolean;
-  onFocusThisDoc?: () => void;
-  onOpenFullscreen: (docIndex: number, pageNum: number) => void;
-  orderId?: string | null;
-  accessToken?: string | null;
-}) {
-  const scrollContainerRef = useRef<HTMLDivElement>(null);
-  const [canScrollLeft, setCanScrollLeft] = useState(false);
-  const [canScrollRight, setCanScrollRight] = useState(false);
-  const [isExpanded, setIsExpanded] = useState(false);
-
-  const includedPagesMap = useMemo(() => {
-    const map = new Map<number, { colorMode: string; sideMode: string; copies: number }>();
-    if (doc?.ranges) {
-      doc.ranges.forEach((r) => {
-        const start = Number(r.startPage) || 1;
-        const end = Number(r.endPage) || start;
-        const copies = Number(r.copies) || 1;
-        for (let p = Math.min(start, end); p <= Math.max(start, end); p++) {
-          map.set(p, {
-            colorMode: r.colorMode,
-            sideMode: r.sideMode ?? "single_sided",
-            copies,
-          });
-        }
-      });
-    }
-    return map;
-  }, [doc]);
-
-  const totalPagesInDoc = doc ? doc.pageCount : 1;
-  const pagesList = useMemo(() => Array.from({ length: totalPagesInDoc }, (_, i) => i + 1), [totalPagesInDoc]);
-
-  const checkScroll = useCallback(() => {
-    const el = scrollContainerRef.current;
-    if (!el) return;
-    setCanScrollLeft(el.scrollLeft > 10);
-    setCanScrollRight(el.scrollLeft + el.clientWidth < el.scrollWidth - 10);
-  }, []);
-
-  useEffect(() => {
-    const el = scrollContainerRef.current;
-    if (!el) return;
-    checkScroll();
-    el.addEventListener("scroll", checkScroll, { passive: true });
-    window.addEventListener("resize", checkScroll);
-    return () => {
-      el.removeEventListener("scroll", checkScroll);
-      window.removeEventListener("resize", checkScroll);
-    };
-  }, [checkScroll, totalPagesInDoc]);
-
-  const scrollByDirection = (direction: "left" | "right") => {
-    const el = scrollContainerRef.current;
-    if (!el) return;
-    const scrollAmount = Math.max(el.clientWidth * 0.75, 200);
-    el.scrollBy({
-      left: direction === "left" ? -scrollAmount : scrollAmount,
-      behavior: "smooth",
-    });
-  };
-
-  const docPreviewUrl =
-    doc.previewUrl ||
-    (orderId && accessToken
-      ? `/api/customer/document-preview?documentId=${doc.id}&orderId=${orderId}&token=${accessToken}`
-      : "");
-  const isImageDoc =
-    doc.isImage || Boolean(doc.filename.match(/\.(png|jpg|jpeg|webp|gif|bmp)$/i)) || Boolean(doc.previewUrl);
-  const totalCopies = doc.ranges.reduce((s, r) => s + (Number(r.copies) || 1), 0);
-
-  return (
-    <div
-      className={cn(
-        "space-y-2.5",
-        !isFocusedView && "rounded-2xl border border-slate-200/90 bg-slate-50/50 p-3 sm:p-4",
-      )}
-    >
-      <div className="flex items-center justify-between gap-2">
-        <div className="flex items-center gap-2 min-w-0">
-          <div className="flex size-7 sm:size-8 shrink-0 items-center justify-center rounded-lg bg-white border border-slate-200 shadow-2xs text-emerald-600">
-            <FileText className="size-3.5 sm:size-4" />
-          </div>
-          <div className="min-w-0">
-            <div className="flex items-center gap-1.5 flex-wrap">
-              {!isFocusedView && (
-                <span className="rounded-md bg-emerald-100 px-1.5 py-0.5 text-[9px] font-extrabold text-emerald-900 border border-emerald-200/80">
-                  Doc #{docIndex + 1}
-                </span>
-              )}
-              <h4 className="text-xs sm:text-sm font-bold text-slate-900 truncate max-w-[180px] sm:max-w-xs">
-                {doc.filename}
-              </h4>
-            </div>
-            <p className="text-[10px] sm:text-[11px] text-slate-500">
-              {doc.pageCount}p · {includedPagesMap.size} selected · {totalCopies}{" "}
-              {totalCopies === 1 ? "copy" : "copies"}
-            </p>
-          </div>
-        </div>
-
-        <div className="flex items-center gap-1.5 shrink-0">
-          {(isExpanded || isImageDoc) && totalPagesInDoc > 2 && (
-            <div className="flex items-center gap-1">
-              <button
-                type="button"
-                disabled={!canScrollLeft}
-                onClick={() => scrollByDirection("left")}
-                className="flex size-5 sm:size-6 items-center justify-center rounded-lg border border-slate-200 bg-white text-slate-600 hover:bg-slate-50 disabled:opacity-30 disabled:pointer-events-none transition shadow-2xs cursor-pointer"
-                title="Scroll left"
-                aria-label="Scroll left"
-              >
-                <ChevronLeft className="size-3" />
-              </button>
-              <button
-                type="button"
-                disabled={!canScrollRight}
-                onClick={() => scrollByDirection("right")}
-                className="flex size-5 sm:size-6 items-center justify-center rounded-lg border border-slate-200 bg-white text-slate-600 hover:bg-slate-50 disabled:opacity-30 disabled:pointer-events-none transition shadow-2xs cursor-pointer"
-                title="Scroll right"
-                aria-label="Scroll right"
-              >
-                <ChevronRight className="size-3" />
-              </button>
-            </div>
-          )}
-          {!isFocusedView && onFocusThisDoc && (
-            <button
-              type="button"
-              onClick={onFocusThisDoc}
-              className="inline-flex items-center gap-1 rounded-lg border border-slate-200 bg-white px-2 py-0.5 sm:py-1 text-[10px] sm:text-xs font-bold text-slate-700 hover:bg-slate-50 hover:border-emerald-500 transition shadow-2xs cursor-pointer"
-            >
-              <Eye className="size-3 text-emerald-600" /> Focus
-            </button>
-          )}
-          {(isExpanded || isImageDoc || totalPagesInDoc === 1) && (
-            <span className="text-[10px] sm:text-[11px] text-slate-400 font-semibold flex items-center gap-0.5">
-              <ZoomIn className="size-3 text-emerald-600" /> Zoom
-            </span>
-          )}
-        </div>
-      </div>
-
-      {totalPagesInDoc > 1 && !isImageDoc && !isExpanded ? (
-        /* Compact Single File Card (Tap to Expand Pages) */
-        <div
-          onClick={() => setIsExpanded(true)}
-          className="flex items-center justify-between p-3 sm:p-3.5 rounded-2xl border border-slate-200/90 bg-slate-50/70 hover:border-emerald-400 hover:bg-emerald-50/30 transition cursor-pointer active:scale-[0.99] shadow-2xs"
-        >
-          <div className="flex items-center gap-2.5 min-w-0">
-            <div className="flex size-10 items-center justify-center rounded-xl bg-white border border-slate-200 text-emerald-700 font-black text-xs shadow-2xs shrink-0 uppercase">
-              {doc.filename.slice(doc.filename.lastIndexOf(".") + 1).slice(0, 4) || "DOC"}
-            </div>
-            <div className="min-w-0">
-              <p className="text-xs sm:text-sm font-bold text-slate-900 truncate">
-                {totalPagesInDoc} Pages in this Document
-              </p>
-              <p className="text-[10px] sm:text-[11px] text-slate-500">
-                {includedPagesMap.size} selected · Tap to inspect pages
-              </p>
-            </div>
-          </div>
-          <button
-            type="button"
-            onClick={(e) => {
-              e.stopPropagation();
-              setIsExpanded(true);
-            }}
-            className="inline-flex items-center gap-1 rounded-xl border border-emerald-300 bg-emerald-50 px-3 py-1.5 text-xs font-bold text-emerald-800 hover:bg-emerald-100 transition shadow-2xs cursor-pointer shrink-0"
-          >
-            <span>View Pages ({totalPagesInDoc})</span>
-            <ChevronDown className="size-3.5 text-emerald-600" />
-          </button>
-        </div>
-      ) : (
-        <>
-          {totalPagesInDoc > 1 && !isImageDoc && (
-            <div className="flex justify-end pb-0.5">
-              <button
-                type="button"
-                onClick={() => setIsExpanded(false)}
-                className="inline-flex items-center gap-1 rounded-lg border border-slate-200 bg-white px-2.5 py-1 text-[11px] font-bold text-slate-600 hover:bg-slate-50 transition shadow-2xs cursor-pointer"
-              >
-                <span>Collapse Pages</span>
-                <ChevronUp className="size-3 text-slate-500" />
-              </button>
-            </div>
-          )}
-
-          {/* Horizontal Scrollable Sheet Strip */}
-          <div className="relative group/carousel">
-            {canScrollLeft && (
-              <div className="pointer-events-none absolute left-0 top-0 bottom-2 z-10 w-6 bg-gradient-to-r from-white via-white/80 to-transparent rounded-l-2xl" />
-            )}
-
-            <div
-              ref={scrollContainerRef}
-              className="flex gap-2 sm:gap-2.5 overflow-x-auto pb-2 pt-1 px-1 snap-x snap-mandatory scroll-smooth no-scrollbar overscroll-x-contain"
-            >
-              {pagesList.map((pageNum) => {
-                const config = includedPagesMap.get(pageNum);
-                const isIncluded = Boolean(config);
-                const isColor = config?.colorMode === "color";
-                const isDuplex = config?.sideMode === "double_sided";
-
-                return (
-                  <div
-                    key={`doc-${docIndex}-preview-${pageNum}`}
-                    onClick={() => onOpenFullscreen(docIndex, pageNum)}
-                    className={cn(
-                      "group relative flex flex-col justify-between rounded-xl border-2 p-1.5 sm:p-2 transition-all duration-150 cursor-pointer active:scale-97 hover:shadow-md shrink-0 snap-start select-none w-[115px] sm:w-[135px]",
-                      isIncluded
-                        ? "border-emerald-500 bg-white shadow-xs ring-1 ring-emerald-500/20"
-                        : "border-slate-200 bg-slate-50/80 opacity-60",
-                    )}
-                  >
-                    {/* Sheet Header Badge */}
-                    <div className="flex items-center justify-between gap-1">
-                      <span
-                        className={cn(
-                          "rounded-md px-1.5 py-0.5 text-[9px] font-black shrink-0",
-                          isIncluded
-                            ? "bg-emerald-100 text-emerald-900 border border-emerald-200"
-                            : "bg-slate-200 text-slate-600",
-                        )}
-                      >
-                        P. {pageNum}
-                      </span>
-
-                      {isIncluded ? (
-                        <span
-                          className={cn(
-                            "rounded-md px-1.5 py-0.5 text-[8.5px] font-bold truncate",
-                            isColor
-                              ? "bg-emerald-50 text-emerald-800 border border-emerald-200/80"
-                              : "bg-slate-100 text-slate-700 border border-slate-200/60",
-                          )}
-                        >
-                          {isColor ? "🎨 Color" : "📄 B&W"}
-                        </span>
-                      ) : (
-                        <span className="text-[8.5px] font-bold text-slate-400">Skipped</span>
-                      )}
-                    </div>
-
-                    {/* Simulated Paper Graphic / Image Preview */}
-                    <div
-                      className={cn(
-                        "my-1 flex h-20 sm:h-24 w-full items-center justify-center rounded-lg bg-white border shadow-inner p-1 text-center overflow-hidden transition-all group-hover:border-emerald-500",
-                        isIncluded && !isColor ? "border-slate-300 bg-slate-50" : "border-slate-200/90",
-                      )}
-                    >
-                      {docPreviewUrl && (totalPagesInDoc === 1 || isImageDoc) ? (
-                        <LazyPreviewImage
-                          src={getOptimizedPreviewUrl(docPreviewUrl, 380)}
-                          alt={`Page ${pageNum} preview`}
-                          className={cn(
-                            "max-h-full max-w-full object-contain rounded-xs transition-all",
-                            isIncluded && !isColor && "grayscale contrast-105 brightness-95",
-                          )}
-                          style={
-                            isIncluded && !isColor
-                              ? { filter: "grayscale(100%) contrast(1.1) brightness(0.96)" }
-                              : undefined
-                          }
-                        />
-                      ) : (
-                        <div className="space-y-0.5 text-slate-400">
-                          <FileText
-                            className={cn(
-                              "size-5 mx-auto transition-colors",
-                              isIncluded ? (isColor ? "text-emerald-600" : "text-slate-600") : "text-slate-300",
-                            )}
-                          />
-                          <span
-                            className={cn(
-                              "block text-[9px] font-bold",
-                              isIncluded ? (isColor ? "text-emerald-900" : "text-slate-700") : "text-slate-600",
-                            )}
-                          >
-                            Page #{pageNum}
-                          </span>
-                          {isIncluded && (
-                            <span className="block text-[8px] font-semibold text-emerald-700">
-                              {config?.copies && config.copies > 1 ? `× ${config.copies} Copies` : "1 Copy"}
-                            </span>
-                          )}
-                        </div>
-                      )}
-                    </div>
-
-                    {/* Sheet Footer Details */}
-                    <div className="flex items-center justify-between border-t border-slate-100 pt-1 text-[8.5px] sm:text-[9px]">
-                      <span className="font-semibold text-slate-500 truncate">{isDuplex ? "📑 2-Side" : "📄 1-Side"}</span>
-                      {isIncluded ? (
-                        <span className="font-extrabold text-emerald-700 flex items-center gap-0.5 shrink-0">
-                          <CheckCircle2 className="size-2.5" /> Ready
-                        </span>
-                      ) : (
-                        <span className="text-slate-400 font-medium">Excluded</span>
-                      )}
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-
-            {canScrollRight && (
-              <div className="pointer-events-none absolute right-0 top-0 bottom-2 z-10 w-6 bg-gradient-to-l from-white via-white/80 to-transparent rounded-r-2xl" />
-            )}
-          </div>
-        </>
-      )}
-    </div>
-  );
-}
-
-function ConfigureAllDocsSideBySidePreviewSection({
+function LargeSheetPreviewCarousel({
   documents,
+  activeDocument,
+  setActiveDocument,
   orderId,
   accessToken,
-  activeDocument,
-  onFocusThisDoc,
   onOpenFullscreen,
+  onRemoveDocument,
+  onBack,
 }: {
   documents: CustomerDocument[];
+  activeDocument: number;
+  setActiveDocument: (index: number) => void;
   orderId?: string | null;
   accessToken?: string | null;
-  activeDocument?: number;
-  onFocusThisDoc: (docIndex: number) => void;
   onOpenFullscreen: (docIndex: number, pageNum: number) => void;
+  onRemoveDocument: (docIndex: number) => void;
+  onBack?: () => void;
 }) {
   const scrollContainerRef = useRef<HTMLDivElement>(null);
-  const [canScrollLeft, setCanScrollLeft] = useState(false);
-  const [canScrollRight, setCanScrollRight] = useState(false);
-  const [isExpanded, setIsExpanded] = useState(false);
-  const [activeScrolledDoc, setActiveScrolledDoc] = useState(1);
+  const cardRefs = useRef<(HTMLDivElement | null)[]>([]);
+  const isScrollingByCode = useRef(false);
+  const scrollTimer = useRef<NodeJS.Timeout | null>(null);
 
-  const checkScroll = useCallback(() => {
-    const el = scrollContainerRef.current;
-    if (!el) return;
-    setCanScrollLeft(el.scrollLeft > 10);
-    setCanScrollRight(el.scrollLeft + el.clientWidth < el.scrollWidth - 10);
-
-    const cardWidth = el.firstElementChild ? (el.firstElementChild as HTMLElement).offsetWidth + 12 : 180;
-    const currentDocIndex = Math.min(documents.length, Math.max(1, Math.round(el.scrollLeft / cardWidth) + 1));
-    setActiveScrolledDoc(currentDocIndex);
-  }, [documents.length]);
-
+  // Sync scroll position to active document when activeDocument changes
   useEffect(() => {
-    const el = scrollContainerRef.current;
-    if (!el) return;
-    checkScroll();
-    el.addEventListener("scroll", checkScroll, { passive: true });
-    window.addEventListener("resize", checkScroll);
-    return () => {
-      el.removeEventListener("scroll", checkScroll);
-      window.removeEventListener("resize", checkScroll);
-    };
-  }, [checkScroll, documents.length]);
+    const container = scrollContainerRef.current;
+    const targetCard = cardRefs.current[activeDocument];
+    if (container && targetCard) {
+      const targetLeft = Math.max(0, targetCard.offsetLeft - (container.clientWidth - targetCard.offsetWidth) / 2);
+      if (Math.abs(container.scrollLeft - targetLeft) > 15) {
+        isScrollingByCode.current = true;
+        container.scrollTo({ left: targetLeft, behavior: "smooth" });
+        const timer = setTimeout(() => {
+          isScrollingByCode.current = false;
+        }, 350);
+        return () => clearTimeout(timer);
+      }
+    }
+  }, [activeDocument]);
 
-  const scrollByDirection = (direction: "left" | "right") => {
-    const el = scrollContainerRef.current;
-    if (!el) return;
-    const scrollAmount = Math.max(el.clientWidth * 0.75, 200);
-    el.scrollBy({
-      left: direction === "left" ? -scrollAmount : scrollAmount,
-      behavior: "smooth",
-    });
-  };
+  // Sync active document when user scrolls carousel
+  const handleScroll = useCallback(() => {
+    if (isScrollingByCode.current) return;
+    const container = scrollContainerRef.current;
+    if (!container) return;
+
+    if (scrollTimer.current) clearTimeout(scrollTimer.current);
+    scrollTimer.current = setTimeout(() => {
+      if (isScrollingByCode.current) return;
+      const containerCenter = container.scrollLeft + container.clientWidth / 2;
+      let closestIndex = activeDocument;
+      let minDistance = Infinity;
+
+      cardRefs.current.forEach((card, index) => {
+        if (!card) return;
+        const cardCenter = card.offsetLeft + card.offsetWidth / 2;
+        const dist = Math.abs(containerCenter - cardCenter);
+        if (dist < minDistance) {
+          minDistance = dist;
+          closestIndex = index;
+        }
+      });
+
+      if (closestIndex !== activeDocument && closestIndex >= 0 && closestIndex < documents.length) {
+        setActiveDocument(closestIndex);
+      }
+    }, 80);
+  }, [activeDocument, documents.length, setActiveDocument]);
 
   return (
-    <div className="space-y-1.5">
-      {/* Header Controls for Side-by-Side Preview */}
-      <div className="flex items-center justify-between gap-2 px-0.5 text-[10px]">
-        <span className="font-semibold text-slate-500 flex items-center gap-1">
-          <Layers className="size-3 text-emerald-600" />
-          <span>Tap file to configure</span>
-        </span>
+    <div className="w-full select-none pt-0 sm:pt-0.5 pb-1">
+      {/* Horizontal Snap Carousel */}
+      <div
+        ref={scrollContainerRef}
+        onScroll={handleScroll}
+        className="flex items-center gap-3.5 sm:gap-5 overflow-x-auto snap-x snap-mandatory px-6 sm:px-10 py-1 no-scrollbar scroll-smooth"
+        style={{ scrollSnapType: "x mandatory", WebkitOverflowScrolling: "touch" }}
+      >
+        {documents.map((doc, idx) => {
+          const isActive = activeDocument === idx;
+          const isColor = doc.ranges[0]?.colorMode === "color";
+          const docPreviewUrl =
+            doc.previewUrl ||
+            (orderId && accessToken
+              ? `/api/customer/document-preview?documentId=${doc.id}&orderId=${orderId}&token=${accessToken}`
+              : "");
+          const thumbUrl = getOptimizedPreviewUrl(docPreviewUrl, 800);
 
-        <div className="flex items-center gap-1.5 shrink-0">
-          {documents.length > 2 && (
-            <div className="flex items-center gap-1">
-              <span className="text-[9px] font-bold text-slate-500 bg-white border border-slate-200 px-1.5 py-0.2 rounded">
-                File {activeScrolledDoc} of {documents.length}
-              </span>
-              <button
-                type="button"
-                disabled={!canScrollLeft}
-                onClick={() => scrollByDirection("left")}
-                className="flex size-5 items-center justify-center rounded border border-slate-200 bg-white text-slate-600 hover:bg-slate-50 disabled:opacity-30 disabled:pointer-events-none transition cursor-pointer"
-                title="Scroll left"
-                aria-label="Scroll left"
-              >
-                <ChevronLeft className="size-3" />
-              </button>
-              <button
-                type="button"
-                disabled={!canScrollRight}
-                onClick={() => scrollByDirection("right")}
-                className="flex size-5 items-center justify-center rounded border border-slate-200 bg-white text-slate-600 hover:bg-slate-50 disabled:opacity-30 disabled:pointer-events-none transition cursor-pointer"
-                title="Scroll right"
-                aria-label="Scroll right"
-              >
-                <ChevronRight className="size-3" />
-              </button>
-            </div>
-          )}
-          <span className="text-[9.5px] text-slate-400 font-semibold flex items-center gap-0.5">
-            <ZoomIn className="size-2.5 text-emerald-600" /> Tap zoom
-          </span>
-        </div>
-      </div>
-
-      {/* Horizontal Strip Container - Strictly Side by Side */}
-      <div className="relative group/carousel">
-        {canScrollLeft && (
-          <div className="pointer-events-none absolute left-0 top-0 bottom-2 z-10 w-6 bg-gradient-to-r from-white via-white/80 to-transparent rounded-l-2xl" />
-        )}
-
-        <div
-          ref={scrollContainerRef}
-          className="flex flex-row flex-nowrap gap-2.5 sm:gap-3 overflow-x-auto pb-1.5 pt-0.5 px-0.5 snap-x snap-mandatory scroll-smooth no-scrollbar overscroll-x-contain"
-          style={{ willChange: "scroll-position" }}
-        >
-          {documents.map((doc, idx) => {
-            const isColor = doc.ranges[0]?.colorMode === "color";
-            const totalCopies = doc.ranges.reduce((s, r) => s + (Number(r.copies) || 1), 0);
-            const docPreviewUrl =
-              doc.previewUrl ||
-              (orderId && accessToken
-                ? `/api/customer/document-preview?documentId=${doc.id}&orderId=${orderId}&token=${accessToken}`
-                : "");
-            const thumbUrl = getOptimizedPreviewUrl(docPreviewUrl, 360);
-            const isActive = activeDocument === idx;
-
-            return (
-              <div
-                key={doc.id || idx}
-                onClick={() => {
-                  if (isActive) {
-                    onOpenFullscreen(idx, 1);
-                  } else {
-                    onFocusThisDoc(idx);
-                  }
-                }}
-                className={cn(
-                  "group relative flex flex-col justify-between rounded-xl border-2 p-1.5 sm:p-2 transition-all duration-150 select-none shrink-0 snap-start w-[115px] sm:w-[135px] cursor-pointer",
-                  isActive
-                    ? "border-emerald-600 bg-emerald-50/25 ring-2 ring-emerald-500/30 shadow-md"
-                    : "border-slate-200/90 bg-white hover:-translate-y-0.5 hover:border-emerald-400 hover:shadow-xs",
-                )}
-              >
-                {/* Header Badge */}
-                <div className="flex items-center justify-between gap-1 mb-1">
-                  <span
-                    className={cn(
-                      "rounded px-1 py-0.2 text-[8.5px] font-extrabold border",
-                      isActive
-                        ? "bg-emerald-600 text-white border-emerald-700 shadow-2xs"
-                        : "bg-emerald-50 text-emerald-900 border-emerald-200/70",
-                    )}
-                  >
-                    {isActive ? `✓ Doc #${idx + 1}` : `Doc #${idx + 1}`}
-                  </span>
-                  <span className="text-[8.5px] font-bold text-slate-500 shrink-0">
-                    {doc.pageCount} {doc.pageCount === 1 ? "pg" : "pgs"}
-                  </span>
-                </div>
-
-                {/* Thumbnail - Fixed compact height */}
-                <div
+          return (
+            <div
+              key={doc.id || idx}
+              ref={(el) => {
+                cardRefs.current[idx] = el;
+              }}
+              onClick={() => {
+                if (isActive) {
+                  onOpenFullscreen(idx, 1);
+                } else {
+                  setActiveDocument(idx);
+                }
+              }}
+              className={cn(
+                "group relative shrink-0 snap-center rounded-2xl bg-white border transition-all duration-200 cursor-pointer overflow-hidden p-2 sm:p-2.5 flex flex-col items-center justify-center",
+                "w-[78vw] max-w-[325px] sm:max-w-[360px] aspect-[1/1.414] max-h-[46vh] sm:max-h-[50vh]",
+                isActive
+                  ? "border-slate-300 shadow-xl shadow-slate-900/10 ring-1 ring-slate-900/5"
+                  : "border-slate-200/80 shadow-md shadow-slate-900/5 opacity-80 hover:opacity-100"
+              )}
+            >
+              {/* Top-Left Back Button over the preview image */}
+              {onBack && (
+                <button
+                  type="button"
                   onClick={(e) => {
                     e.stopPropagation();
-                    if (isActive) {
-                      onOpenFullscreen(idx, 1);
-                    } else {
-                      onFocusThisDoc(idx);
-                    }
+                    onBack();
                   }}
-                  className={cn(
-                    "relative flex h-20 sm:h-24 w-full items-center justify-center rounded-lg bg-slate-50 border border-slate-200/90 p-1 overflow-hidden mb-1 shadow-inner group-hover:border-emerald-400 transition-colors cursor-pointer",
-                    !isColor && "bg-slate-100",
-                  )}
+                  className="absolute top-2.5 left-2.5 z-20 flex size-7.5 sm:size-8.5 items-center justify-center rounded-full bg-white/95 border border-slate-200/90 text-slate-700 shadow-md hover:bg-white hover:text-slate-900 active:scale-90 transition cursor-pointer backdrop-blur-xs"
+                  title="Go back"
+                  aria-label="Go back"
                 >
-                  <LazyPreviewImage
-                    src={thumbUrl}
-                    alt={`Preview for ${doc.filename}`}
-                    className={cn(
-                      "max-h-full max-w-full object-contain rounded-xs transition-all",
-                      !isColor && "grayscale contrast-105 brightness-95",
-                    )}
-                    style={!isColor ? { filter: "grayscale(100%) contrast(1.1) brightness(0.96)" } : undefined}
-                    fallback={<FileText className="size-6 text-slate-300 group-hover:text-emerald-500 transition-colors" />}
-                  />
+                  <ChevronLeft className="size-4.5 sm:size-5" />
+                </button>
+              )}
 
-                  {/* Active Indicator: Tap again to zoom */}
-                  {isActive && (
-                    <div className="pointer-events-none absolute bottom-1 inset-x-0.5 flex items-center justify-center">
-                      <span className="rounded bg-emerald-700/90 text-white px-1 py-0.5 text-[7.5px] sm:text-[8px] font-bold shadow-xs flex items-center gap-0.5 backdrop-blur-xs">
-                        <ZoomIn className="size-2" /> Click to zoom
+              {/* Top-Right Delete (X) Button */}
+              {documents.length > 1 && (
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onRemoveDocument(idx);
+                  }}
+                  className="absolute top-2.5 right-2.5 z-20 flex size-6 sm:size-7 items-center justify-center rounded-full bg-white/95 border border-slate-200/90 text-slate-500 shadow-sm hover:text-rose-600 hover:bg-rose-50 hover:border-rose-200 active:scale-90 transition cursor-pointer"
+                  title="Remove this document"
+                  aria-label="Remove document"
+                >
+                  <X className="size-3.5" />
+                </button>
+              )}
+
+              {/* Document Sheet Display */}
+              <div className="relative flex h-full w-full items-center justify-center overflow-hidden rounded-xl bg-slate-50/50">
+                <LazyPreviewImage
+                  src={thumbUrl}
+                  alt={`Preview of ${doc.filename}`}
+                  className={cn(
+                    "h-full w-full object-contain rounded-lg transition-all",
+                    !isColor && "grayscale contrast-105 brightness-95"
+                  )}
+                  style={!isColor ? { filter: "grayscale(100%) contrast(1.1) brightness(0.96)" } : undefined}
+                  fallback={
+                    <div className="flex flex-col items-center justify-center gap-2 p-4 text-center">
+                      <div className="flex size-14 items-center justify-center rounded-2xl bg-emerald-50 text-emerald-600 border border-emerald-200 shadow-inner">
+                        <FileText className="size-7" />
+                      </div>
+                      <p className="text-xs font-bold text-slate-700 max-w-[180px] truncate">{doc.filename}</p>
+                      <span className="text-[10px] text-slate-400 font-medium">
+                        {doc.pageCount} {doc.pageCount === 1 ? "page" : "pages"}
                       </span>
                     </div>
-                  )}
+                  }
+                />
 
-                  {/* Zoom Overlay Hint on Hover */}
-                  <div className="pointer-events-none absolute inset-0 flex items-center justify-center bg-black/20 opacity-0 group-hover:opacity-100 transition-opacity rounded-lg">
-                    <span className="rounded bg-white/95 px-1.5 py-0.5 text-[8.5px] font-bold text-slate-800 shadow-xs flex items-center gap-0.5 backdrop-blur-xs">
-                      <ZoomIn className="size-2.5 text-emerald-600" /> {isActive ? "Zoom in" : "Configure"}
-                    </span>
-                  </div>
-                </div>
-
-                {/* Details */}
-                <div className="flex flex-col gap-1 text-[9px]">
-                  <span className="font-bold text-slate-800 truncate block text-left leading-tight" title={doc.filename}>
-                    {doc.filename}
+                {/* Subtle zoom hint overlay */}
+                <div className="pointer-events-none absolute bottom-2 inset-x-2 flex items-center justify-center">
+                  <span className="rounded-full bg-slate-900/70 text-white px-2.5 py-0.5 text-[9px] font-semibold shadow-xs flex items-center gap-1 backdrop-blur-xs opacity-75 group-hover:opacity-100 transition-opacity">
+                    <ZoomIn className="size-2.5" /> Tap to zoom
                   </span>
-
-                  <div className="flex items-center justify-between gap-1">
-                    <span
-                      className={cn(
-                        "rounded px-1 py-0.2 text-[8px] font-bold",
-                        isColor ? "bg-emerald-50 text-emerald-800 border border-emerald-200/80" : "bg-slate-100 text-slate-700 border border-slate-200",
-                      )}
-                    >
-                      {isColor ? "🎨 Color" : "📄 B&W"}
-                    </span>
-                    <span className="rounded bg-slate-100 border border-slate-200 px-1 py-0.2 font-bold text-slate-600 text-[8px]">
-                      {totalCopies}x copy
-                    </span>
-                  </div>
-
-                  {/* Quick Select & Zoom Button */}
-                  <button
-                    type="button"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      if (isActive) {
-                        onOpenFullscreen(idx, 1);
-                      } else {
-                        onFocusThisDoc(idx);
-                      }
-                    }}
-                    className={cn(
-                      "mt-0.5 w-full flex items-center justify-center gap-1 rounded-md border py-0.5 text-[9px] font-bold transition shadow-2xs cursor-pointer",
-                      isActive
-                        ? "bg-emerald-600 text-white border-emerald-600 hover:bg-emerald-700 shadow-2xs"
-                        : "border-slate-200 bg-slate-50 text-slate-700 hover:bg-emerald-50 hover:border-emerald-300 hover:text-emerald-800",
-                    )}
-                  >
-                    {isActive ? (
-                      <>
-                        <ZoomIn className="size-2.5 text-white" />
-                        <span>Click again to zoom</span>
-                      </>
-                    ) : (
-                      <>
-                        <Eye className="size-2.5 text-emerald-600" />
-                        <span>Configure</span>
-                      </>
-                    )}
-                  </button>
                 </div>
               </div>
-            );
-          })}
-        </div>
+            </div>
+          );
+        })}
+      </div>
 
-        {canScrollRight && (
-          <div className="pointer-events-none absolute right-0 top-0 bottom-2 z-10 w-6 bg-gradient-to-l from-white via-white/80 to-transparent rounded-r-2xl" />
+      {/* Dark Pill Indicator underneath sheet (e.g. 1/2 •) */}
+      <div className="flex items-center justify-center gap-1.5 pt-2 pb-0.5">
+        <span className="rounded-full bg-neutral-900 px-2.5 py-0.5 text-[11px] font-bold text-white shadow-xs">
+          {activeDocument + 1}/{documents.length}
+        </span>
+        {documents.length > 1 && (
+          <div className="flex items-center gap-1.5 pl-0.5">
+            {documents.map((_, dotIdx) => (
+              <button
+                key={dotIdx}
+                type="button"
+                onClick={() => setActiveDocument(dotIdx)}
+                className={cn(
+                  "size-1.5 rounded-full transition-all duration-200 cursor-pointer",
+                  dotIdx === activeDocument ? "bg-neutral-800 scale-125" : "bg-slate-300 hover:bg-slate-400"
+                )}
+                aria-label={`Go to document ${dotIdx + 1}`}
+              />
+            ))}
+          </div>
         )}
       </div>
     </div>
@@ -2903,11 +2530,14 @@ function ConfigureAndCropStep({
   onOpenCropper,
   onOpenMultiImage,
   onAddMoreFiles,
+  rejectedFiles,
+  onDismissRejectedFiles,
   orderId,
   accessToken,
   onProceedToPay,
   onProceedToCounterToken,
   onOpenPriceChart,
+  onBack,
 }: {
   shop: PublicShop;
   documents: CustomerDocument[];
@@ -2926,19 +2556,21 @@ function ConfigureAndCropStep({
   onOpenCropper: (docIndex: number) => void;
   onOpenMultiImage: (initialDocIndex?: number, defaultPreset?: LayoutTemplate) => void;
   onAddMoreFiles: (files: File[]) => void;
+  rejectedFiles?: Array<{ filename: string; reason: string }>;
+  onDismissRejectedFiles?: () => void;
   orderId?: string | null;
   accessToken?: string | null;
   onProceedToPay?: () => void;
   onProceedToCounterToken?: () => void;
   onOpenPriceChart?: () => void;
+  onBack?: () => void;
 }) {
   const rangeError = validateRanges(current.ranges, current.pageCount);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const reuploadInputRef = useRef<HTMLInputElement>(null);
 
   const shopPaymentMode = shop.payment_mode || "both";
 
-  // "all" shows preview of all files; number shows focused preview of that specific file
-  const [previewDocView, setPreviewDocView] = useState<"all" | number>(() => (documents.length > 1 ? "all" : 0));
   const [fullscreenTarget, setFullscreenTarget] = useState<{ docIndex: number; pageNum: number } | null>(null);
 
   const totalDocPages = useMemo(() => {
@@ -3016,16 +2648,6 @@ function ConfigureAndCropStep({
     };
   }, [fullscreenTarget, documents, closeFullscreenPreview]);
 
-  // Keep previewDocView valid if documents change
-  useEffect(() => {
-    if (typeof previewDocView === "number" && previewDocView >= documents.length) {
-      // eslint-disable-next-line react-hooks/set-state-in-effect
-      setPreviewDocView(documents.length > 1 ? "all" : 0);
-    }
-  }, [documents.length, previewDocView]);
-
-  const focusedPreviewDoc = typeof previewDocView === "number" ? documents[previewDocView] || current : null;
-
   return (
     <div className="space-y-2.5 sm:space-y-4 pb-24 sm:pb-0">
       {/* On-Screen Processing & Please Wait Banner */}
@@ -3051,89 +2673,85 @@ function ConfigureAndCropStep({
         </Alert>
       ) : null}
 
-      {/* TOP: Live Document & Sheet Preview */}
-      <Card className="p-2.5 sm:p-4 border-slate-200/80 bg-white shadow-lg shadow-slate-900/5 rounded-2xl sm:rounded-3xl overflow-hidden">
-        {/* Top Header Bar with Add More on top right corner */}
-        <div className="flex items-center justify-between gap-2 mb-2 pb-1.5 border-b border-slate-100">
-          <div className="flex items-center gap-1.5">
-            <span className="flex size-6 sm:size-7 items-center justify-center rounded-lg bg-emerald-100 text-emerald-800 font-bold text-xs">
-              <Eye className="size-3.5" />
-            </span>
-            <div>
-              <h3 className="text-xs sm:text-sm font-extrabold text-slate-900 leading-tight">Document Preview</h3>
-              <p className="text-[10px] sm:text-[11px] text-slate-500 leading-tight">
-                {documents.length} {documents.length === 1 ? "file" : "files"} · {totalDocPages} total {totalDocPages === 1 ? "page" : "pages"}
-              </p>
+      {/* Rejected Files Banner with 1-Click Re-upload */}
+      {rejectedFiles && rejectedFiles.length > 0 && (
+        <div className="rounded-2xl border border-amber-300 bg-amber-50/95 p-3 sm:p-4 text-xs text-amber-950 shadow-xs space-y-2.5 animate-in fade-in duration-200">
+          <div className="flex items-start justify-between gap-2">
+            <div className="flex items-start gap-2.5">
+              <div className="flex size-7 items-center justify-center rounded-xl bg-amber-200/80 text-amber-900 shrink-0 mt-0.5">
+                <AlertTriangle className="size-4 text-amber-700" />
+              </div>
+              <div className="min-w-0">
+                <p className="font-bold text-amber-900 text-xs sm:text-sm">
+                  {rejectedFiles.length === 1
+                    ? "1 file could not be uploaded"
+                    : `${rejectedFiles.length} files could not be uploaded`}
+                </p>
+                <div className="mt-1 space-y-1">
+                  {rejectedFiles.map((rf, idx) => (
+                    <p key={idx} className="text-[11px] sm:text-xs text-amber-900">
+                      <strong className="underline decoration-amber-400">{rf.filename}</strong>: {rf.reason}
+                    </p>
+                  ))}
+                </div>
+              </div>
+            </div>
+            {onDismissRejectedFiles && (
+              <button
+                type="button"
+                onClick={onDismissRejectedFiles}
+                className="rounded-lg p-1 text-amber-700 hover:bg-amber-200/60 hover:text-amber-950 transition cursor-pointer"
+                title="Dismiss notice"
+              >
+                <X className="size-4" />
+              </button>
+            )}
+          </div>
+
+          <div className="flex flex-wrap items-center justify-between gap-2 pt-1.5 border-t border-amber-200/80">
+            <p className="text-[10.5px] sm:text-xs text-amber-800">
+              Your other {documents.length} {documents.length === 1 ? "file is" : "files are"} ready for printing below.
+            </p>
+            <div className="flex items-center gap-2">
+              <input
+                ref={reuploadInputRef}
+                className="sr-only"
+                type="file"
+                accept=".pdf,.png,.jpg,.jpeg,.webp,.gif,.tif,.tiff,.doc,.docx,.odt,.rtf,.ppt,.pptx,.odp,.xls,.xlsx,.ods,.txt,.csv,.md"
+                multiple
+                onChange={(e) => {
+                  const files = Array.from(e.target.files ?? []);
+                  if (files.length > 0) {
+                    onAddMoreFiles(files);
+                    onDismissRejectedFiles?.();
+                  }
+                  e.currentTarget.value = "";
+                }}
+              />
+              <button
+                type="button"
+                onClick={() => reuploadInputRef.current?.click()}
+                className="inline-flex items-center gap-1.5 rounded-xl bg-amber-600 px-3 py-1.5 text-xs font-bold text-white shadow-2xs hover:bg-amber-700 active:scale-95 transition cursor-pointer"
+              >
+                <FileUp className="size-3.5" />
+                <span>Re-upload / Replace</span>
+              </button>
             </div>
           </div>
-
-          <div className="flex items-center gap-2">
-            <input
-              ref={fileInputRef}
-              className="sr-only"
-              type="file"
-              accept=".pdf,.png,.jpg,.jpeg,.webp,.gif,.tif,.tiff,.doc,.docx,.odt,.rtf,.ppt,.pptx,.odp,.xls,.xlsx,.ods,.txt,.csv,.md"
-              multiple
-              onChange={(e) => {
-                const files = Array.from(e.target.files ?? []);
-                if (files.length > 0) {
-                  onAddMoreFiles(files);
-                }
-                e.currentTarget.value = "";
-              }}
-            />
-            <button
-              type="button"
-              disabled={busy || documents.length >= 10}
-              onClick={() => fileInputRef.current?.click()}
-              className="inline-flex items-center gap-1 rounded-lg border border-emerald-300 bg-emerald-50/80 px-2.5 py-1 text-[11px] sm:text-xs font-bold text-emerald-800 shadow-2xs hover:bg-emerald-100 hover:border-emerald-500 transition active:scale-95 cursor-pointer"
-            >
-              <Plus className="size-3 text-emerald-600" />
-              <span>Add More</span>
-            </button>
-          </div>
         </div>
+      )}
 
-        {/* Back link when viewing specific document pages */}
-        {previewDocView !== "all" && documents.length > 1 && (
-          <div className="flex items-center justify-between gap-2 mb-2 pb-1.5 border-b border-slate-100">
-            <button
-              type="button"
-              onClick={() => setPreviewDocView("all")}
-              className="inline-flex items-center gap-1 text-xs font-bold text-emerald-700 hover:text-emerald-800 bg-emerald-50 px-2 py-0.5 rounded-lg border border-emerald-200 cursor-pointer"
-            >
-              <ChevronLeft className="size-3" />
-              <span>Back to all files ({documents.length})</span>
-            </button>
-            <span className="text-[10px] text-slate-400 font-medium truncate">
-              Viewing pages of {focusedPreviewDoc?.filename}
-            </span>
-          </div>
-        )}
-
-        {/* Content: All Documents Preview OR Specific Document Preview */}
-        {previewDocView === "all" ? (
-          <ConfigureAllDocsSideBySidePreviewSection
-            documents={documents}
-            orderId={orderId}
-            accessToken={accessToken}
-            activeDocument={activeDocument}
-            onFocusThisDoc={(idx) => {
-              setActiveDocument(idx);
-            }}
-            onOpenFullscreen={openFullscreenPreview}
-          />
-        ) : focusedPreviewDoc ? (
-          <ConfigureDocPreviewSection
-            doc={focusedPreviewDoc}
-            docIndex={typeof previewDocView === "number" ? previewDocView : activeDocument}
-            isFocusedView={true}
-            orderId={orderId}
-            accessToken={accessToken}
-            onOpenFullscreen={openFullscreenPreview}
-          />
-        ) : null}
-      </Card>
+      {/* Large Sheet Preview Carousel matching reference UI */}
+      <LargeSheetPreviewCarousel
+        documents={documents}
+        activeDocument={activeDocument}
+        setActiveDocument={setActiveDocument}
+        orderId={orderId}
+        accessToken={accessToken}
+        onOpenFullscreen={openFullscreenPreview}
+        onRemoveDocument={removeDocument}
+        onBack={onBack}
+      />
 
       {/* 1. Document Configuration Card (Below Preview) */}
       <Card className="p-3 sm:p-6 border-slate-200/80 bg-white shadow-lg shadow-slate-900/5 rounded-2xl sm:rounded-3xl">
@@ -3302,17 +2920,20 @@ function ConfigureAndCropStep({
 
         {/* Active Document Details Box */}
         <div className="rounded-2xl bg-slate-50/80 border border-slate-200/80 p-2.5 sm:p-5 space-y-3 sm:space-y-4">
-          <div className="flex flex-wrap items-center justify-between gap-1.5 pb-2 sm:pb-3 border-b border-slate-200/70">
-            <div className="min-w-0 max-w-[65%]">
-              <div className="flex items-center gap-2">
+          {/* Header Row: Document Name & Details with Add Files Button */}
+          <div className="flex items-center justify-between gap-2 pb-2 sm:pb-3 border-b border-slate-200/70">
+            <div className="min-w-0 flex-1">
+              <div className="flex flex-wrap items-center gap-1.5">
                 {documents.length > 1 && (
                   <span className="rounded-md bg-emerald-100 px-2 py-0.5 text-[10px] font-extrabold text-emerald-900 border border-emerald-200 shrink-0">
                     Doc #{activeDocument + 1} of {documents.length}
                   </span>
                 )}
-                <p className="font-bold text-slate-900 text-xs sm:text-base truncate">{current.filename}</p>
+                <p className="font-bold text-slate-900 text-xs sm:text-base truncate max-w-[150px] xs:max-w-[200px] sm:max-w-[320px]" title={current.filename}>
+                  {current.filename}
+                </p>
                 {isCurrentCombinedSheet && (
-                  <span className="rounded-md bg-emerald-100 text-emerald-800 text-[10px] font-extrabold px-2 py-0.5 border border-emerald-300 shrink-0">
+                  <span className="rounded-md bg-emerald-100 text-emerald-800 text-[10px] font-extrabold px-1.5 py-0.2 border border-emerald-300 shrink-0">
                     Combined Sheet
                   </span>
                 )}
@@ -3325,7 +2946,38 @@ function ConfigureAndCropStep({
                 </span>
               </p>
             </div>
-            <div className="flex items-center gap-2">
+
+            {/* Add Files Button beside document name */}
+            <div className="flex items-center gap-2 shrink-0">
+              <input
+                ref={fileInputRef}
+                className="sr-only"
+                type="file"
+                accept=".pdf,.png,.jpg,.jpeg,.webp,.gif,.tif,.tiff,.doc,.docx,.odt,.rtf,.ppt,.pptx,.odp,.xls,.xlsx,.ods,.txt,.csv,.md"
+                multiple
+                onChange={(e) => {
+                  const files = Array.from(e.target.files ?? []);
+                  if (files.length > 0) {
+                    onAddMoreFiles(files);
+                  }
+                  e.currentTarget.value = "";
+                }}
+              />
+              <button
+                type="button"
+                disabled={busy || documents.length >= 10}
+                onClick={() => fileInputRef.current?.click()}
+                className="inline-flex items-center gap-1 rounded-full border border-emerald-500/80 bg-emerald-50/80 px-2.5 sm:px-3 py-1 text-[11px] sm:text-xs font-bold text-emerald-800 shadow-2xs hover:bg-emerald-100 hover:border-emerald-600 transition active:scale-95 cursor-pointer disabled:opacity-40"
+              >
+                <FilePlus className="size-3.5 text-emerald-600" />
+                <span>Add files</span>
+              </button>
+            </div>
+          </div>
+
+          {/* Action Row: Prev/Next, Crop, Combine (persists even if already edited), and Delete */}
+          <div className="flex flex-wrap items-center justify-between gap-1.5 pt-0.5">
+            <div className="flex items-center gap-1.5">
               {documents.length > 1 && (
                 <div className="flex items-center gap-1 mr-1">
                   <button
@@ -3334,7 +2986,6 @@ function ConfigureAndCropStep({
                     onClick={() => {
                       const prev = Math.max(0, activeDocument - 1);
                       setActiveDocument(prev);
-                      setPreviewDocView(prev);
                     }}
                     className="flex size-7 items-center justify-center rounded-lg border border-slate-200 bg-white text-slate-700 hover:bg-slate-50 disabled:opacity-30 disabled:pointer-events-none transition shadow-2xs cursor-pointer"
                     title="Previous file"
@@ -3347,7 +2998,6 @@ function ConfigureAndCropStep({
                     onClick={() => {
                       const next = Math.min(documents.length - 1, activeDocument + 1);
                       setActiveDocument(next);
-                      setPreviewDocView(next);
                     }}
                     className="flex size-7 items-center justify-center rounded-lg border border-slate-200 bg-white text-slate-700 hover:bg-slate-50 disabled:opacity-30 disabled:pointer-events-none transition shadow-2xs cursor-pointer"
                     title="Next file"
@@ -3356,91 +3006,40 @@ function ConfigureAndCropStep({
                   </button>
                 </div>
               )}
-              {/* Crop & Multi-Image Action Buttons for Image uploads */}
-              {isImageDoc && (
+
+              {/* Crop & Multi-Image Action Buttons */}
+              {(isImageDoc || isCurrentCombinedSheet) && (
                 <>
                   <button
                     type="button"
                     onClick={() => onOpenCropper(activeDocument)}
-                    className="inline-flex items-center gap-1.5 rounded-xl border border-emerald-300 bg-emerald-50 px-3 py-1.5 text-xs font-bold text-emerald-800 shadow-2xs hover:bg-emerald-100 transition active:scale-95 cursor-pointer"
+                    className="inline-flex items-center gap-1.5 rounded-xl border border-emerald-300 bg-emerald-50 px-2.5 sm:px-3 py-1.5 text-xs font-bold text-emerald-800 shadow-2xs hover:bg-emerald-100 transition active:scale-95 cursor-pointer"
                   >
                     <Crop className="size-3.5 text-emerald-700" />
-                    <span className="hidden sm:inline">Crop Image</span>
-                    <span className="sm:hidden">Crop</span>
+                    <span>Crop</span>
                   </button>
 
-                  {!isCurrentCombinedSheet && (
-                    <button
-                      type="button"
-                      onClick={() => onOpenMultiImage(activeDocument, "grid-2-vert")}
-                      className="inline-flex items-center gap-1.5 rounded-xl border border-blue-300 bg-blue-50 px-3 py-1.5 text-xs font-bold text-blue-900 shadow-2xs hover:bg-blue-100 transition active:scale-95 cursor-pointer"
-                    >
-                      <LayoutGrid className="size-3.5 text-blue-700" />
-                      <span className="hidden sm:inline">Combine on 1 Page</span>
-                      <span className="sm:hidden">Combine</span>
-                    </button>
-                  )}
+                  <button
+                    type="button"
+                    onClick={() => onOpenMultiImage(activeDocument, "grid-2-vert")}
+                    className="inline-flex items-center gap-1.5 rounded-xl border border-blue-300 bg-blue-50 px-2.5 sm:px-3 py-1.5 text-xs font-bold text-blue-900 shadow-2xs hover:bg-blue-100 transition active:scale-95 cursor-pointer"
+                  >
+                    <LayoutGrid className="size-3.5 text-blue-700" />
+                    <span>{isCurrentCombinedSheet ? "Combine / Add" : "Combine"}</span>
+                  </button>
                 </>
               )}
-
-              <button
-                type="button"
-                disabled={documents.length <= 1}
-                onClick={() => removeDocument(activeDocument)}
-                className="rounded-xl border border-slate-200 bg-white p-2 text-xs font-semibold text-rose-600 hover:bg-rose-50 disabled:opacity-40 transition cursor-pointer"
-                title="Remove this document"
-              >
-                <Trash2 className="size-3.5" />
-              </button>
             </div>
-          </div>
 
-          {/* Quick Page Presets Bar */}
-          <div className="flex flex-wrap items-center gap-1.5">
-            <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">Quick Presets:</span>
             <button
               type="button"
-              onClick={() => {
-                updateRange(0, "startPage", 1);
-                updateRange(0, "endPage", current.pageCount);
-              }}
-              className="rounded-lg border border-slate-200 bg-white px-2.5 py-1 text-xs font-semibold text-slate-700 hover:border-slate-300 hover:bg-slate-50 transition active:scale-95 cursor-pointer"
+              disabled={documents.length <= 1}
+              onClick={() => removeDocument(activeDocument)}
+              className="rounded-xl border border-slate-200 bg-white p-2 text-xs font-semibold text-rose-600 hover:bg-rose-50 disabled:opacity-40 transition cursor-pointer"
+              title="Remove this document"
             >
-              All Pages (1–{current.pageCount})
+              <Trash2 className="size-3.5" />
             </button>
-            <button
-              type="button"
-              onClick={() => {
-                updateRange(0, "startPage", 1);
-                updateRange(0, "endPage", 1);
-              }}
-              className="rounded-lg border border-slate-200 bg-white px-2.5 py-1 text-xs font-semibold text-slate-700 hover:border-slate-300 hover:bg-slate-50 transition active:scale-95 cursor-pointer"
-            >
-              Page 1 Only
-            </button>
-            {current.pageCount >= 2 && (
-              <button
-                type="button"
-                onClick={() => {
-                  updateRange(0, "startPage", 2);
-                  updateRange(0, "endPage", current.pageCount);
-                }}
-                className="rounded-lg border border-slate-200 bg-white px-2.5 py-1 text-xs font-semibold text-slate-700 hover:border-slate-300 hover:bg-slate-50 transition active:scale-95 cursor-pointer"
-              >
-                Pages 2–{current.pageCount}
-              </button>
-            )}
-            {current.pageCount >= 2 && (
-              <button
-                type="button"
-                onClick={applyFirstPageColorPreset}
-                className="inline-flex items-center gap-1.5 rounded-lg border border-amber-300 bg-amber-50 px-2.5 py-1 text-xs font-extrabold text-amber-900 hover:border-amber-400 hover:bg-amber-100 transition active:scale-95 cursor-pointer shadow-2xs"
-                title="Page 1 Color and remaining pages Black & White"
-              >
-                <span>🎨 Pehla page color chahiye?</span>
-                <span className="text-[10px] text-amber-700 font-medium">(P.1 Color + Baaki B&amp;W)</span>
-              </button>
-            )}
           </div>
 
           {/* Page Ranges List */}
@@ -4022,7 +3621,7 @@ function ConfigureAndCropStep({
 
               <div className="relative flex flex-1 items-center justify-center overflow-auto p-4 select-none bg-slate-100/90">
                 <div className="relative flex max-h-[80vh] w-auto max-w-[90vw] items-center justify-center rounded-2xl bg-white p-2 shadow-2xl border border-slate-800/10">
-                  {targetDocPreviewUrl && (targetTotalPages === 1 || targetIsImage) ? (
+                  {targetDocPreviewUrl && (fullscreenTarget.pageNum === 1 || targetTotalPages === 1 || targetIsImage) ? (
                     // eslint-disable-next-line @next/next/no-img-element
                     <img
                       src={getOptimizedPreviewUrl(targetDocPreviewUrl, 1400)}

@@ -74,25 +74,43 @@ export async function POST(request: Request) {
   if (files.reduce((sum, file) => sum + file.size, 0) > 100 * 1024 * 1024)
     return NextResponse.json({ error: "Combined upload size must be under 100 MB." }, { status: 400 });
 
-  let normalized: NormalizedDocumentResult[] = [];
-  try {
-    normalized = await Promise.all(
-      files.map(async (file) => {
-        try {
-          return await normalizeDocument(file);
-        } catch (error) {
-          const rawMessage = error instanceof Error ? error.message : "Document conversion failed.";
-          const errorMsg = rawMessage.includes(file.name)
-            ? rawMessage
-            : `Failed to process "${file.name}": ${rawMessage}`;
-          throw { errorMsg, failedFilename: file.name };
-        }
-      }),
-    );
-  } catch (error: unknown) {
-    const err = error as { errorMsg?: string; failedFilename?: string };
+  const settled = await Promise.allSettled(
+    files.map(async (file) => {
+      try {
+        return await normalizeDocument(file);
+      } catch (error) {
+        const rawMessage = error instanceof Error ? error.message : "Document conversion failed.";
+        const errorMsg = rawMessage.includes(file.name)
+          ? rawMessage
+          : `Failed to process "${file.name}": ${rawMessage}`;
+        throw { errorMsg, failedFilename: file.name };
+      }
+    }),
+  );
+
+  const normalized: NormalizedDocumentResult[] = [];
+  const failedFiles: Array<{ filename: string; reason: string }> = [];
+
+  settled.forEach((res, idx) => {
+    if (res.status === "fulfilled") {
+      normalized.push(res.value);
+    } else {
+      const err = res.reason as { errorMsg?: string; failedFilename?: string } | Error;
+      const filename = ("failedFilename" in err && err.failedFilename) ? err.failedFilename : files[idx].name;
+      const rawReason = ("errorMsg" in err && err.errorMsg) ? err.errorMsg : (err instanceof Error ? err.message : "Could not process file");
+      const reason = rawReason.replace(/^Failed to process "[^"]+":\s*/i, "").replace(/^"[^"]+"\s*(is\s*)?/i, "");
+      failedFiles.push({ filename, reason });
+    }
+  });
+
+  if (normalized.length === 0) {
+    const firstFail = failedFiles[0];
     return NextResponse.json(
-      { error: err.errorMsg || "Document conversion failed.", failedFilename: err.failedFilename },
+      {
+        error: firstFail ? `Failed to process "${firstFail.filename}": ${firstFail.reason}` : "Document conversion failed.",
+        failedFilename: firstFail?.filename,
+        failedFiles,
+      },
       { status: 400 },
     );
   }
@@ -263,6 +281,7 @@ export async function POST(request: Request) {
         orderPublicId,
         accessToken: returnAccessToken,
         documents,
+        failedFiles: failedFiles.length > 0 ? failedFiles : undefined,
       },
       {
         headers: {

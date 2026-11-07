@@ -118,3 +118,65 @@ export async function extractImageFromPdf(pdfBuffer: Buffer): Promise<{ buffer: 
 
   return null;
 }
+
+/**
+ * Renders the first page of ANY PDF buffer (text, fonts, vectors, Word docs, photos)
+ * into a high-quality JPEG image buffer.
+ */
+export async function renderPdfFirstPage(
+  pdfBuffer: Buffer,
+  targetWidth = 800,
+): Promise<{ buffer: Buffer; mimeType: string } | null> {
+  const fastExtracted = await extractImageFromPdf(pdfBuffer);
+  if (fastExtracted?.buffer) {
+    return fastExtracted;
+  }
+
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const napiCanvas = require("@napi-rs/canvas");
+    const g = globalThis as Record<string, unknown>;
+    if (napiCanvas?.DOMMatrix && !g.DOMMatrix) {
+      g.DOMMatrix = napiCanvas.DOMMatrix;
+    }
+    if (napiCanvas?.Path2D && !g.Path2D) {
+      g.Path2D = napiCanvas.Path2D;
+    }
+
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const pdfjs = require("pdfjs-dist/legacy/build/pdf.js");
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const path = require("node:path");
+    const fontDir = path.join(process.cwd(), "node_modules", "pdfjs-dist", "standard_fonts") + path.sep;
+
+    const loadingTask = pdfjs.getDocument({
+      data: new Uint8Array(pdfBuffer),
+      standardFontDataUrl: fontDir,
+      disableFontFace: false,
+    });
+
+    const pdfDoc = await loadingTask.promise;
+    if (!pdfDoc || pdfDoc.numPages < 1) return null;
+
+    const page = await pdfDoc.getPage(1);
+    const initialViewport = page.getViewport({ scale: 1.0 });
+    const scale = Math.min(2.5, Math.max(0.6, targetWidth / Math.max(1, initialViewport.width)));
+    const viewport = page.getViewport({ scale });
+
+    const canvas = napiCanvas.createCanvas(Math.round(viewport.width), Math.round(viewport.height));
+    const context = canvas.getContext("2d");
+    context.fillStyle = "#ffffff";
+    context.fillRect(0, 0, canvas.width, canvas.height);
+
+    await page.render({
+      canvasContext: context,
+      viewport: viewport,
+    }).promise;
+
+    const buffer = canvas.toBuffer("image/jpeg", 82);
+    return { buffer, mimeType: "image/jpeg" };
+  } catch {
+    return null;
+  }
+}
+

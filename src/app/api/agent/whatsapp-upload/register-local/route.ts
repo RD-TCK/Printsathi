@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import crypto from "node:crypto";
+import sharp from "sharp";
 import { authenticateAgent } from "@/lib/agent/auth";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import { createGuestOrderToken } from "@/lib/guest-order";
@@ -75,11 +76,39 @@ export async function POST(request: Request) {
           console.warn(`[register-local] No previewBase64 for document ${doc.id} (${doc.filename}), skipping preview upload`);
           return;
         }
-        const matches = doc.previewBase64.match(/^data:(image\/(?:jpeg|png|webp));base64,(.+)$/);
-        if (!matches || matches.length !== 3) return;
+        let rawBuffer: Buffer;
+        let uploadContentType = "image/jpeg";
 
-        const mimeType = matches[1];
-        const buffer = Buffer.from(matches[2], "base64");
+        const dataUriMatch = doc.previewBase64.match(/^data:(image\/[a-zA-Z0-9.+-]+);base64,(.+)$/);
+        if (dataUriMatch) {
+          uploadContentType = dataUriMatch[1].toLowerCase() === "image/jpg" ? "image/jpeg" : dataUriMatch[1];
+          rawBuffer = Buffer.from(dataUriMatch[2], "base64");
+        } else {
+          try {
+            rawBuffer = Buffer.from(doc.previewBase64, "base64");
+          } catch {
+            return;
+          }
+        }
+
+        if (!rawBuffer || rawBuffer.length === 0) return;
+
+        let uploadBuffer = rawBuffer;
+
+        try {
+          if (rawBuffer.length > 120 * 1024) {
+            uploadBuffer = await sharp(rawBuffer, { limitInputPixels: 268402689 })
+              .rotate()
+              .resize({ width: 720, height: 1020, fit: "inside", withoutEnlargement: true })
+              .jpeg({ quality: 80, mozjpeg: true })
+              .toBuffer();
+            uploadContentType = "image/jpeg";
+          }
+        } catch {
+          // If sharp optimization fails, upload original rawBuffer
+          uploadBuffer = rawBuffer;
+        }
+
         const previewStoragePath = `shops/${shop.id}/orders/${orderId}/documents/${doc.id}/preview.jpg`;
 
         let uploadSucceeded = false;
@@ -88,8 +117,8 @@ export async function POST(request: Request) {
         for (let attempt = 1; attempt <= 5; attempt++) {
           const { error: uploadErr } = await client.storage
             .from("print-documents")
-            .upload(previewStoragePath, buffer, {
-              contentType: mimeType || "image/jpeg",
+            .upload(previewStoragePath, uploadBuffer, {
+              contentType: uploadContentType,
               upsert: true,
             });
 

@@ -80,6 +80,11 @@ describe("server document normalization", () => {
     await expect(normalizeDocument(new File(["bad PDF"], "broken.pdf"))).rejects.toThrow("damaged");
   });
 
+  it("rejects password-protected PDFs with explicit password message", async () => {
+    const encryptedPdf = "%PDF-1.4\n1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n2 0 obj\n<< /Type /Pages /Kids [3 0 R] /Count 1 >>\nendobj\n3 0 obj\n<< /Type /Page /Parent 2 0 R >>\nendobj\n4 0 obj\n<< /Filter /Standard /V 2 /R 3 /O (xxx) /U (yyy) /P -4 >>\nendobj\ntrailer\n<< /Root 1 0 R /Encrypt 4 0 R >>\n%%EOF";
+    await expect(normalizeDocument(new File([encryptedPdf], "locked.pdf"))).rejects.toThrow("password-protected");
+  });
+
   it.skipIf(!process.env.LIBREOFFICE_PATH && !existsSync("C:/Program Files/LibreOffice/program/soffice.exe"))(
     "renders actual Office content including page breaks",
     async () => {

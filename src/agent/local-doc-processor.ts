@@ -22,7 +22,7 @@ function getSharp(): any {
 import mammoth from "mammoth";
 import { getDocumentCacheDirectory } from "./config";
 import { logger } from "./logger";
-import { extractImageFromPdf } from "./pdf-preview";
+import { extractImageFromPdf, renderPdfFirstPage } from "./pdf-preview";
 
 const execute = promisify(execFile);
 
@@ -140,7 +140,7 @@ export async function processAndCacheDocument(
           .resize({ width: 640, height: 900, fit: "inside", withoutEnlargement: true })
           .jpeg({ quality: 75, mozjpeg: true })
           .toBuffer();
-      } else if (extracted?.buffer && extracted.buffer.length <= 2.5 * 1024 * 1024) {
+      } else if (extracted?.buffer && extracted.buffer.length <= 4 * 1024 * 1024) {
         previewBuffer = extracted.buffer;
       }
     } catch {
@@ -152,6 +152,19 @@ export async function processAndCacheDocument(
     const isPng = rawBuffer.subarray(0, 4).toString("hex") === "89504e47" || ext === ".png";
     let thumbBuf: Buffer | undefined = undefined;
 
+    const sharpFn = getSharp();
+    if (sharpFn) {
+      try {
+        thumbBuf = await sharpFn(rawBuffer, { limitInputPixels: 268402689 })
+          .rotate()
+          .resize({ width: 640, height: 900, fit: "inside", withoutEnlargement: true })
+          .jpeg({ quality: 75, mozjpeg: true })
+          .toBuffer();
+      } catch (err) {
+        logger.debug("Sharp thumbnail generation skipped:", { error: err });
+      }
+    }
+
     // Fast-path: directly embed raw JPEG / PNG into PDF in ~10ms
     try {
       if (isPng) {
@@ -159,13 +172,12 @@ export async function processAndCacheDocument(
       } else {
         embeddedImage = await pdf.embedJpg(rawBuffer);
       }
-      previewBuffer = rawBuffer.length <= 2.5 * 1024 * 1024 ? rawBuffer : undefined;
+      previewBuffer = thumbBuf || (rawBuffer.length <= 4 * 1024 * 1024 ? rawBuffer : undefined);
     } catch {
       // Fallback: use sharp if raw embed failed
-      const sharpFn = getSharp();
       let processedJpeg: Buffer = rawBuffer;
 
-      if (sharpFn) {
+      if (sharpFn && !thumbBuf) {
         try {
           const baseSharp = sharpFn(rawBuffer, { limitInputPixels: 268402689 })
             .rotate()
@@ -187,7 +199,7 @@ export async function processAndCacheDocument(
         }
       }
 
-      previewBuffer = thumbBuf || (rawBuffer.length <= 2.5 * 1024 * 1024 ? rawBuffer : undefined);
+      previewBuffer = thumbBuf || (rawBuffer.length <= 4 * 1024 * 1024 ? rawBuffer : undefined);
 
       try {
         embeddedImage = (isPng && !sharpFn) ? await pdf.embedPng(processedJpeg) : await pdf.embedJpg(processedJpeg);
@@ -341,22 +353,15 @@ export async function processAndCacheDocument(
     pageCount = pdf.getPageCount();
   }
 
-  // Extract page 1 thumbnail from converted document PDF if not already set
+  // Extract or render page 1 thumbnail from converted document PDF if not already set
   if (!previewBuffer && finalPdfBuffer.length > 0) {
     try {
-      const extracted = await extractImageFromPdf(finalPdfBuffer);
-      const sharpFn = getSharp();
-      if (extracted?.buffer && sharpFn) {
-        previewBuffer = await sharpFn(extracted.buffer, { limitInputPixels: 268402689 })
-          .rotate()
-          .resize({ width: 640, height: 900, fit: "inside", withoutEnlargement: true })
-          .jpeg({ quality: 75, mozjpeg: true })
-          .toBuffer();
-      } else if (extracted?.buffer && extracted.buffer.length <= 2.5 * 1024 * 1024) {
-        previewBuffer = extracted.buffer;
+      const rendered = await renderPdfFirstPage(finalPdfBuffer, 800);
+      if (rendered?.buffer) {
+        previewBuffer = rendered.buffer;
       }
-    } catch {
-      // ignore
+    } catch (err) {
+      logger.warn(`Failed to render PDF page 1 preview for "${rawFilename}": ${err instanceof Error ? err.message : String(err)}`);
     }
   }
 

@@ -1,9 +1,10 @@
 import type { Metadata } from "next";
 import Link from "next/link";
-import { Printer, QrCode, ShieldCheck, Sparkles } from "lucide-react";
+import { Printer, QrCode, ShieldCheck, Sparkles, Store } from "lucide-react";
 import { notFound } from "next/navigation";
 import { getPublicPricing, getPublicShop } from "@/lib/shops/public-lookup";
 import { CustomerPrintFlow } from "@/components/customer-print-flow";
+import { ShopHeader } from "@/components/shop-header";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import { hashGuestOrderToken } from "@/lib/guest-order";
 import { Button } from "@/components/ui/button";
@@ -129,22 +130,7 @@ export default async function PublicShopPage({ params, searchParams }: ShopPageP
       />
       <div className="mx-auto max-w-3xl">
         {/* Navigation Bar */}
-        <header className="flex items-center justify-between px-1 pb-2 sm:pb-4">
-          <Link href="/" className="group flex items-center gap-1.5 sm:gap-2">
-            <span className="flex size-6.5 sm:size-8 items-center justify-center rounded-lg sm:rounded-xl bg-emerald-600 text-xs sm:text-base font-black text-white shadow-md shadow-emerald-900/20 transition-transform group-hover:scale-105">
-              P
-            </span>
-            <span className="text-base sm:text-xl font-black tracking-tight text-slate-900">
-              Print<span className="text-emerald-600">iva</span>
-            </span>
-          </Link>
-          <div className="flex items-center gap-2">
-            <span className="inline-flex items-center gap-1 sm:gap-1.5 rounded-full bg-emerald-100 px-2.5 sm:px-3 py-0.5 sm:py-1 text-[10px] sm:text-xs font-bold text-emerald-800 border border-emerald-200 shadow-xs">
-              <span className="size-1.5 sm:size-2 rounded-full bg-emerald-500 animate-pulse" />
-              Instant Print Shop
-            </span>
-          </div>
-        </header>
+        <ShopHeader shop={shop} />
 
         {/* Main Content Card */}
         <Card className="mt-1 sm:mt-2 overflow-hidden border-emerald-200 bg-white shadow-xl shadow-emerald-950/5 rounded-2xl sm:rounded-3xl">

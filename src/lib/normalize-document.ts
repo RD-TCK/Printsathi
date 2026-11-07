@@ -10,6 +10,7 @@ import { PDFDocument, StandardFonts, rgb, PDFPage, PDFFont } from "pdf-lib";
 import sharp from "sharp";
 
 import mammoth from "mammoth";
+import { renderPdfFirstPage } from "./pdf-preview";
 
 const execute = promisify(execFile);
 const officeExtensions = new Set([
@@ -256,7 +257,21 @@ export async function normalizeDocument(file: DocumentInputSource): Promise<Norm
   if (pageCount < 1 || pageCount > 2000) {
     throw new Error(`${file.name} must contain between 1 and 2,000 pages.`);
   }
-  return { bytes, pageCount, filename: file.name };
+
+  // Generate crisp first-page JPEG preview for PDFs, Word docs, PowerPoint, Excel, text
+  if (!previewImage) {
+    try {
+      const rendered = await renderPdfFirstPage(bytes, 900);
+      if (rendered?.buffer) {
+        previewImage = rendered.buffer;
+        previewMime = rendered.mimeType;
+      }
+    } catch (err) {
+      console.warn(`[normalizeDocument] Could not render first-page preview for ${file.name}:`, err);
+    }
+  }
+
+  return { bytes, pageCount, filename: file.name, previewImage, previewMime };
 }
 
 /**
@@ -292,9 +307,25 @@ function getLibreOfficePath(): string {
  * First inspects the document structure directly (<1ms), then falls back to pdf-lib.
  */
 async function countPdfPages(bytes: Buffer, filename: string): Promise<number> {
+  const text = bytes.toString("latin1");
+
+  // Check for password protection / encryption
+  if (text.includes("/Encrypt")) {
+    try {
+      const testDoc = await PDFDocument.load(bytes, { ignoreEncryption: false });
+      if (testDoc.isEncrypted) {
+        throw new Error(`"${filename}" is password-protected. Please unlock or remove the password before uploading.`);
+      }
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      if (msg.includes("password") || msg.includes("encrypted") || msg.includes("Encrypted") || msg.includes("password-protected")) {
+        throw new Error(`"${filename}" is password-protected. Please unlock or remove the password before uploading.`);
+      }
+    }
+  }
+
   // 1. Fast regex / binary search on PDF page tree
   try {
-    const text = bytes.toString("latin1");
     // Match root Pages catalog /Count
     const rootMatches = text.match(/\/Type\s*\/Pages[\s\S]*?\/Count\s+(\d+)/);
     if (rootMatches && rootMatches[1]) {
@@ -316,8 +347,12 @@ async function countPdfPages(bytes: Buffer, filename: string): Promise<number> {
   try {
     const pdf = await PDFDocument.load(bytes, { ignoreEncryption: true });
     return pdf.getPageCount();
-  } catch {
-    throw new Error(`${filename} is damaged or password-protected. Upload a readable document.`);
+  } catch (err: unknown) {
+    const msg = err instanceof Error ? err.message : String(err);
+    if (msg.includes("password") || msg.includes("encrypted") || msg.includes("Encrypted") || msg.includes("password-protected")) {
+      throw new Error(`"${filename}" is password-protected. Please unlock or remove the password before uploading.`);
+    }
+    throw new Error(`"${filename}" is damaged or unreadable. Please check the file and re-upload.`);
   }
 }
 

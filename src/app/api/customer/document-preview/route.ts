@@ -3,7 +3,7 @@ import { z } from "zod";
 import sharp from "sharp";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import { hashGuestOrderToken } from "@/lib/guest-order";
-import { extractImageFromPdf } from "@/lib/pdf-preview";
+import { extractImageFromPdf, renderPdfFirstPage } from "@/lib/pdf-preview";
 
 export const runtime = "nodejs";
 
@@ -241,22 +241,19 @@ export async function GET(request: Request) {
   // used object streams or compressed cross-reference tables that hide the raw image bytes),
   // fall back to rendering the PDF page via sharp so we always serve a real preview instead
   // of the SVG placeholder card.
-  if (isImageDoc || doc.mime_type === "application/pdf") {
-    const extracted = await extractImageFromPdf(buffer);
-    const previewBuffer = extracted?.buffer ?? null;
-    const previewMimeType = extracted?.mimeType ?? null;
-
-    if (previewBuffer) {
+  if (isImageDoc || doc.mime_type === "application/pdf" || doc.storage_path.endsWith(".pdf")) {
+    const rendered = await renderPdfFirstPage(buffer, targetWidth || 900);
+    if (rendered?.buffer) {
       // Opportunistically cache preview.jpg for instant subsequent requests
       void client.storage
         .from("print-documents")
-        .upload(previewPath, previewBuffer, {
-          contentType: previewMimeType ?? "image/jpeg",
+        .upload(previewPath, rendered.buffer, {
+          contentType: rendered.mimeType || "image/jpeg",
           upsert: true,
         })
         .catch(() => {});
 
-      const { buffer: optimizedBuffer, mimeType } = await optimizePreviewImage(previewBuffer, targetWidth);
+      const { buffer: optimizedBuffer, mimeType } = await optimizePreviewImage(rendered.buffer, targetWidth);
 
       const headers = new Headers();
       headers.set("Content-Type", mimeType);
@@ -268,33 +265,6 @@ export async function GET(request: Request) {
         status: 200,
         headers,
       });
-    }
-
-    // extractImageFromPdf() returned null — this happens when pdf-lib uses compressed object
-    // streams that hide the raw JPEG bytes. For image documents we still want to show the
-    // actual photo, so render the first page of the PDF directly via sharp as a fallback.
-    if (isImageDoc) {
-      try {
-        const { buffer: optimizedBuffer, mimeType } = await optimizePreviewImage(buffer, targetWidth);
-        // Cache so the next request skips this slow fallback path entirely
-        void client.storage
-          .from("print-documents")
-          .upload(previewPath, optimizedBuffer, { contentType: mimeType, upsert: true })
-          .catch(() => {});
-
-        const headers = new Headers();
-        headers.set("Content-Type", mimeType);
-        headers.set("Cache-Control", "private, max-age=86400, stale-while-revalidate=604800");
-        headers.set("Access-Control-Allow-Origin", "*");
-        headers.set("Content-Disposition", `inline; filename="${encodeURIComponent(doc.original_filename)}"`);
-
-        return new NextResponse(new Uint8Array(optimizedBuffer), {
-          status: 200,
-          headers,
-        });
-      } catch {
-        // sharp cannot render this PDF — fall through to SVG placeholder
-      }
     }
   }
 

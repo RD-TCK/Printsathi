@@ -552,7 +552,7 @@ function SingleDocPreviewSection({
                       isIncluded && !isColor ? "border-slate-300 bg-slate-50" : "border-slate-200/90",
                     )}
                   >
-                    {doc?.previewUrl && (totalPagesInDoc === 1 || doc.isImage) ? (
+                    {doc?.previewUrl && (pageNum === 1 || totalPagesInDoc === 1 || doc.isImage) ? (
                       <LazyPreviewImage
                         src={getOptimizedPreviewUrl(doc.previewUrl, 380)}
                         alt={`Preview for ${doc.filename} page ${pageNum}`}
