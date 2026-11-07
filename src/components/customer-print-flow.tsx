@@ -38,6 +38,8 @@ import {
   LayoutGrid,
   Palette,
   Layers,
+  Zap,
+  RefreshCw,
 } from "lucide-react";
 import dynamic from "next/dynamic";
 import type { PublicShop, PublicPricingRule } from "@/lib/shops/public-lookup";
@@ -1452,69 +1454,11 @@ export function CustomerPrintFlow({
     }
   }
 
-  async function handleProceedToCounterToken() {
+  function handleProceedToCounterToken() {
     if (!orderId || !accessToken || !allValid) return;
-    setBusy(true);
-    setUploadStatus("Generating counter token... Please wait");
     setError(null);
-    try {
-      // 1. Refresh estimate
-      const response = await fetch("/api/customer/estimate", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          shopIdentifier: identifier,
-          accessToken,
-          configurations: documents.map(({ id, ranges }) => ({ orderId, documentId: id, ranges })),
-        }),
-      });
-      const estimateRes = await safeFetchJson<Estimate>(response);
-      if (!estimateRes.ok || !estimateRes.data) {
-        throw new Error(estimateRes.error || "Could not calculate updated estimate.");
-      }
-      const result = estimateRes.data;
-      setEstimate(result);
-
-      // 2. Submit counter order
-      const counterRes = await fetch("/api/customer/counter-order", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          shopIdentifier: identifier,
-          accessToken,
-          configurations: documents.map(({ id, ranges }) => ({ orderId, documentId: id, ranges })),
-        }),
-      });
-      const counterData = await safeFetchJson<TokenDetails>(counterRes);
-      if (!counterData.ok || !counterData.data) {
-        throw new Error(counterData.error || "Could not generate counter token.");
-      }
-
-      // Signal desktop agent (if reachable locally) to begin immediate pre-caching
-      try {
-        fetch("http://127.0.0.1:4321/api/precache-order", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ orderId }),
-          mode: "cors",
-        }).catch(() => {});
-      } catch {}
-
-      // Keep token details null so token number is NOT displayed before processing is completed
-      setTokenDetails(null);
-
-      // Advance to Step 4: Preparation & Readiness gate
-      setStep(4);
-    } catch (err) {
-      let msg = err instanceof Error ? err.message : "Could not submit counter order.";
-      if (msg.includes("Unexpected end of JSON input")) {
-        msg = "Server communication error. Please try again.";
-      }
-      setError(msg);
-    } finally {
-      setBusy(false);
-      setUploadStatus(null);
-    }
+    setTokenDetails(null);
+    setStep(4);
   }
 
   async function handleProceedToPay() {
@@ -1741,7 +1685,10 @@ export function CustomerPrintFlow({
           orderId={orderId}
           accessToken={accessToken}
           documents={documents}
+          estimate={estimate}
+          setEstimate={setEstimate}
           onReset={resetOrder}
+          onBackToConfigure={() => setStep(1)}
         />
       ) : null}
 
@@ -3370,21 +3317,12 @@ function ConfigureAndCropStep({
           <div className="grid gap-2 sm:grid-cols-2">
             <button
               type="button"
-              disabled={!allValid || busy}
+              disabled={!allValid}
               onClick={onProceedToCounterToken}
               className="flex items-center justify-center gap-2 rounded-2xl bg-emerald-600 px-4 py-3.5 sm:py-4 text-sm sm:text-base font-bold text-white shadow-[0_4px_0_#047857,0_10px_20px_-2px_rgba(5,150,105,0.35)] hover:bg-emerald-700 active:bg-emerald-800 active:translate-y-0.5 active:shadow-none transition-all cursor-pointer disabled:opacity-50 disabled:pointer-events-none"
             >
-              {busy ? (
-                <>
-                  <LoaderCircle className="size-4 animate-spin" />
-                  <span>Please wait · Processing...</span>
-                </>
-              ) : (
-                <>
-                  <Ticket className="size-4.5 shrink-0" />
-                  <span>Generate Token · ₹{displayTotalAmount}</span>
-                </>
-              )}
+              <Ticket className="size-4.5 shrink-0" />
+              <span>Get Token · ₹{displayTotalAmount}</span>
             </button>
 
             <button
@@ -3409,22 +3347,13 @@ function ConfigureAndCropStep({
         ) : shopPaymentMode === "counter" ? (
           <button
             type="button"
-            disabled={!allValid || busy}
+            disabled={!allValid}
             onClick={onProceedToCounterToken}
             className="flex w-full items-center justify-center gap-2 rounded-2xl bg-emerald-600 px-4 py-3.5 sm:py-4 text-sm sm:text-base font-bold text-white shadow-[0_4px_0_#047857,0_10px_20px_-2px_rgba(5,150,105,0.35)] hover:bg-emerald-700 active:bg-emerald-800 active:translate-y-0.5 active:shadow-none transition-all cursor-pointer disabled:opacity-50 disabled:pointer-events-none"
           >
-            {busy ? (
-              <>
-                <LoaderCircle className="size-4 animate-spin" />
-                <span>Please wait · Processing...</span>
-              </>
-            ) : (
-              <>
-                <Ticket className="size-5 shrink-0" />
-                <span>Confirm &amp; Generate Counter Token (₹{displayTotalAmount})</span>
-                <ArrowRight className="size-4" />
-              </>
-            )}
+            <Ticket className="size-5 shrink-0" />
+            <span>Confirm &amp; Get Counter Token (₹{displayTotalAmount})</span>
+            <ArrowRight className="size-4" />
           </button>
         ) : (
           <button
@@ -3481,21 +3410,12 @@ function ConfigureAndCropStep({
             <div className="flex flex-1 items-center gap-1.5 min-w-0">
               <button
                 type="button"
-                disabled={!allValid || busy}
+                disabled={!allValid}
                 onClick={onProceedToCounterToken}
                 className="flex-1 inline-flex items-center justify-center gap-1 rounded-xl bg-emerald-600 py-2.5 px-2 text-[11.5px] font-bold text-white shadow-xs active:scale-95 transition disabled:opacity-50 truncate min-h-[44px]"
               >
-                {busy ? (
-                  <>
-                    <LoaderCircle className="size-3.5 animate-spin shrink-0" />
-                    <span className="truncate">Please wait...</span>
-                  </>
-                ) : (
-                  <>
-                    <Ticket className="size-3.5 shrink-0" />
-                    <span className="truncate">Token</span>
-                  </>
-                )}
+                <Ticket className="size-3.5 shrink-0" />
+                <span className="truncate">Get Token</span>
               </button>
               <button
                 type="button"
@@ -3519,21 +3439,12 @@ function ConfigureAndCropStep({
           ) : shopPaymentMode === "counter" ? (
             <button
               type="button"
-              disabled={!allValid || busy}
+              disabled={!allValid}
               onClick={onProceedToCounterToken}
               className="flex-1 inline-flex items-center justify-center gap-1.5 rounded-xl bg-emerald-600 py-2.5 px-3 text-xs font-bold text-white shadow-xs active:scale-95 transition disabled:opacity-50 min-h-[44px]"
             >
-              {busy ? (
-                <>
-                  <LoaderCircle className="size-3.5 animate-spin shrink-0" />
-                  <span>Please wait...</span>
-                </>
-              ) : (
-                <>
-                  <Ticket className="size-4 shrink-0" />
-                  <span>Generate Token (₹{displayTotalAmount})</span>
-                </>
-              )}
+              <Ticket className="size-4 shrink-0" />
+              <span>Get Token (₹{displayTotalAmount})</span>
             </button>
           ) : (
             <button
@@ -3721,42 +3632,186 @@ const TURBO_PRINT_FACTS = [
   },
 ];
 
-function RocketPrinterAnimation({ prepStatus }: { prepStatus: string }) {
-  const [factIndex, setFactIndex] = useState(0);
 
-  useEffect(() => {
-    const timer = setInterval(() => {
-      setFactIndex((prev) => (prev + 1) % TURBO_PRINT_FACTS.length);
-    }, 2600);
-    return () => clearInterval(timer);
-  }, []);
 
+const BLINKIT_MILESTONES = [
+  {
+    id: "encrypt",
+    title: "Securing & Encrypting Document Files",
+    description: "Verifying SHA-256 integrity & transient storage lock",
+    badge: "SECURITY",
+  },
+  {
+    id: "analyze",
+    title: "Calibrating Page Ranges & Color Tiers",
+    description: "Mapping A4 dimensions, duplex mapping & ink breakdown",
+    badge: "CALIBRATION",
+  },
+  {
+    id: "connect",
+    title: "Connecting to Counter Dispatch Station",
+    description: "Syncing with live hardware counter terminal",
+    badge: "TERMINAL",
+  },
+  {
+    id: "precache",
+    title: "Pre-Caching Pages on Hardware SSD",
+    description: "Warming up local printer spooler for instant output upon pickup",
+    badge: "HARDWARE",
+  },
+  {
+    id: "token",
+    title: "Assigning Priority Counter Token",
+    description: "Reserving your verified spot in the shop queue",
+    badge: "TOKEN",
+  },
+];
+
+function BlinkitOrderProcessingStage({
+  shop,
+  documents,
+  estimate,
+  activeStepIndex,
+  progressPercent,
+  factIndex,
+  submissionError,
+  onRetry,
+  onBackToConfigure,
+}: {
+  shop: PublicShop;
+  documents: CustomerDocument[];
+  estimate: Estimate | null;
+  activeStepIndex: number;
+  progressPercent: number;
+  factIndex: number;
+  submissionError: string | null;
+  onRetry: () => void;
+  onBackToConfigure?: () => void;
+}) {
   const currentFact = TURBO_PRINT_FACTS[factIndex] || TURBO_PRINT_FACTS[0];
+  const totalPagesCount = estimate?.totalPages ?? documents.reduce((sum, d) => sum + (d.pageCount || 1), 0);
+  const totalAmountStr = estimate ? `₹${estimate.total.toFixed(2)}` : "...";
 
   return (
-    <Card className="overflow-hidden border-emerald-200/90 bg-white p-5 sm:p-8 shadow-xl rounded-3xl text-center animate-in fade-in zoom-in-95 duration-200 relative">
+    <Card className="overflow-hidden border-emerald-200/90 bg-white p-4 sm:p-8 shadow-2xl rounded-3xl animate-in fade-in zoom-in-95 duration-200 relative">
       {/* Top Header Pill */}
-      <div className="inline-flex items-center gap-2 rounded-full bg-emerald-50 border border-emerald-200 px-3.5 py-1 text-xs font-black text-emerald-800 tracking-wider uppercase">
-        <span className="size-2 rounded-full bg-emerald-500 animate-pulse" />
-        <span>Optimizing For Instant Counter Pickup</span>
+      <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-100 pb-3">
+        <div className="inline-flex items-center gap-1.5 rounded-full bg-emerald-50 border border-emerald-200 px-3 py-1 text-[11px] sm:text-xs font-black text-emerald-800 tracking-wider uppercase">
+          <span className="size-2 rounded-full bg-emerald-500 animate-pulse" />
+          <span>FAST COUNTER DISPATCH</span>
+        </div>
+        <div className="flex items-center gap-2 text-xs font-bold text-slate-500">
+          <span>{documents.length} {documents.length === 1 ? "file" : "files"}</span>
+          <span>•</span>
+          <span>{totalPagesCount} pages</span>
+          <span>•</span>
+          <span className="text-emerald-800 font-mono font-extrabold">{totalAmountStr}</span>
+        </div>
       </div>
 
-      {/* Printer Loading Animation */}
-      <div className="my-2 flex justify-center">
-        <PrinterLoader label="" />
+      {/* Main Headline */}
+      <div className="text-center mt-4">
+        <h2 className="text-xl sm:text-2xl font-black text-slate-900 tracking-tight flex items-center justify-center gap-2">
+          <Sparkles className="size-5 text-emerald-600 shrink-0 animate-spin" />
+          <span>Reserving Your Counter Print Token...</span>
+        </h2>
+        <p className="mt-1 text-xs sm:text-sm text-slate-600 max-w-md mx-auto">
+          Syncing with <b>{shop.name}</b>’s counter printer for zero-delay pickup.
+        </p>
       </div>
 
-      {/* Main Heading */}
-      <h2 className="text-lg sm:text-xl font-black text-slate-900 tracking-tight flex items-center justify-center gap-2">
-        <Sparkles className="size-4.5 text-emerald-600 shrink-0 animate-spin" />
-        <span>Preparing Your Print Order...</span>
-      </h2>
-      <p className="mt-1 text-xs text-slate-600 max-w-sm mx-auto">
-        Your document is warming up in local SSD cache so it starts physical printing with zero delay.
-      </p>
+      {/* Animated Progress Bar */}
+      <div className="mt-5 space-y-1.5">
+        <div className="flex justify-between items-center text-xs font-bold text-slate-700">
+          <span className="text-emerald-700 font-semibold">Live Processing Progress</span>
+          <span className="font-mono text-emerald-800 font-black">{Math.min(100, Math.round(progressPercent))}%</span>
+        </div>
+        <div className="h-2.5 w-full overflow-hidden rounded-full bg-slate-100 border border-slate-200/80 p-0.5">
+          <div
+            className="h-full rounded-full bg-gradient-to-r from-emerald-500 via-teal-400 to-emerald-600 transition-all duration-500 ease-out shadow-xs"
+            style={{ width: `${Math.min(100, Math.max(8, progressPercent))}%` }}
+          />
+        </div>
+      </div>
+
+      {/* Centerpiece: Animated PrinterLoader with status badges */}
+      <div className="my-5 rounded-2xl bg-gradient-to-b from-emerald-50/70 via-slate-50/50 to-emerald-50/30 border border-emerald-100 p-4 flex flex-col items-center justify-center relative overflow-hidden">
+        <div className="scale-90 sm:scale-100">
+          <PrinterLoader label="" />
+        </div>
+        {/* Micro feature badges */}
+        <div className="mt-1 flex flex-wrap items-center justify-center gap-1.5 sm:gap-2">
+          <span className="inline-flex items-center gap-1 rounded-full bg-white/95 border border-slate-200/80 px-2.5 py-0.5 text-[10px] sm:text-[11px] font-bold text-slate-700 shadow-2xs">
+            <ShieldCheck className="size-3 text-emerald-600" /> 256-bit Encrypted
+          </span>
+          <span className="inline-flex items-center gap-1 rounded-full bg-white/95 border border-slate-200/80 px-2.5 py-0.5 text-[10px] sm:text-[11px] font-bold text-slate-700 shadow-2xs">
+            <Zap className="size-3 text-amber-500" /> 0s Hardware Spooling
+          </span>
+          <span className="inline-flex items-center gap-1 rounded-full bg-white/95 border border-slate-200/80 px-2.5 py-0.5 text-[10px] sm:text-[11px] font-bold text-slate-700 shadow-2xs">
+            <Store className="size-3 text-blue-600" /> {shop.name} Terminal
+          </span>
+        </div>
+      </div>
+
+      {/* Milestone Sequential Timeline (Blinkit-style) */}
+      <div className="space-y-2 text-left">
+        {BLINKIT_MILESTONES.map((step, idx) => {
+          const isDone = activeStepIndex > idx || progressPercent >= 100;
+          const isCurrent = activeStepIndex === idx && progressPercent < 100;
+          return (
+            <div
+              key={step.id}
+              className={cn(
+                "flex items-start gap-3 rounded-xl p-2.5 sm:p-3 transition-all duration-300 border",
+                isDone
+                  ? "bg-emerald-50/70 border-emerald-200 text-emerald-950"
+                  : isCurrent
+                  ? "bg-white border-emerald-400 shadow-sm ring-1 ring-emerald-300 text-slate-900"
+                  : "bg-slate-50/40 border-slate-100 text-slate-400 opacity-60"
+              )}
+            >
+              <div className="mt-0.5 shrink-0">
+                {isDone ? (
+                  <div className="flex size-5.5 items-center justify-center rounded-full bg-emerald-600 text-white shadow-2xs">
+                    <Check className="size-3.5 stroke-[3]" />
+                  </div>
+                ) : isCurrent ? (
+                  <div className="flex size-5.5 items-center justify-center rounded-full bg-emerald-100 text-emerald-700">
+                    <LoaderCircle className="size-3.5 animate-spin" />
+                  </div>
+                ) : (
+                  <div className="flex size-5.5 items-center justify-center rounded-full bg-slate-200 text-[10px] font-bold text-slate-600">
+                    {idx + 1}
+                  </div>
+                )}
+              </div>
+              <div className="min-w-0 flex-1">
+                <div className="flex items-center justify-between gap-2">
+                  <p className={cn("text-xs sm:text-sm font-bold leading-tight", isDone ? "text-emerald-900" : isCurrent ? "text-slate-900" : "text-slate-500")}>
+                    {step.title}
+                  </p>
+                  {isDone && (
+                    <span className="text-[10px] font-extrabold text-emerald-700 uppercase tracking-wider shrink-0">
+                      Done ✓
+                    </span>
+                  )}
+                  {isCurrent && (
+                    <span className="text-[10px] font-extrabold text-emerald-600 animate-pulse uppercase tracking-wider shrink-0">
+                      Processing...
+                    </span>
+                  )}
+                </div>
+                <p className={cn("text-[11px] sm:text-xs leading-tight mt-0.5", isDone ? "text-emerald-800/80" : "text-slate-500")}>
+                  {step.description}
+                </p>
+              </div>
+            </div>
+          );
+        })}
+      </div>
 
       {/* Rotating Printing Trivia Card */}
-      <div className="mt-4 rounded-2xl border border-slate-200/90 bg-slate-50/80 p-3.5 text-left shadow-xs relative min-h-[76px] flex flex-col justify-center">
+      <div className="mt-4 rounded-2xl border border-slate-200 bg-slate-50/90 p-3.5 text-left shadow-2xs relative min-h-[76px] flex flex-col justify-center">
         <div className="flex items-center gap-2 mb-1">
           <span className="text-base">{currentFact.icon}</span>
           <span className="text-[10px] font-black uppercase tracking-wider text-emerald-800">
@@ -3766,9 +3821,10 @@ function RocketPrinterAnimation({ prepStatus }: { prepStatus: string }) {
             {TURBO_PRINT_FACTS.slice(0, 5).map((_, i) => (
               <span
                 key={i}
-                className={`size-1.5 rounded-full transition-all duration-300 ${
+                className={cn(
+                  "size-1.5 rounded-full transition-all duration-300",
                   factIndex % 5 === i ? "bg-emerald-600 w-3" : "bg-slate-300"
-                }`}
+                )}
               />
             ))}
           </div>
@@ -3778,23 +3834,38 @@ function RocketPrinterAnimation({ prepStatus }: { prepStatus: string }) {
         </p>
       </div>
 
-      {/* Progress Checklist */}
-      <div className="mt-4 rounded-2xl border border-emerald-100 bg-emerald-50/60 p-3 text-left space-y-2">
-        <div className="flex items-center gap-2.5">
-          <CheckCircle2 className="size-4 text-emerald-600 shrink-0" />
-          <span className="text-xs font-bold text-slate-800">Page ranges &amp; settings verified</span>
+      {/* Error Notice with Retry / Back buttons if submission failed */}
+      {submissionError && (
+        <div className="mt-4 rounded-2xl border border-rose-300 bg-rose-50 p-4 text-left space-y-3">
+          <div className="flex items-start gap-2.5 text-rose-900 font-bold text-xs sm:text-sm">
+            <AlertCircle className="size-4.5 shrink-0 text-rose-600 mt-0.5" />
+            <div>
+              <p className="font-extrabold text-rose-950">Generation Notice</p>
+              <p className="font-medium text-rose-800 text-xs mt-0.5">{submissionError}</p>
+            </div>
+          </div>
+          <div className="flex items-center gap-2 pt-1 border-t border-rose-200/80">
+            <button
+              type="button"
+              onClick={onRetry}
+              className="inline-flex items-center gap-1.5 rounded-xl bg-rose-600 px-3.5 py-1.5 text-xs font-bold text-white shadow-2xs hover:bg-rose-700 active:scale-95 transition cursor-pointer"
+            >
+              <RefreshCw className="size-3.5" />
+              <span>Retry Token Generation</span>
+            </button>
+            {onBackToConfigure && (
+              <button
+                type="button"
+                onClick={onBackToConfigure}
+                className="inline-flex items-center gap-1.5 rounded-xl border border-slate-300 bg-white px-3.5 py-1.5 text-xs font-bold text-slate-700 hover:bg-slate-50 active:scale-95 transition cursor-pointer"
+              >
+                <ArrowLeft className="size-3.5" />
+                <span>Back to Settings</span>
+              </button>
+            )}
+          </div>
         </div>
-        <div className="flex items-center gap-2.5">
-          <CheckCircle2 className="size-4 text-emerald-600 shrink-0" />
-          <span className="text-xs font-bold text-slate-800">Printable documents formatted &amp; secured</span>
-        </div>
-        <div className="flex items-center gap-2.5">
-          <LoaderCircle className="size-4 text-emerald-600 animate-spin shrink-0" />
-          <span className="text-xs font-bold text-emerald-800 truncate">
-            {prepStatus || "Connecting to shop counter queue..."}
-          </span>
-        </div>
-      </div>
+      )}
     </Card>
   );
 }
@@ -3806,7 +3877,10 @@ function CounterTokenStep({
   orderId,
   accessToken,
   documents,
+  estimate,
+  setEstimate,
   onReset,
+  onBackToConfigure,
 }: {
   tokenDetails: TokenDetails | null;
   setTokenDetails?: (details: TokenDetails) => void;
@@ -3814,10 +3888,15 @@ function CounterTokenStep({
   orderId: string;
   accessToken: string | null;
   documents: CustomerDocument[];
+  estimate?: Estimate | null;
+  setEstimate?: (est: Estimate) => void;
   onReset: () => void;
+  onBackToConfigure?: () => void;
 }) {
-  const [prepStatus, setPrepStatus] = useState("Validating documents & preparing print engine...");
-  const [prepStep, setPrepStep] = useState<"validating" | "converting" | "precaching" | "ready">("validating");
+  const [activeStageIndex, setActiveStageIndex] = useState(0);
+  const [progressPercent, setProgressPercent] = useState(15);
+  const [factIndex, setFactIndex] = useState(0);
+  const [submissionError, setSubmissionError] = useState<string | null>(null);
   const [remainingSeconds, setRemainingSeconds] = useState(() => {
     return tokenDetails
       ? Math.max(0, Math.floor((new Date(tokenDetails.expiresAt).getTime() - Date.now()) / 1000))
@@ -3827,64 +3906,133 @@ function CounterTokenStep({
   const [jobStatuses, setJobStatuses] = useState<Array<{ id: string; status: string }>>([]);
   const [copied, setCopied] = useState(false);
 
-  // Poll readiness until all processes are done before showing token number
+  // Execute submission and animate milestones smoothly
+  const executeSubmission = useCallback(async () => {
+    if (!orderId || !accessToken) return;
+    setSubmissionError(null);
+    setActiveStageIndex(0);
+    setProgressPercent(16);
+    const startTime = Date.now();
+
+    const t1 = setTimeout(() => {
+      setActiveStageIndex(1);
+      setProgressPercent(40);
+    }, 550);
+
+    const t2 = setTimeout(() => {
+      setActiveStageIndex(2);
+      setProgressPercent(65);
+    }, 1150);
+
+    const t3 = setTimeout(() => {
+      setActiveStageIndex(3);
+      setProgressPercent(88);
+    }, 1750);
+
+    try {
+      // 1. Refresh estimate if needed
+      const response = await fetch("/api/customer/estimate", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          shopIdentifier: shop.public_id,
+          accessToken,
+          configurations: documents.map(({ id, ranges }) => ({ orderId, documentId: id, ranges })),
+        }),
+      });
+      const estimateRes = await safeFetchJson<Estimate>(response);
+      if (estimateRes.ok && estimateRes.data && setEstimate) {
+        setEstimate(estimateRes.data);
+      }
+
+      // 2. Submit counter order
+      const counterRes = await fetch("/api/customer/counter-order", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          shopIdentifier: shop.public_id,
+          accessToken,
+          configurations: documents.map(({ id, ranges }) => ({ orderId, documentId: id, ranges })),
+        }),
+      });
+      const counterData = await safeFetchJson<TokenDetails>(counterRes);
+      if (!counterData.ok || !counterData.data) {
+        throw new Error(counterData.error || "Could not generate counter token. Please try again.");
+      }
+
+      // Signal desktop agent (if reachable locally) to begin immediate pre-caching
+      try {
+        fetch("http://127.0.0.1:4321/api/precache-order", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ orderId }),
+          mode: "cors",
+        }).catch(() => {});
+      } catch {}
+
+      const tokenResult = counterData.data;
+
+      // Ensure minimum animated sequence duration (~2600ms) so user gets the full cool experience
+      const elapsed = Date.now() - startTime;
+      const remainingDelay = Math.max(0, 2600 - elapsed);
+      if (remainingDelay > 0) {
+        await new Promise((r) => setTimeout(r, remainingDelay));
+      }
+
+      // Final step: Assigning token
+      setActiveStageIndex(4);
+      setProgressPercent(100);
+
+      // Trigger subtle celebratory haptic feedback if available
+      try {
+        if (typeof navigator !== "undefined" && navigator.vibrate) {
+          navigator.vibrate([35, 50, 90]);
+        }
+      } catch {}
+
+      // Short 450ms celebration pause to show 100% checkmark
+      await new Promise((r) => setTimeout(r, 450));
+
+      saveTokenToStorage({
+        tokenNumber: tokenResult.tokenNumber,
+        publicOrderId: tokenResult.publicOrderId,
+        orderId,
+        accessToken: accessToken || "",
+        shopIdentifier: shop.public_id,
+        shopName: shop.name,
+        totalAmount: tokenResult.totalAmount,
+        totalPages: tokenResult.totalPages,
+        colorPages: tokenResult.colorPages,
+        blackAndWhitePages: tokenResult.blackAndWhitePages,
+        createdAt: new Date().toISOString(),
+        expiresAt: tokenResult.expiresAt,
+        documentNames: documents.map((d) => d.filename),
+      });
+
+      if (setTokenDetails) {
+        setTokenDetails(tokenResult);
+      }
+    } catch (err) {
+      clearTimeout(t1);
+      clearTimeout(t2);
+      clearTimeout(t3);
+      const msg = err instanceof Error ? err.message : "Could not assign counter token. Please try again.";
+      setSubmissionError(msg);
+    }
+  }, [orderId, accessToken, shop.public_id, shop.name, documents, setEstimate, setTokenDetails]);
+
   useEffect(() => {
     if (tokenDetails) return;
+    void executeSubmission();
+  }, [tokenDetails, executeSubmission]);
 
-    let mounted = true;
-    const controller = new AbortController();
-
-    const checkReadiness = async () => {
-      try {
-        const res = await fetch(
-          `/api/customer/order-readiness?orderId=${encodeURIComponent(orderId)}&accessToken=${encodeURIComponent(accessToken || "")}`,
-          { signal: controller.signal, cache: "no-store" },
-        );
-        if (!res.ok) return;
-        const data = await res.json();
-        if (!mounted || controller.signal.aborted) return;
-
-        if (data.ready && data.tokenDetails) {
-          if (setTokenDetails) {
-            setTokenDetails(data.tokenDetails);
-          }
-          saveTokenToStorage({
-            tokenNumber: data.tokenDetails.tokenNumber,
-            publicOrderId: data.tokenDetails.publicOrderId,
-            orderId,
-            accessToken: accessToken || "",
-            shopIdentifier: shop.public_id,
-            shopName: shop.name,
-            totalAmount: data.tokenDetails.totalAmount,
-            totalPages: data.tokenDetails.totalPages,
-            colorPages: data.tokenDetails.colorPages,
-            blackAndWhitePages: data.tokenDetails.blackAndWhitePages,
-            createdAt: new Date().toISOString(),
-            expiresAt: data.tokenDetails.expiresAt,
-            documentNames: documents.map((d) => d.filename),
-          });
-        } else {
-          setPrepStep(data.step || "precaching");
-          if (data.message) {
-            setPrepStatus(data.message);
-          }
-        }
-      } catch {
-        // Retry
-      }
-    };
-
-    void checkReadiness();
-    const timer = setInterval(() => {
-      void checkReadiness();
-    }, 600);
-
-    return () => {
-      mounted = false;
-      controller.abort();
-      clearInterval(timer);
-    };
-  }, [tokenDetails, orderId, accessToken, documents, setTokenDetails, shop.public_id, shop.name]);
+  useEffect(() => {
+    if (tokenDetails) return;
+    const factTimer = setInterval(() => {
+      setFactIndex((prev) => (prev + 1) % TURBO_PRINT_FACTS.length);
+    }, 2400);
+    return () => clearInterval(factTimer);
+  }, [tokenDetails]);
 
   const isCompleted =
     orderStatus === "completed" || (jobStatuses.length > 0 && jobStatuses.every((j) => j.status === "completed"));
@@ -3962,7 +4110,19 @@ function CounterTokenStep({
 
   // IF PROCESSING IS NOT DONE: DO NOT SHOW TOKEN NUMBER BEFORE PROCESSING!
   if (!tokenDetails) {
-    return <RocketPrinterAnimation prepStatus={prepStatus} />;
+    return (
+      <BlinkitOrderProcessingStage
+        shop={shop}
+        documents={documents}
+        estimate={estimate || null}
+        activeStepIndex={activeStageIndex}
+        progressPercent={progressPercent}
+        factIndex={factIndex}
+        submissionError={submissionError}
+        onRetry={executeSubmission}
+        onBackToConfigure={onBackToConfigure}
+      />
+    );
   }
 
   return (

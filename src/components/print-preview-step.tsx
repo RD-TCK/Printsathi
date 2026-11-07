@@ -1152,7 +1152,7 @@ export function PrintPreviewStep({
                 <>
                   <Ticket className="size-4 sm:size-5 shrink-0" />
                   <span>
-                    Confirm &amp; Generate Counter Token (₹
+                    Confirm &amp; Get Counter Token (₹
                     {estimate ? estimate.total.toFixed(2) : fallbackPrice.toFixed(2)})
                   </span>
                   <ArrowRight className="size-4 shrink-0" />
@@ -1415,7 +1415,7 @@ export function PrintPreviewStep({
               ) : (
                 <>
                   <Ticket className="size-3.5 shrink-0" />
-                  <span className="truncate">Generate Token</span>
+                  <span className="truncate">Get Token</span>
                   <ArrowRight className="size-3.5 shrink-0" />
                 </>
               )}
