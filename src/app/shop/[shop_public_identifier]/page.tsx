@@ -1,6 +1,6 @@
 import type { Metadata } from "next";
 import Link from "next/link";
-import { Printer, QrCode, ShieldCheck, Sparkles, FileText } from "lucide-react";
+import { Printer, QrCode, ShieldCheck, Sparkles } from "lucide-react";
 import { notFound } from "next/navigation";
 import { getPublicPricing, getPublicShop } from "@/lib/shops/public-lookup";
 import { CustomerPrintFlow } from "@/components/customer-print-flow";
@@ -259,49 +259,6 @@ export default async function PublicShopPage({ params, searchParams }: ShopPageP
               initialAccessToken={initialAccessToken}
               initialDraftOrder={initialDraftOrder}
             />
-
-            {/* Bottom Info Section: Shop Pricing Slabs */}
-            <div className="mt-8 sm:mt-10 border-t border-slate-100 pt-5 sm:pt-6">
-              <div className="rounded-2xl border border-slate-200/80 bg-slate-50/70 p-3.5 sm:p-5">
-                <div className="flex items-center justify-between border-b border-slate-200/60 pb-2.5 sm:pb-3">
-                  <div className="flex items-center gap-1.5 sm:gap-2">
-                    <FileText className="size-3.5 sm:size-4 text-emerald-600" />
-                    <span className="text-xs font-bold text-slate-900">Shop Pricing Slabs</span>
-                  </div>
-                  <span className="rounded-full bg-emerald-100 px-2 py-0.5 text-[9px] sm:text-[10px] font-bold text-emerald-800">
-                    Volume Rates
-                  </span>
-                </div>
-
-                {pricing.length ? (
-                  <div className="mt-3 grid gap-2 text-xs sm:grid-cols-2">
-                    {pricing.slice(0, 8).map((rule, idx) => (
-                      <div
-                        className="flex items-center justify-between rounded-xl border border-slate-200/80 bg-white px-3.5 py-2.5 shadow-2xs"
-                        key={`${rule.color_mode}-${rule.paper_size}-${rule.side_mode ?? "any"}-${rule.min_pages}-${rule.max_pages ?? "inf"}-${idx}`}
-                      >
-                        <span className="font-semibold text-slate-800 text-xs">
-                          {rule.color_mode === "color" ? "🎨 Color" : "📄 B&W"} · {rule.paper_size.toUpperCase()}
-                          {rule.side_mode === "double_sided"
-                            ? " (Both Sides)"
-                            : rule.side_mode === "single_sided"
-                              ? " (1 Side)"
-                              : ""}{" "}
-                          <span className="text-[11px] font-normal text-slate-500">
-                            ({rule.min_pages}–{rule.max_pages ?? "∞"}p)
-                          </span>
-                        </span>
-                        <span className="font-mono font-bold text-emerald-700 text-xs">
-                          ₹{Number(rule.price_per_page).toFixed(2)}/p
-                        </span>
-                      </div>
-                    ))}
-                  </div>
-                ) : (
-                  <p className="mt-2 text-xs text-slate-500">Standard slab rates apply at checkout.</p>
-                )}
-              </div>
-            </div>
           </div>
         </Card>
 

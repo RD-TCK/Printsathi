@@ -494,14 +494,23 @@ export async function prepareAndPrintDocument(
       }
     }
 
-    const outputBytes = await outputPdf.save();
-    const tempDir = path.join(os.tmpdir(), "printsaathi_spool");
-    if (!fs.existsSync(tempDir)) {
-      fs.mkdirSync(tempDir, { recursive: true });
+    const canDirectPrintSource =
+      isSimpleFullPrint &&
+      !shouldAddSeparatorPage &&
+      (!isHardwareDuplex || calculatedPages % 2 === 0);
+
+    if (canDirectPrintSource) {
+      finalPdfPath = sourcePdfPath;
+    } else {
+      const outputBytes = await outputPdf.save();
+      const tempDir = path.join(os.tmpdir(), "printsaathi_spool");
+      if (!fs.existsSync(tempDir)) {
+        fs.mkdirSync(tempDir, { recursive: true });
+      }
+      tempExtractedPath = path.join(tempDir, `job_${job.id}_${Date.now()}_spooled.pdf`);
+      fs.writeFileSync(tempExtractedPath, outputBytes);
+      finalPdfPath = tempExtractedPath;
     }
-    tempExtractedPath = path.join(tempDir, `job_${job.id}_${Date.now()}_spooled.pdf`);
-    fs.writeFileSync(tempExtractedPath, outputBytes);
-    finalPdfPath = tempExtractedPath;
 
     const settings = ["shrink"];
     const config = activeConfigs?.[0];

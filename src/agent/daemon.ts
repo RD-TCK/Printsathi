@@ -1185,6 +1185,7 @@ export class AgentDaemon {
   }
 
   async cancelCounterOrder(orderId: string) {
+    this.clearProcessedJob(orderId);
     const reservedName = this.orderToReservedPrinter.get(orderId);
     if (reservedName) {
       this.reservedDuplexPrinters.delete(reservedName);

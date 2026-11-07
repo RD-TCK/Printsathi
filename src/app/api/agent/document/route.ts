@@ -110,9 +110,11 @@ export async function GET(request: Request) {
       const ab = await fileData.arrayBuffer();
       fileBuffer = Buffer.from(ab);
 
+      const isAlreadyPdf = fileBuffer.subarray(0, 4).toString("ascii") === "%PDF";
       const isImg =
-        document.mime_type?.startsWith("image/") ||
-        /\.(jpe?g|png|webp|bmp|tiff?)$/i.test(document.original_filename);
+        !isAlreadyPdf &&
+        (document.mime_type?.startsWith("image/") ||
+          /\.(jpe?g|png|webp|bmp|tiff?)$/i.test(document.original_filename));
       if (isImg) {
         try {
           fileBuffer = await wrapImageToPdf(fileBuffer);
@@ -121,7 +123,7 @@ export async function GET(request: Request) {
           effectiveMime = document.mime_type || "image/jpeg";
         }
       } else {
-        effectiveMime = document.mime_type || "application/pdf";
+        effectiveMime = isAlreadyPdf ? "application/pdf" : (document.mime_type || "application/pdf");
       }
     }
   }

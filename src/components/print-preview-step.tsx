@@ -18,6 +18,9 @@ import {
   X,
   ChevronLeft,
   ChevronRight,
+  ChevronDown,
+  ChevronUp,
+  Info,
   ZoomIn,
 } from "lucide-react";
 import type { PublicShop } from "@/lib/shops/public-lookup";
@@ -159,6 +162,74 @@ function LazyPreviewImage({
   );
 }
 
+function getFileTypeMeta(filename: string) {
+  const ext = filename.split(".").pop()?.toLowerCase() || "";
+  if (["ppt", "pptx", "odp"].includes(ext)) {
+    return {
+      label: "PowerPoint Presentation",
+      badgeText: "PPTX",
+      badgeColor: "bg-amber-100 text-amber-900 border-amber-300",
+      iconBg: "bg-amber-500 text-white",
+      cardBorder: "border-amber-300 hover:border-amber-500",
+      accentBg: "bg-gradient-to-br from-amber-50/70 via-orange-50/40 to-amber-50/60",
+      canDirectPreview: false,
+    };
+  }
+  if (["doc", "docx", "odt", "rtf"].includes(ext)) {
+    return {
+      label: "Word Document",
+      badgeText: "DOCX",
+      badgeColor: "bg-blue-100 text-blue-900 border-blue-300",
+      iconBg: "bg-blue-600 text-white",
+      cardBorder: "border-blue-300 hover:border-blue-500",
+      accentBg: "bg-gradient-to-br from-blue-50/70 via-sky-50/40 to-blue-50/60",
+      canDirectPreview: false,
+    };
+  }
+  if (["xls", "xlsx", "ods", "csv"].includes(ext)) {
+    return {
+      label: "Excel Spreadsheet",
+      badgeText: "XLSX",
+      badgeColor: "bg-emerald-100 text-emerald-900 border-emerald-300",
+      iconBg: "bg-emerald-600 text-white",
+      cardBorder: "border-emerald-300 hover:border-emerald-500",
+      accentBg: "bg-gradient-to-br from-emerald-50/70 via-teal-50/40 to-emerald-50/60",
+      canDirectPreview: false,
+    };
+  }
+  if (ext === "pdf") {
+    return {
+      label: "PDF Document",
+      badgeText: "PDF",
+      badgeColor: "bg-rose-100 text-rose-900 border-rose-300",
+      iconBg: "bg-rose-600 text-white",
+      cardBorder: "border-rose-300 hover:border-rose-500",
+      accentBg: "bg-gradient-to-br from-rose-50/70 via-pink-50/40 to-rose-50/60",
+      canDirectPreview: false,
+    };
+  }
+  if (["png", "jpg", "jpeg", "webp", "gif", "bmp"].includes(ext)) {
+    return {
+      label: "Image / Photo",
+      badgeText: ext.toUpperCase(),
+      badgeColor: "bg-purple-100 text-purple-900 border-purple-300",
+      iconBg: "bg-purple-600 text-white",
+      cardBorder: "border-purple-300 hover:border-purple-500",
+      accentBg: "bg-gradient-to-br from-purple-50/70 via-fuchsia-50/40 to-purple-50/60",
+      canDirectPreview: true,
+    };
+  }
+  return {
+    label: "Document",
+    badgeText: ext ? ext.toUpperCase() : "DOC",
+    badgeColor: "bg-slate-100 text-slate-800 border-slate-300",
+    iconBg: "bg-slate-700 text-white",
+    cardBorder: "border-slate-300 hover:border-slate-500",
+    accentBg: "bg-gradient-to-br from-slate-50/70 via-gray-50/40 to-slate-50/60",
+    canDirectPreview: false,
+  };
+}
+
 function SingleDocPreviewSection({
   doc,
   docIndex,
@@ -179,6 +250,15 @@ function SingleDocPreviewSection({
 
   const includedPagesMap = useMemo(() => getDocIncludedPagesMap(doc), [doc]);
   const totalPagesInDoc = doc ? doc.pageCount : 1;
+  const isMultiPage = totalPagesInDoc > 1;
+  const fileMeta = useMemo(() => getFileTypeMeta(doc.filename), [doc.filename]);
+
+  const [isPagesExpanded, setIsPagesExpanded] = useState<boolean>(false);
+
+  useEffect(() => {
+    setIsPagesExpanded(false);
+  }, [doc.id, doc.filename]);
+
   const pagesList = useMemo(() => Array.from({ length: totalPagesInDoc }, (_, i) => i + 1), [totalPagesInDoc]);
 
   const checkScroll = useCallback(() => {
@@ -193,6 +273,7 @@ function SingleDocPreviewSection({
   }, [totalPagesInDoc]);
 
   useEffect(() => {
+    if (!isPagesExpanded) return;
     const el = scrollContainerRef.current;
     if (!el) return;
     checkScroll();
@@ -202,7 +283,7 @@ function SingleDocPreviewSection({
       el.removeEventListener("scroll", checkScroll);
       window.removeEventListener("resize", checkScroll);
     };
-  }, [checkScroll, totalPagesInDoc]);
+  }, [checkScroll, isPagesExpanded, totalPagesInDoc]);
 
   const scrollByDirection = (direction: "left" | "right") => {
     const el = scrollContainerRef.current;
@@ -216,6 +297,86 @@ function SingleDocPreviewSection({
 
   const totalCopies = doc.ranges.reduce((s, r) => s + (Number(r.copies) || 1), 0);
 
+  // Single file card mode when not expanded
+  if (isMultiPage && !isPagesExpanded) {
+    return (
+      <div
+        className={cn(
+          "rounded-2xl border-2 transition-all p-3.5 sm:p-4.5 select-none cursor-pointer group shadow-xs hover:shadow-md",
+          fileMeta.cardBorder,
+          fileMeta.accentBg,
+        )}
+        onClick={() => setIsPagesExpanded(true)}
+        title="Click file to expand and view individual pages"
+      >
+        <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
+          <div className="flex items-center gap-3 min-w-0">
+            <div
+              className={cn(
+                "flex size-11 sm:size-12 shrink-0 items-center justify-center rounded-xl shadow-xs font-black text-xs sm:text-sm tracking-wide",
+                fileMeta.iconBg,
+              )}
+            >
+              {fileMeta.badgeText}
+            </div>
+            <div className="min-w-0 space-y-1">
+              <div className="flex items-center gap-1.5 flex-wrap">
+                <span className={cn("rounded-md px-1.5 py-0.5 text-[9px] font-extrabold border", fileMeta.badgeColor)}>
+                  {fileMeta.label}
+                </span>
+                <span className="rounded-md bg-white border border-slate-200 px-1.5 py-0.5 text-[9px] font-extrabold text-slate-700">
+                  {totalPagesInDoc} Pages
+                </span>
+                <span className="rounded-md bg-emerald-100 border border-emerald-200 px-1.5 py-0.5 text-[9px] font-bold text-emerald-900">
+                  {includedPagesMap.size} Selected
+                </span>
+              </div>
+              <h4 className="text-xs sm:text-sm font-bold text-slate-900 truncate max-w-[220px] sm:max-w-md group-hover:text-emerald-900 transition-colors">
+                {doc.filename}
+              </h4>
+              <p className="text-[10px] sm:text-[11px] text-slate-500 flex items-center gap-1.5 flex-wrap">
+                <span>{totalCopies} {totalCopies === 1 ? "Copy" : "Copies"}</span>
+                <span>•</span>
+                <span>{doc.ranges[0]?.colorMode === "color" ? "🎨 Color" : "📄 Black & White"}</span>
+                <span>•</span>
+                <span>{doc.ranges[0]?.sideMode === "double_sided" ? "📑 2-Sided" : "📄 1-Sided"}</span>
+                <span>•</span>
+                <span className="text-emerald-700 font-semibold flex items-center gap-0.5">
+                  <CheckCircle2 className="size-3" /> Ready for Printing
+                </span>
+              </p>
+            </div>
+          </div>
+
+          <div className="flex items-center gap-2 self-stretch sm:self-auto justify-end shrink-0 pt-1 sm:pt-0 border-t sm:border-t-0 border-slate-200/60">
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                setIsPagesExpanded(true);
+              }}
+              className="w-full sm:w-auto inline-flex items-center justify-center gap-1.5 rounded-xl bg-white border-2 border-emerald-500 px-3.5 py-2 text-xs font-extrabold text-emerald-800 shadow-xs hover:bg-emerald-50 hover:border-emerald-600 active:scale-95 transition cursor-pointer"
+            >
+              <Layers className="size-3.5 text-emerald-600" />
+              <span>Expand Pages ({totalPagesInDoc})</span>
+              <ChevronDown className="size-3.5 text-emerald-600" />
+            </button>
+          </div>
+        </div>
+
+        <div className="mt-2.5 pt-2 border-t border-slate-200/60 flex items-center justify-between text-[10px] text-slate-500">
+          <span className="flex items-center gap-1 text-slate-600 font-medium">
+            <Info className="size-3 text-emerald-600 shrink-0" />
+            <span>Single file view • Tap to view individual page sheets</span>
+          </span>
+          <span className="hidden sm:inline font-bold text-emerald-700 group-hover:underline">
+            Tap file to expand ▾
+          </span>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div
       className={cn(
@@ -226,8 +387,13 @@ function SingleDocPreviewSection({
       {/* Document Header */}
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div className="flex items-center gap-2.5 min-w-0">
-          <div className="flex size-8 sm:size-9 shrink-0 items-center justify-center rounded-xl bg-white border border-slate-200 shadow-2xs text-emerald-600">
-            <FileText className="size-4 sm:size-5" />
+          <div
+            className={cn(
+              "flex size-8 sm:size-9 shrink-0 items-center justify-center rounded-xl shadow-2xs font-black text-xs",
+              fileMeta.iconBg,
+            )}
+          >
+            {fileMeta.badgeText}
           </div>
           <div className="min-w-0">
             <div className="flex items-center gap-1.5 flex-wrap">
@@ -248,6 +414,18 @@ function SingleDocPreviewSection({
         </div>
 
         <div className="flex items-center gap-1.5 text-xs">
+          {isMultiPage && (
+            <button
+              type="button"
+              onClick={() => setIsPagesExpanded(false)}
+              className="inline-flex items-center gap-1 rounded-lg border border-slate-300 bg-white px-2.5 py-1 text-[10px] sm:text-xs font-bold text-slate-700 hover:bg-slate-50 hover:border-emerald-500 transition shadow-2xs cursor-pointer"
+              title="Collapse to single file"
+            >
+              <ChevronUp className="size-3 text-emerald-600" />
+              <span>Collapse to file</span>
+            </button>
+          )}
+
           <span className="rounded-lg bg-emerald-100/80 text-emerald-800 px-2 sm:px-2.5 py-0.5 sm:py-1 text-[10px] sm:text-xs font-extrabold border border-emerald-200/80 shadow-2xs">
             {totalCopies} {totalCopies === 1 ? "Copy" : "Copies"}
           </span>

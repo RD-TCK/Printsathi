@@ -303,6 +303,8 @@ export function MultiImagePageModal({
     }
   }, [isOpen]);
 
+  const [dismissedPoolKeys, setDismissedPoolKeys] = useState<Set<string>>(new Set());
+
   // Combined pool of available uploaded batch photos
   const availableBatchPool = useMemo(() => {
     const list: { dataUrl: string; filename: string; documentId?: string }[] = [];
@@ -311,7 +313,7 @@ export function MultiImagePageModal({
     const addImg = (img?: { dataUrl: string; filename: string; documentId?: string }) => {
       if (!img || !img.dataUrl) return;
       const key = img.documentId || img.dataUrl;
-      if (!seen.has(key)) {
+      if (!seen.has(key) && !dismissedPoolKeys.has(key)) {
         seen.add(key);
         list.push(img);
       }
@@ -320,11 +322,37 @@ export function MultiImagePageModal({
     initialImages.forEach(addImg);
     existingDocImages.forEach(addImg);
     return list;
-  }, [initialImages, existingDocImages]);
+  }, [initialImages, existingDocImages, dismissedPoolKeys]);
 
   // Placed images state on the A4 sheet
   const [images, setImages] = useState<PlacedImage[]>([]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
+
+  // Remove a photo from the uploaded batch pool and the canvas
+  const handleRemoveFromPool = useCallback(
+    (photoKey: string) => {
+      setDismissedPoolKeys((prev) => {
+        const next = new Set(prev);
+        next.add(photoKey);
+        return next;
+      });
+      setImages((prev) => {
+        const nextList = prev.filter((img) => (img.documentId || img.dataUrl) !== photoKey);
+        if (template !== "custom") {
+          return calculateLayoutPositions(template, nextList, orientation, marginMm, gapMm);
+        }
+        return nextList;
+      });
+      setSelectedId((curr) => {
+        const target = images.find((i) => i.id === curr);
+        if (target && (target.documentId || target.dataUrl) === photoKey) {
+          return null;
+        }
+        return curr;
+      });
+    },
+    [template, orientation, marginMm, gapMm, images],
+  );
 
   // Helper to place an uploaded batch photo directly onto the canvas (ideal for freeform)
   const handlePlaceBatchPhotoOnCanvas = useCallback(
@@ -994,32 +1022,44 @@ export function MultiImagePageModal({
                 </div>
                 <div className="flex gap-1.5 overflow-x-auto pb-1 no-scrollbar">
                   {availableBatchPool.map((photo, pIdx) => (
-                    <button
-                      key={`${photo.filename}-${pIdx}`}
-                      type="button"
-                      onClick={() => {
-                        if (selectedId && template !== "custom") {
-                          handleAssignBatchPhotoToSlot(selectedId, photo);
-                        } else {
-                          handlePlaceBatchPhotoOnCanvas(photo);
-                        }
-                      }}
-                      title={selectedId ? `Click to place into selected slot: ${photo.filename}` : `Place ${photo.filename} on canvas`}
-                      className={cn(
-                        "relative flex flex-col items-center shrink-0 rounded-xl border p-1 bg-white transition hover:scale-105 cursor-pointer",
-                        currentSelectedImage?.dataUrl === photo.dataUrl
-                          ? "border-emerald-600 ring-2 ring-emerald-500/40 shadow-xs"
-                          : "border-slate-200 hover:border-blue-400",
-                      )}
-                    >
-                      {/* eslint-disable-next-line @next/next/no-img-element */}
-                      <img
-                        src={photo.dataUrl}
-                        alt={photo.filename}
-                        className="size-10 rounded-lg object-cover bg-slate-100"
-                      />
-                      <span className="text-[9px] font-bold text-slate-700 truncate max-w-12 mt-0.5">#{pIdx + 1}</span>
-                    </button>
+                    <div key={`${photo.filename}-${pIdx}`} className="relative shrink-0 group">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          if (selectedId && template !== "custom") {
+                            handleAssignBatchPhotoToSlot(selectedId, photo);
+                          } else {
+                            handlePlaceBatchPhotoOnCanvas(photo);
+                          }
+                        }}
+                        title={selectedId ? `Click to place into selected slot: ${photo.filename}` : `Place ${photo.filename} on canvas`}
+                        className={cn(
+                          "flex flex-col items-center rounded-xl border p-1 bg-white transition hover:scale-105 cursor-pointer",
+                          currentSelectedImage?.dataUrl === photo.dataUrl
+                            ? "border-emerald-600 ring-2 ring-emerald-500/40 shadow-xs"
+                            : "border-slate-200 hover:border-blue-400",
+                        )}
+                      >
+                        {/* eslint-disable-next-line @next/next/no-img-element */}
+                        <img
+                          src={photo.dataUrl}
+                          alt={photo.filename}
+                          className="size-10 rounded-lg object-cover bg-slate-100"
+                        />
+                        <span className="text-[9px] font-bold text-slate-700 truncate max-w-12 mt-0.5">#{pIdx + 1}</span>
+                      </button>
+                      <button
+                        type="button"
+                        title="Remove photo from pool"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleRemoveFromPool(photo.documentId || photo.dataUrl);
+                        }}
+                        className="absolute -top-1 -right-1 size-4 rounded-full bg-rose-600 hover:bg-rose-700 text-white flex items-center justify-center shadow-xs border border-white z-10 cursor-pointer"
+                      >
+                        <X className="size-2.5 stroke-[3]" />
+                      </button>
+                    </div>
                   ))}
                 </div>
                 {selectedId && (
@@ -1073,13 +1113,28 @@ export function MultiImagePageModal({
                 <label className="text-[11px] font-bold uppercase tracking-wider text-slate-500">
                   2. Slots on Page ({images.length})
                 </label>
-                <button
-                  type="button"
-                  onClick={() => fileInputRef.current?.click()}
-                  className="inline-flex items-center gap-1 text-xs font-bold text-emerald-700 hover:text-emerald-800 cursor-pointer"
-                >
-                  <Plus className="size-3.5" /> Add Photo
-                </button>
+                <div className="flex items-center gap-2">
+                  {images.length > 0 && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setImages([]);
+                        setSelectedId(null);
+                      }}
+                      className="inline-flex items-center gap-1 text-xs font-bold text-rose-600 hover:text-rose-800 cursor-pointer"
+                      title="Clear all photos from page"
+                    >
+                      <Trash2 className="size-3" /> Clear Page
+                    </button>
+                  )}
+                  <button
+                    type="button"
+                    onClick={() => fileInputRef.current?.click()}
+                    className="inline-flex items-center gap-1 text-xs font-bold text-emerald-700 hover:text-emerald-800 cursor-pointer"
+                  >
+                    <Plus className="size-3.5" /> Add Photo
+                  </button>
+                </div>
               </div>
 
               {images.length === 0 ? (
@@ -1264,9 +1319,41 @@ export function MultiImagePageModal({
                       />
                     </div>
 
-                    {/* Resize Handles for Selected Image */}
+                    {/* Controls & Resize Handles for Selected Image on Canvas */}
                     {isSelected && (
                       <>
+                        {/* Direct Delete Button in Top-Right Corner of Photo */}
+                        <button
+                          type="button"
+                          title="Delete photo from sheet"
+                          onPointerDown={(e) => {
+                            e.stopPropagation();
+                          }}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleDeleteImage(img.id);
+                          }}
+                          className="absolute -top-3.5 -right-3.5 size-7 rounded-full bg-rose-600 hover:bg-rose-700 active:scale-90 text-white flex items-center justify-center shadow-lg border-2 border-white ring-2 ring-rose-950/20 z-40 cursor-pointer transition"
+                        >
+                          <Trash2 className="size-3.5" />
+                        </button>
+
+                        {/* Direct Rotate Button in Top-Left Corner of Photo */}
+                        <button
+                          type="button"
+                          title="Rotate photo 90°"
+                          onPointerDown={(e) => {
+                            e.stopPropagation();
+                          }}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleRotateImage(img.id);
+                          }}
+                          className="absolute -top-3.5 -left-3.5 size-7 rounded-full bg-slate-800 hover:bg-slate-900 active:scale-90 text-white flex items-center justify-center shadow-lg border-2 border-white ring-2 ring-slate-950/20 z-40 cursor-pointer transition"
+                        >
+                          <RotateCw className="size-3.5" />
+                        </button>
+
                         {/* SE Corner Resize Handle */}
                         <div
                           onPointerDown={(e) => handlePointerDown(e, img.id, "resize", "se")}
@@ -1278,20 +1365,6 @@ export function MultiImagePageModal({
                         <div
                           onPointerDown={(e) => handlePointerDown(e, img.id, "resize", "sw")}
                           className="absolute -bottom-3 -left-3 size-8 flex items-center justify-center cursor-sw-resize select-none touch-none z-30"
-                        >
-                          <div className="size-4 rounded-full bg-emerald-600 border-2 border-white shadow-md ring-1 ring-emerald-950/20" />
-                        </div>
-                        {/* NE Corner */}
-                        <div
-                          onPointerDown={(e) => handlePointerDown(e, img.id, "resize", "ne")}
-                          className="absolute -top-3 -right-3 size-8 flex items-center justify-center cursor-ne-resize select-none touch-none z-30"
-                        >
-                          <div className="size-4 rounded-full bg-emerald-600 border-2 border-white shadow-md ring-1 ring-emerald-950/20" />
-                        </div>
-                        {/* NW Corner */}
-                        <div
-                          onPointerDown={(e) => handlePointerDown(e, img.id, "resize", "nw")}
-                          className="absolute -top-3 -left-3 size-8 flex items-center justify-center cursor-nw-resize select-none touch-none z-30"
                         >
                           <div className="size-4 rounded-full bg-emerald-600 border-2 border-white shadow-md ring-1 ring-emerald-950/20" />
                         </div>
@@ -1332,6 +1405,53 @@ export function MultiImagePageModal({
               )}
             </div>
 
+            {/* Active Selected Photo Controls Bar (Directly below sheet) */}
+            {currentSelectedImage && (
+              <div className="mt-2.5 w-full max-w-sm rounded-2xl border-2 border-emerald-500/50 bg-white p-2.5 shadow-lg z-30 flex items-center justify-between gap-2 animate-in fade-in zoom-in-95 duration-150">
+                <div className="flex items-center gap-2 min-w-0 pr-1">
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img
+                    src={currentSelectedImage.dataUrl}
+                    alt={currentSelectedImage.filename}
+                    className="size-8 rounded-lg object-cover bg-slate-100 shrink-0 border border-slate-200"
+                  />
+                  <div className="truncate text-left">
+                    <p className="text-xs font-bold text-slate-900 truncate">
+                      {currentSelectedImage.filename || "Selected Photo"}
+                    </p>
+                    <p className="text-[10px] text-emerald-700 font-semibold">Active on sheet</p>
+                  </div>
+                </div>
+                <div className="flex items-center gap-1.5 shrink-0">
+                  <button
+                    type="button"
+                    title="Rotate 90°"
+                    onClick={() => handleRotateImage(currentSelectedImage.id)}
+                    className="p-1.5 rounded-xl border border-slate-200 bg-slate-50 hover:bg-slate-100 text-slate-700 text-xs font-bold flex items-center gap-1 cursor-pointer"
+                  >
+                    <RotateCw className="size-3.5" />
+                  </button>
+                  <button
+                    type="button"
+                    title="Fit / Fill"
+                    onClick={() => handleToggleFit(currentSelectedImage.id)}
+                    className="p-1.5 rounded-xl border border-slate-200 bg-slate-50 hover:bg-slate-100 text-slate-700 text-xs font-bold flex items-center gap-1 cursor-pointer"
+                  >
+                    <Maximize2 className="size-3.5" />
+                  </button>
+                  <button
+                    type="button"
+                    title="Delete / Remove photo from sheet"
+                    onClick={() => handleDeleteImage(currentSelectedImage.id)}
+                    className="px-2.5 py-1.5 rounded-xl bg-rose-600 hover:bg-rose-700 active:scale-95 text-white text-xs font-bold flex items-center gap-1 shadow-xs cursor-pointer transition"
+                  >
+                    <Trash2 className="size-3.5" />
+                    <span>Delete</span>
+                  </button>
+                </div>
+              </div>
+            )}
+
             {/* Quick Uploaded Photos Strip to Place onto Canvas */}
             {availableBatchPool.length > 0 && (
               <div className="mt-2.5 w-full max-w-sm rounded-xl border border-blue-200/90 bg-blue-50/70 p-2 z-20">
@@ -1343,16 +1463,28 @@ export function MultiImagePageModal({
                 </div>
                 <div className="flex gap-1.5 overflow-x-auto pb-1 no-scrollbar">
                   {availableBatchPool.map((photo, pIdx) => (
-                    <button
-                      key={`canvas-strip-${photo.documentId || pIdx}`}
-                      type="button"
-                      onClick={() => handlePlaceBatchPhotoOnCanvas(photo)}
-                      className="flex items-center gap-1.5 shrink-0 rounded-lg border border-blue-300 bg-white p-1 hover:bg-blue-50 hover:border-blue-500 transition active:scale-95 cursor-pointer shadow-2xs"
-                    >
-                      {/* eslint-disable-next-line @next/next/no-img-element */}
-                      <img src={photo.dataUrl} alt={photo.filename} className="size-7 rounded-sm object-cover bg-slate-100" />
-                      <span className="text-[9.5px] font-bold text-blue-900 pr-1">#{pIdx + 1} Place</span>
-                    </button>
+                    <div key={`canvas-strip-${photo.documentId || pIdx}`} className="relative shrink-0 group">
+                      <button
+                        type="button"
+                        onClick={() => handlePlaceBatchPhotoOnCanvas(photo)}
+                        className="flex items-center gap-1.5 rounded-lg border border-blue-300 bg-white p-1 hover:bg-blue-50 hover:border-blue-500 transition active:scale-95 cursor-pointer shadow-2xs"
+                      >
+                        {/* eslint-disable-next-line @next/next/no-img-element */}
+                        <img src={photo.dataUrl} alt={photo.filename} className="size-7 rounded-sm object-cover bg-slate-100" />
+                        <span className="text-[9.5px] font-bold text-blue-900 pr-1">#{pIdx + 1} Place</span>
+                      </button>
+                      <button
+                        type="button"
+                        title="Remove photo from pool"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleRemoveFromPool(photo.documentId || photo.dataUrl);
+                        }}
+                        className="absolute -top-1 -right-1 size-4 rounded-full bg-rose-600 hover:bg-rose-700 text-white flex items-center justify-center shadow-xs border border-white z-10 cursor-pointer"
+                      >
+                        <X className="size-2.5 stroke-[3]" />
+                      </button>
+                    </div>
                   ))}
                 </div>
               </div>
@@ -1365,14 +1497,49 @@ export function MultiImagePageModal({
 
             {/* Mobile Bottom Quick Actions */}
             <div className="lg:hidden mt-3 w-full max-w-sm flex items-center gap-2 z-20">
-              <button
-                type="button"
-                onClick={() => fileInputRef.current?.click()}
-                className="flex-1 flex items-center justify-center gap-1 rounded-xl border border-emerald-300 bg-emerald-50 py-2.5 px-3 text-xs font-bold text-emerald-800 shadow-2xs active:scale-95 cursor-pointer"
-              >
-                <Plus className="size-3.5 text-emerald-600" />
-                <span>Add Photo</span>
-              </button>
+              {currentSelectedImage ? (
+                <>
+                  <button
+                    type="button"
+                    onClick={() => handleDeleteImage(currentSelectedImage.id)}
+                    className="flex-1 flex items-center justify-center gap-1.5 rounded-xl bg-rose-600 hover:bg-rose-700 py-2.5 px-3 text-xs font-bold text-white shadow-xs active:scale-95 cursor-pointer"
+                  >
+                    <Trash2 className="size-3.5" />
+                    <span>Delete Photo</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setSelectedId(null)}
+                    className="rounded-xl border border-slate-300 bg-slate-100 py-2.5 px-3 text-xs font-bold text-slate-700 active:scale-95 cursor-pointer"
+                  >
+                    Deselect
+                  </button>
+                </>
+              ) : (
+                <>
+                  {images.length > 0 && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setImages([]);
+                        setSelectedId(null);
+                      }}
+                      className="rounded-xl border border-rose-300 bg-rose-50 py-2.5 px-3 text-xs font-bold text-rose-700 shadow-2xs active:scale-95 cursor-pointer"
+                    >
+                      <Trash2 className="size-3.5 inline mr-1" />
+                      Clear
+                    </button>
+                  )}
+                  <button
+                    type="button"
+                    onClick={() => fileInputRef.current?.click()}
+                    className="flex-1 flex items-center justify-center gap-1 rounded-xl border border-emerald-300 bg-emerald-50 py-2.5 px-3 text-xs font-bold text-emerald-800 shadow-2xs active:scale-95 cursor-pointer"
+                  >
+                    <Plus className="size-3.5 text-emerald-600" />
+                    <span>Add Photo</span>
+                  </button>
+                </>
+              )}
               <button
                 type="button"
                 onClick={() => setMobileTab("settings")}

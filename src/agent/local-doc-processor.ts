@@ -147,46 +147,56 @@ export async function processAndCacheDocument(
       // ignore
     }
   } else if (isImage) {
-    const sharpFn = getSharp();
-    let processedJpeg: Buffer = rawBuffer;
-    let thumbBuf: Buffer | undefined = undefined;
-
-    if (sharpFn) {
-      try {
-        const baseSharp = sharpFn(rawBuffer, { limitInputPixels: 268402689 })
-          .rotate()
-          .toColorspace("srgb")
-          .flatten({ background: "white" });
-
-        const [jpeg, thumb] = await Promise.all([
-          baseSharp.clone().jpeg({ quality: 95, chromaSubsampling: "4:4:4" }).toBuffer(),
-          baseSharp
-            .clone()
-            .resize({ width: 640, height: 900, fit: "inside", withoutEnlargement: true })
-            .jpeg({ quality: 75, mozjpeg: true })
-            .toBuffer(),
-        ]);
-        processedJpeg = jpeg;
-        thumbBuf = thumb;
-      } catch (err) {
-        logger.warn("Sharp image processing fallback:", { error: err });
-      }
-    }
-
-    // Use generated thumbnail, or fall back directly to rawBuffer if under 2.5 MB (e.g. WhatsApp photos)
-    previewBuffer = thumbBuf || (rawBuffer.length <= 2.5 * 1024 * 1024 ? rawBuffer : undefined);
-
-    // Embed high-res image into standard A4 PDF sheet (auto-orient landscape vs portrait)
     const pdf = await PDFDocument.create();
     let embeddedImage;
-    const isPng = rawBuffer.subarray(0, 4).toString("hex") === "89504e47";
+    const isPng = rawBuffer.subarray(0, 4).toString("hex") === "89504e47" || ext === ".png";
+    let thumbBuf: Buffer | undefined = undefined;
+
+    // Fast-path: directly embed raw JPEG / PNG into PDF in ~10ms
     try {
-      embeddedImage = (isPng && !sharpFn) ? await pdf.embedPng(processedJpeg) : await pdf.embedJpg(processedJpeg);
+      if (isPng) {
+        embeddedImage = await pdf.embedPng(rawBuffer);
+      } else {
+        embeddedImage = await pdf.embedJpg(rawBuffer);
+      }
+      previewBuffer = rawBuffer.length <= 2.5 * 1024 * 1024 ? rawBuffer : undefined;
     } catch {
+      // Fallback: use sharp if raw embed failed
+      const sharpFn = getSharp();
+      let processedJpeg: Buffer = rawBuffer;
+
+      if (sharpFn) {
+        try {
+          const baseSharp = sharpFn(rawBuffer, { limitInputPixels: 268402689 })
+            .rotate()
+            .toColorspace("srgb")
+            .flatten({ background: "white" });
+
+          const [jpeg, thumb] = await Promise.all([
+            baseSharp.clone().jpeg({ quality: 90 }).toBuffer(),
+            baseSharp
+              .clone()
+              .resize({ width: 640, height: 900, fit: "inside", withoutEnlargement: true })
+              .jpeg({ quality: 75 })
+              .toBuffer(),
+          ]);
+          processedJpeg = jpeg;
+          thumbBuf = thumb;
+        } catch (err) {
+          logger.warn("Sharp image processing fallback:", { error: err });
+        }
+      }
+
+      previewBuffer = thumbBuf || (rawBuffer.length <= 2.5 * 1024 * 1024 ? rawBuffer : undefined);
+
       try {
-        embeddedImage = await pdf.embedJpg(processedJpeg);
+        embeddedImage = (isPng && !sharpFn) ? await pdf.embedPng(processedJpeg) : await pdf.embedJpg(processedJpeg);
       } catch {
-        embeddedImage = await pdf.embedPng(processedJpeg);
+        try {
+          embeddedImage = await pdf.embedJpg(processedJpeg);
+        } catch {
+          embeddedImage = await pdf.embedPng(processedJpeg);
+        }
       }
     }
 
@@ -396,6 +406,7 @@ async function convertWithWord(extension: string, bytes: Buffer): Promise<Buffer
 $word = $null
 $doc = $null
 try {
+  Unblock-File '${input.replace(/'/g, "''")}'
   $word = New-Object -ComObject Word.Application
   $word.Visible = $false
   $word.DisplayAlerts = 0
@@ -450,10 +461,12 @@ async function convertWithPowerPoint(extension: string, bytes: Buffer): Promise<
 $ppt = $null
 $pres = $null
 try {
+  Unblock-File '${input.replace(/'/g, "''")}'
   $ppt = New-Object -ComObject PowerPoint.Application
   $ppt.DisplayAlerts = 1
   $ppt.AutomationSecurity = 3
-  $pres = $ppt.Presentations.Open('${input.replace(/'/g, "''")}', [Microsoft.Office.Core.MsoTriState]::msoTrue, [Microsoft.Office.Core.MsoTriState]::msoFalse, [Microsoft.Office.Core.MsoTriState]::msoFalse)
+  $ppt.WindowState = 2
+  $pres = $ppt.Presentations.Open('${input.replace(/'/g, "''")}', -1, 0, 0)
   $pres.SaveAs('${output.replace(/'/g, "''")}', 32)
   $pres.Close()
   $ppt.Quit()
@@ -503,6 +516,7 @@ async function convertWithExcel(extension: string, bytes: Buffer): Promise<Buffe
 $excel = $null
 $wb = $null
 try {
+  Unblock-File '${input.replace(/'/g, "''")}'
   $excel = New-Object -ComObject Excel.Application
   $excel.Visible = $false
   $excel.DisplayAlerts = $false

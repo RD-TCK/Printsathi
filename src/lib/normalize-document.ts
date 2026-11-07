@@ -86,44 +86,78 @@ export async function normalizeDocument(file: DocumentInputSource): Promise<Norm
     const pdf = await PDFDocument.create();
     let embeddedImage;
 
-    // Create base sharp pipeline with rotation and sRGB color normalization (handles HDR, Display-P3, 10-bit, CMYK)
-    const baseSharp = sharp(bytes, { limitInputPixels: 268402689 })
-      .rotate()
-      .toColorspace("srgb");
-
     if (isJpeg) {
-      const [processedJpeg, previewBuf] = await Promise.all([
-        baseSharp.clone().jpeg({ quality: 95, chromaSubsampling: "4:4:4" }).toBuffer(),
-        baseSharp
-          .clone()
-          .resize({ width: 1200, height: 1600, fit: "inside", withoutEnlargement: true })
-          .jpeg({ quality: 80 })
-          .toBuffer(),
-      ]);
-      embeddedImage = await pdf.embedJpg(processedJpeg);
-      previewImage = previewBuf;
-      previewMime = "image/jpeg";
+      try {
+        // Fast-path: Directly embed raw JPEG bytes into PDF in ~10ms without heavy Sharp re-encoding
+        embeddedImage = await pdf.embedJpg(bytes);
+        if (bytes.length <= 2.5 * 1024 * 1024) {
+          previewImage = bytes;
+        } else {
+          previewImage = await sharp(bytes, { limitInputPixels: 268402689 })
+            .resize({ width: 900, height: 1200, fit: "inside", withoutEnlargement: true })
+            .jpeg({ quality: 75 })
+            .toBuffer();
+        }
+        previewMime = "image/jpeg";
+      } catch {
+        // Fallback to Sharp pipeline if raw embedding fails (e.g. progressive JPEG or CMYK)
+        const baseSharp = sharp(bytes, { limitInputPixels: 268402689 })
+          .rotate()
+          .toColorspace("srgb");
+        const [processedJpeg, previewBuf] = await Promise.all([
+          baseSharp.clone().jpeg({ quality: 95 }).toBuffer(),
+          baseSharp
+            .clone()
+            .resize({ width: 900, height: 1200, fit: "inside", withoutEnlargement: true })
+            .jpeg({ quality: 75 })
+            .toBuffer(),
+        ]);
+        embeddedImage = await pdf.embedJpg(processedJpeg);
+        previewImage = previewBuf;
+        previewMime = "image/jpeg";
+      }
     } else if (isPng) {
-      const [processedPng, previewBuf] = await Promise.all([
-        baseSharp.clone().png().toBuffer(),
-        baseSharp
-          .clone()
-          .resize({ width: 1200, height: 1600, fit: "inside", withoutEnlargement: true })
-          .jpeg({ quality: 80 })
-          .toBuffer(),
-      ]);
-      embeddedImage = await pdf.embedPng(processedPng);
-      previewImage = previewBuf;
-      previewMime = "image/jpeg";
+      try {
+        // Fast-path: Directly embed raw PNG bytes into PDF in ~10ms
+        embeddedImage = await pdf.embedPng(bytes);
+        if (bytes.length <= 2.5 * 1024 * 1024) {
+          previewImage = bytes;
+          previewMime = "image/png";
+        } else {
+          previewImage = await sharp(bytes, { limitInputPixels: 268402689 })
+            .resize({ width: 900, height: 1200, fit: "inside", withoutEnlargement: true })
+            .jpeg({ quality: 75 })
+            .toBuffer();
+          previewMime = "image/jpeg";
+        }
+      } catch {
+        const baseSharp = sharp(bytes, { limitInputPixels: 268402689 })
+          .rotate()
+          .toColorspace("srgb");
+        const [processedPng, previewBuf] = await Promise.all([
+          baseSharp.clone().png().toBuffer(),
+          baseSharp
+            .clone()
+            .resize({ width: 900, height: 1200, fit: "inside", withoutEnlargement: true })
+            .jpeg({ quality: 75 })
+            .toBuffer(),
+        ]);
+        embeddedImage = await pdf.embedPng(processedPng);
+        previewImage = previewBuf;
+        previewMime = "image/jpeg";
+      }
     } else {
       // Other formats (HEIC, HEIF, AVIF, WebP, GIF, BMP, TIFF, SVG) -> flatten on white & lossless PNG for PDF
+      const baseSharp = sharp(bytes, { limitInputPixels: 268402689 })
+        .rotate()
+        .toColorspace("srgb");
       const flattenedSharp = baseSharp.clone().flatten({ background: "white" });
       const [processedPng, previewBuf] = await Promise.all([
         flattenedSharp.clone().png().toBuffer(),
         flattenedSharp
           .clone()
-          .resize({ width: 1200, height: 1600, fit: "inside", withoutEnlargement: true })
-          .jpeg({ quality: 80 })
+          .resize({ width: 900, height: 1200, fit: "inside", withoutEnlargement: true })
+          .jpeg({ quality: 75 })
           .toBuffer(),
       ]);
       embeddedImage = await pdf.embedPng(processedPng);

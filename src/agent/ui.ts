@@ -586,22 +586,22 @@ export class AgentWebServer {
       align-items: center;
       justify-content: center;
       gap: 8px;
-      padding: 12px 20px;
+      padding: 8px 14px;
       background: linear-gradient(135deg, #059669 0%, #047857 100%);
       color: #ffffff;
       border: none;
-      border-radius: 10px;
-      font-size: 13px;
+      border-radius: 9px;
+      font-size: 12px;
       font-weight: 700;
       cursor: pointer;
       transition: all 0.2s ease;
-      width: 100%;
-      box-shadow: 0 4px 10px rgba(5, 150, 105, 0.2);
+      white-space: nowrap;
+      box-shadow: 0 3px 8px rgba(5, 150, 105, 0.2);
     }
     .btn-primary:hover {
       background: linear-gradient(135deg, #047857 0%, #065f46 100%);
       transform: translateY(-1px);
-      box-shadow: 0 6px 14px rgba(5, 150, 105, 0.3);
+      box-shadow: 0 5px 12px rgba(5, 150, 105, 0.3);
     }
     .btn-primary:disabled { opacity: 0.6; cursor: not-allowed; transform: none; }
     
@@ -610,15 +610,16 @@ export class AgentWebServer {
       align-items: center;
       justify-content: center;
       gap: 6px;
-      padding: 9px 16px;
+      padding: 7px 12px;
       background: #f1f5f9;
       color: #334155;
       border: 1px solid #cbd5e1;
-      border-radius: 9px;
-      font-size: 12px;
+      border-radius: 8px;
+      font-size: 11.5px;
       font-weight: 600;
       cursor: pointer;
       transition: all 0.15s;
+      white-space: nowrap;
     }
     .btn-secondary:hover { background: #e2e8f0; }
 
@@ -685,15 +686,17 @@ export class AgentWebServer {
     }
 
     .printer-card {
-      padding: 12px 14px;
+      padding: 10px 12px;
       border: 1px solid #e2e8f0;
       border-radius: 12px;
-      margin-bottom: 10px;
+      margin-bottom: 8px;
       display: flex;
-      justify-content: space-between;
-      align-items: center;
+      flex-direction: column;
+      gap: 8px;
       background: #ffffff;
       transition: border-color 0.2s;
+      box-sizing: border-box;
+      overflow: hidden;
     }
     .printer-card:hover { border-color: #cbd5e1; }
     
@@ -741,6 +744,7 @@ export class AgentWebServer {
             oninput="renderAgentQueueWithFilter()"
             style="padding:6px 10px; font-size:12px; border:1px solid #cbd5e1; border-radius:8px; outline:none; background:#f8fafc; width:180px;"
           />
+          <button type="button" class="btn-secondary" style="font-size:11px; padding:5px 8px; color:#64748b; cursor:pointer;" onclick="dismissAllInactiveOrders()" title="Hide cancelled and completed orders">Clear Inactive</button>
         </div>
       </div>
       <p style="font-size:12px; color:var(--text-muted); margin-bottom:12px;">
@@ -1042,10 +1046,10 @@ export class AgentWebServer {
             <div class="info-row"><span class="info-label">Shop Name</span><span class="info-val">\${escapeHtml(status.shopName || 'Connected')}</span></div>
             <div class="info-row"><span class="info-label">Station Name</span><span class="info-val">\${escapeHtml(status.agentName || 'Windows PC')}</span></div>
             <div class="info-row">
-              <span class="info-label">Cloud Server</span>
-              <span class="info-val" style="font-size:12px; color:#065f46; display:flex; align-items:center; gap:6px;">
-                <span>\${escapeHtml(activeServerUrl)}</span>
-                <button type="button" class="btn-secondary" style="padding:2px 8px; font-size:10px;" onclick="changeServerUrl()">Switch</button>
+              <span class="info-label" style="flex-shrink:0;">Cloud Server</span>
+              <span class="info-val" style="font-size:12px; color:#065f46; display:flex; align-items:center; gap:6px; min-width:0; overflow:hidden;">
+                <span style="overflow:hidden; text-overflow:ellipsis; white-space:nowrap;" title="\${escapeHtml(activeServerUrl)}">\${escapeHtml(activeServerUrl)}</span>
+                <button type="button" class="btn-secondary" style="padding:2px 8px; font-size:10px; flex-shrink:0; white-space:nowrap;" onclick="changeServerUrl()">Switch</button>
               </span>
             </div>
             <div class="info-row"><span class="info-label">Last Heartbeat</span><span class="info-val" style="font-size:12px;">\${status.lastHeartbeat ? new Date(status.lastHeartbeat).toLocaleTimeString('en-IN', { timeZone: 'Asia/Kolkata', hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: true }) + ' IST' : 'Active'}</span></div>
@@ -1082,30 +1086,41 @@ export class AgentWebServer {
             ? status.selectedPrinter.toLowerCase() === p.name.toLowerCase()
             : p.isDefault || onlineCount === 1);
           return \`
-          <div class="printer-card" style="\${isDisabled ? 'opacity:0.65; border-color:#fca5a5; background:#fff5f5;' : isActive ? 'border-color:#10b981; background:#f0fdf4;' : isSleeping ? 'border-color:#bfdbfe; background:#f8fafc;' : 'border-color:#e2e8f0; background:#f8fafc;'}">
-            <div style="flex:1; min-width:180px;">
-              <div style="display:flex; align-items:center; gap:6px; flex-wrap:wrap;">
-                <span style="font-size:13px; font-weight:700; color:\${isOnline ? 'var(--text-main)' : 'var(--text-muted)'}; text-decoration:\${isDisabled ? 'line-through' : 'none'};">\${escapeHtml(p.name)}</span>
-                <span class="badge" style="font-size:9px; \${isColor ? 'background:#ecfdf5; color:#047857; border:1px solid #a7f3d0;' : 'background:#f1f5f9; color:#475569; border:1px solid #e2e8f0;'}">
-                  \${isColor ? '🎨 Color' : '📄 B&W'}
-                </span>
-                \${isDisabled ? '<span class="badge" style="font-size:9px; background:#fee2e2; color:#991b1b; border:1px solid #fecaca;">⛔ EXCLUDED (NOT IN USE)</span>' : ''}
-                \${isActive ? '<span class="badge" style="font-size:9px; background:#d1fae5; color:#065f46; border:1px solid #6ee7b7;">⭐ ACTIVE (AUTO-ROUTED)</span>' : ''}
+          <div class="printer-card" style="\${isDisabled ? 'opacity:0.75; border-color:#fca5a5; background:#fff5f5;' : isActive ? 'border-color:#10b981; background:#f0fdf4;' : isSleeping ? 'border-color:#bfdbfe; background:#f8fafc;' : 'border-color:#e2e8f0; background:#f8fafc;'}">
+            <!-- Top Row: Name, Pill Tags, and Status Badge -->
+            <div style="display:flex; justify-content:space-between; align-items:flex-start; gap:8px; width:100%; box-sizing:border-box;">
+              <div style="flex:1 1 auto; min-width:0; overflow:hidden;">
+                <div style="display:flex; align-items:center; gap:6px; flex-wrap:wrap;">
+                  <span style="font-size:13px; font-weight:700; color:\${isOnline ? 'var(--text-main)' : 'var(--text-muted)'}; text-decoration:\${isDisabled ? 'line-through' : 'none'}; word-break:break-word;">
+                    \${escapeHtml(p.name)}
+                  </span>
+                  <span class="badge" style="font-size:9px; padding:2px 7px; \${isColor ? 'background:#ecfdf5; color:#047857; border:1px solid #a7f3d0;' : 'background:#f1f5f9; color:#475569; border:1px solid #e2e8f0;'}">
+                    \${isColor ? '🎨 Color' : '📄 B&W'}
+                  </span>
+                  \${isDisabled ? '<span class="badge" style="font-size:9px; padding:2px 6px; background:#fee2e2; color:#991b1b; border:1px solid #fecaca;">⛔ EXCLUDED</span>' : ''}
+                  \${isActive ? '<span class="badge" style="font-size:9px; padding:2px 6px; background:#d1fae5; color:#065f46; border:1px solid #6ee7b7;">⭐ DEFAULT</span>' : ''}
+                </div>
+                <div style="font-size:11px; color:var(--text-muted); margin-top:2px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;" title="\${escapeHtml(p.driverName || 'Windows Spooler')}">
+                  \${escapeHtml(p.driverName || 'Windows Spooler')}
+                </div>
               </div>
-              <div style="font-size:11px; color:var(--text-muted); margin-top:2px;">\${escapeHtml(p.driverName || 'Windows Spooler')}</div>
+              <div style="flex:0 0 auto; flex-shrink:0;">
+                <span class="badge \${isDisabled ? 'badge-offline' : isSleeping ? 'badge-sleeping' : isOnline ? 'badge-online' : 'badge-offline'}" style="font-size:9.5px; padding:3px 8px; white-space:nowrap; \${isSleeping ? 'background:#eff6ff; color:#1d4ed8; border:1px solid #bfdbfe;' : ''}">
+                  \${isDisabled ? 'EXCLUDED' : isSleeping ? '🌙 SLEEPING' : isOnline ? '🟢 ONLINE' : '🔴 OFFLINE'}
+                </span>
+              </div>
             </div>
-            <div style="display:flex; align-items:center; gap:6px; flex-wrap:wrap; justify-content:flex-end;">
-              <span class="badge \${isDisabled ? 'badge-offline' : isSleeping ? 'badge-sleeping' : isOnline ? 'badge-online' : 'badge-offline'}" style="font-size:10px; \${isSleeping ? 'background:#eff6ff; color:#1d4ed8; border:1px solid #bfdbfe;' : ''}">
-                \${isDisabled ? 'EXCLUDED' : isSleeping ? '🌙 SLEEPING (AUTO-WAKE)' : isOnline ? 'ONLINE & READY' : 'OFFLINE (DISCONNECTED)'}
-              </span>
-              \${isSleeping && !isDisabled ? \`<button type="button" class="btn-secondary" style="font-size:10px; padding:3px 8px; cursor:pointer; color:#1d4ed8; border-color:#bfdbfe;" onclick="wakePrinter('\${escapeHtml(p.name)}', this)" title="Send immediate wake command to printer">⚡ Wake Up</button>\` : ''}
-              <button type="button" class="btn-secondary" style="font-size:10px; padding:3px 8px; cursor:pointer;" onclick="toggleColorPrinter('\${escapeHtml(p.name)}', \${!isColor})" title="Manually set whether this printer prints Color or B&W">
+
+            <!-- Bottom Row: Action Buttons -->
+            <div style="display:flex; align-items:center; gap:6px; flex-wrap:wrap; padding-top:6px; border-top:1px dashed #e2e8f0; width:100%; box-sizing:border-box;">
+              \${isSleeping && !isDisabled ? \`<button type="button" class="btn-secondary" style="font-size:10.5px; padding:4px 8px; cursor:pointer; color:#1d4ed8; border-color:#bfdbfe; white-space:nowrap;" onclick="wakePrinter('\${escapeHtml(p.name)}', this)" title="Send immediate wake command to printer">⚡ Wake Up</button>\` : ''}
+              <button type="button" class="btn-secondary" style="font-size:10.5px; padding:4px 8px; cursor:pointer; white-space:nowrap;" onclick="toggleColorPrinter('\${escapeHtml(p.name)}', \${!isColor})" title="Manually set whether this printer prints Color or B&W">
                 \${isColor ? 'Switch to B&W' : 'Switch to Color'}
               </button>
-              <button type="button" class="btn-secondary" style="font-size:10px; padding:3px 8px; cursor:pointer; color:\${isDisabled ? '#065f46' : '#b91c1c'};" onclick="toggleDisablePrinter('\${escapeHtml(p.name)}')" title="\${isDisabled ? 'Enable printer for jobs' : 'Exclude printer from all print jobs'}">
+              <button type="button" class="btn-secondary" style="font-size:10.5px; padding:4px 8px; cursor:pointer; color:\${isDisabled ? '#065f46' : '#b91c1c'}; border-color:\${isDisabled ? '#a7f3d0' : '#fca5a5'}; white-space:nowrap;" onclick="toggleDisablePrinter('\${escapeHtml(p.name)}')" title="\${isDisabled ? 'Enable printer for jobs' : 'Exclude printer from all print jobs'}">
                 \${isDisabled ? '✅ Enable Printer' : '⛔ Do Not Use'}
               </button>
-              \${!isDisabled && !isActive && isOnline ? \`<button type="button" class="btn-secondary" style="font-size:10px; padding:3px 8px; cursor:pointer;" onclick="selectDefaultPrinter('\${escapeHtml(p.name)}')">Use as Default</button>\` : ''}
+              \${!isDisabled && !isActive && isOnline ? \`<button type="button" class="btn-secondary" style="font-size:10.5px; padding:4px 8px; cursor:pointer; white-space:nowrap;" onclick="selectDefaultPrinter('\${escapeHtml(p.name)}')">⭐ Use as Default</button>\` : ''}
             </div>
           </div>
         \`;
@@ -1350,6 +1365,20 @@ export class AgentWebServer {
       renderAgentQueueWithFilter();
     }
 
+    var dismissedOrderIds = new Set();
+    function dismissQueueItem(orderId) {
+      dismissedOrderIds.add(orderId);
+      renderAgentQueueWithFilter();
+    }
+    function dismissAllInactiveOrders() {
+      cachedCounterQueue.forEach(function(item) {
+        if (item.status === 'cancelled' || item.status === 'completed' || item.status === 'expired' || item.isExpired) {
+          dismissedOrderIds.add(item.id);
+        }
+      });
+      renderAgentQueueWithFilter();
+    }
+
     async function executeCancelOrder(orderId) {
       confirmingCancelOrderId = null;
       cancellingOrderIds.add(orderId);
@@ -1444,7 +1473,9 @@ export class AgentWebServer {
         '</div>'
       ].join('') : '';
 
-      let items = cachedCounterQueue;
+      let items = cachedCounterQueue.filter(function(item) {
+        return !dismissedOrderIds.has(item.id);
+      });
       if (query) {
         items = items.filter(function(item) {
           var tokenStr = String(item.tokenNumber || '');
@@ -1464,22 +1495,20 @@ export class AgentWebServer {
 
       list.innerHTML = errorNoticeHtml + items.map(function(item) {
         var isDouble = item.sideMode === "double_sided";
-        var isCompleted = item.status === "completed" || (Array.isArray(item.jobs) && item.jobs.length > 0 && item.jobs.every(function(j) { return j.status === 'completed'; }));
-        var isPrinting = !isCompleted && (item.status === "paid" || item.status === "printing" || item.status === "partially_printed") && Array.isArray(item.jobs) && item.jobs.some(function(j) { return j.status === 'print_submitted'; });
-        var isProcessing = !isCompleted && !isPrinting && (item.status === "paid" || item.status === "printing" || (Array.isArray(item.jobs) && item.jobs.some(function(j) { return j.status === 'queued' || j.status === 'claimed'; })));
         var isCancelled = item.status === "cancelled";
+        var isCompleted = item.status === "completed" || (Array.isArray(item.jobs) && item.jobs.length > 0 && item.jobs.every(function(j) { return j.status === 'completed'; }));
         var isPartiallyPrinted = item.status === "partially_printed";
         var isOddDone = isDouble && (item.status === "partially_printed" || item.duplexStep === "odd_printed" || item.duplexStep === "even");
-        var isExpired = !isCompleted && !isPrinting && !isProcessing && !isCancelled && !isPartiallyPrinted && (item.isExpired || item.status === "expired" || (typeof item.remainingSeconds === "number" && item.remainingSeconds <= 0) || (item.expiresAt && new Date(item.expiresAt).getTime() <= Date.now()));
+        var isExpired = !isCancelled && !isCompleted && !isPartiallyPrinted && !isOddDone && (item.isExpired || item.status === "expired" || (typeof item.remainingSeconds === "number" && item.remainingSeconds <= 0) || (item.expiresAt && new Date(item.expiresAt).getTime() <= Date.now()));
+        var isPrinting = !isCancelled && !isExpired && !isCompleted && (item.status === "paid" || item.status === "printing" || item.status === "partially_printed") && Array.isArray(item.jobs) && item.jobs.some(function(j) { return j.status === 'print_submitted'; });
+        var isProcessing = !isCancelled && !isExpired && !isCompleted && !isPrinting && (item.status === "paid" || item.status === "printing" || (Array.isArray(item.jobs) && item.jobs.some(function(j) { return j.status === 'queued' || j.status === 'claimed'; })));
         var totalSecs = (isCompleted || isCancelled) ? 0 : Math.max(0, item.remainingSeconds || 0);
         var minutesLeft = Math.floor(totalSecs / 60);
         var secondsLeft = totalSecs % 60;
         var validText = (isCompleted || isCancelled) ? "" : minutesLeft > 0 ? (minutesLeft + "m valid") : (secondsLeft + "s valid");
         var isPrecached = item.isPrecached !== false;
         var docNames = (item.documents || []).map(function(d) { return escapeHtml(d.filename); }).join(", ");
-        var tokenLabel = (isCompleted || isPrinting || isPrecached)
-          ? (item.tokenNumber ? ("#" + item.tokenNumber) : ("#" + (item.publicId || '').slice(0, 4)))
-          : "⏳";
+        var tokenLabel = item.tokenNumber ? ("#" + item.tokenNumber) : ("#" + (item.publicId || '').slice(0, 4));
 
         var statusText = isCancelled
           ? "Cancelled"
@@ -1487,8 +1516,6 @@ export class AgentWebServer {
           ? "Printed"
           : isPrinting
           ? "Printing Pages..."
-          : (!isPrecached && !isCancelled && !isExpired)
-          ? "Pre-processing documents (converting to PDF)..."
           : isProcessing
           ? "Processing..."
           : isOddDone
@@ -1497,6 +1524,8 @@ export class AgentWebServer {
           ? "Partially Printed"
           : isExpired
           ? "Expired (1 hr)"
+          : (!isPrecached)
+          ? "Ready to Print (auto-caching)"
           : validText;
 
         var statusColor = isCancelled
@@ -1578,20 +1607,37 @@ export class AgentWebServer {
             '<button type="button" class="btn-secondary" style="font-size:12px; padding:6px 10px; cursor:pointer;" onclick="abortCancelCounterOrder()">Keep</button>'
           ].join("");
         } else if (isProcessing) {
-          actionHtml = '<span style="font-size:12px; font-weight:700; color:#2563eb; background:#eff6ff; border:1px solid #bfdbfe; padding:6px 12px; border-radius:8px; display:inline-flex; align-items:center; gap:6px;">⏳ Processing...</span>';
+          actionHtml = [
+            '<span style="font-size:11.5px; font-weight:700; color:#2563eb; background:#eff6ff; border:1px solid #bfdbfe; padding:5px 9px; border-radius:7px; display:inline-flex; align-items:center; gap:5px; white-space:nowrap;">⏳ Processing...</span>',
+            '<button type="button" class="btn-primary" style="width:auto; padding:5px 10px; font-size:11px;" onclick="approveCounterOrder(',
+            "'", item.id, "', 'all', this",
+            ')">🖨️ Force Print</button>',
+            '<button type="button" class="btn-secondary" style="font-size:11px; padding:5px 8px; cursor:pointer;" onclick="completeCounterOrder(',
+            "'", item.id, "', this",
+            ')" title="Mark as completed">Mark Printed</button>',
+            '<button type="button" class="btn-secondary" style="color:#dc2626; border-color:#fca5a5; font-size:11px; padding:5px 8px; cursor:pointer;" onclick="promptCancelCounterOrder(',
+            "'", item.id, "'",
+            ')" title="Stop and cancel this order">Cancel</button>'
+          ].join("");
         } else if (isPrinting) {
           actionHtml = [
-            '<span style="font-size:12px; font-weight:700; color:#b45309; background:#fffbeb; border:1px solid #fde68a; padding:6px 12px; border-radius:8px; display:inline-flex; align-items:center; gap:6px;">🖨️ Printing Pages...</span>',
-            '<button type="button" class="btn-primary" style="width:auto; padding:6px 12px; font-size:11px; font-weight:700; background:#059669; border-color:#059669; cursor:pointer;" onclick="completeCounterOrder(',
+            '<span style="font-size:11.5px; font-weight:700; color:#b45309; background:#fffbeb; border:1px solid #fde68a; padding:5px 9px; border-radius:7px; display:inline-flex; align-items:center; gap:5px; white-space:nowrap;">🖨️ Printing Pages...</span>',
+            '<button type="button" class="btn-primary" style="width:auto; padding:5px 10px; font-size:11px; font-weight:700; background:#059669; border-color:#059669; cursor:pointer;" onclick="completeCounterOrder(',
             "'", item.id, "', this",
-            ')">Mark Printed</button>'
+            ')">Mark Printed</button>',
+            '<button type="button" class="btn-secondary" style="color:#dc2626; border-color:#fca5a5; font-size:11px; padding:5px 8px; cursor:pointer;" onclick="promptCancelCounterOrder(',
+            "'", item.id, "'",
+            ')" title="Stop and cancel this print job">Cancel</button>'
           ].join("");
         } else if (isCompleted) {
           actionHtml = [
             '<span style="font-size:12px; font-weight:700; color:#059669; background:#ecfdf5; border:1px solid #a7f3d0; padding:6px 10px; border-radius:8px;">✅ Printed</span>',
             '<button type="button" class="btn-secondary" style="font-size:11px; padding:5px 10px; cursor:pointer;" onclick="approveCounterOrder(',
             "'", item.id, "', 'all', this",
-            ')" title="Send to printer again if paper jammed or misprinted">🖨️ Re-Print</button>'
+            ')" title="Send to printer again if paper jammed or misprinted">🖨️ Re-Print</button>',
+            '<button type="button" class="btn-secondary" style="font-size:10.5px; padding:4px 8px; color:#64748b; cursor:pointer;" onclick="dismissQueueItem(',
+            "'", item.id, "'",
+            ')" title="Remove from queue view">Dismiss</button>'
           ].join("");
         } else if (isDouble && !isCancelled && !isExpired) {
           if (isOddDone) {
@@ -1620,8 +1666,6 @@ export class AgentWebServer {
             "'", item.id, "', 'all', this",
             ')" title="Re-dispatch all pages">🖨️ Re-Print</button>'
           ].join("");
-        } else if (!isPrecached && !isCancelled && !isExpired) {
-          actionHtml = '<span style="font-size:12px; font-weight:700; color:#d97706; background:#fffbeb; border:1px solid #fde68a; padding:6px 12px; border-radius:8px; display:inline-flex; align-items:center; gap:6px;">⏳ Pre-processing...</span>';
         } else if (!isCancelled && !isExpired) {
           actionHtml = [
             '<button type="button" class="btn-primary" style="width:auto; padding:7px 14px; font-size:12px;" onclick="approveCounterOrder(',
@@ -1632,28 +1676,44 @@ export class AgentWebServer {
             ')">Cancel</button>'
           ].join("");
         } else if (isCancelled) {
-          actionHtml = '<span style="font-size:12px; font-weight:700; color:#dc2626; padding:6px 10px;">❌ Cancelled</span>';
+          actionHtml = [
+            '<span style="font-size:12px; font-weight:700; color:#dc2626; padding:6px 10px;">❌ Cancelled</span>',
+            '<button type="button" class="btn-secondary" style="font-size:10.5px; padding:4px 8px; color:#64748b; cursor:pointer;" onclick="dismissQueueItem(',
+            "'", item.id, "'",
+            ')" title="Remove from queue view">Dismiss</button>'
+          ].join("");
         } else if (isExpired) {
-          actionHtml = '<span style="font-size:12px; font-weight:700; color:#dc2626; padding:6px 10px;">⏰ Expired</span>';
+          actionHtml = [
+            '<span style="font-size:12px; font-weight:700; color:#dc2626; padding:6px 10px;">⏰ Expired</span>',
+            '<button type="button" class="btn-secondary" style="font-size:10.5px; padding:4px 8px; color:#64748b; cursor:pointer;" onclick="dismissQueueItem(',
+            "'", item.id, "'",
+            ')" title="Remove from queue view">Dismiss</button>'
+          ].join("");
         } else {
           actionHtml = '<span style="font-size:12px; color:var(--text-muted); padding:6px 10px;">Expired</span>';
         }
 
+        var amountStr = '₹' + Number(item.totalAmount || 0).toFixed(2);
+
         return [
-          '<div style="display:flex; align-items:center; justify-content:space-between; padding:12px; margin-bottom:8px; border-radius:10px; border:1px solid ' + borderCol + '; background:' + bgCol + ';">',
-            '<div style="display:flex; align-items:center; gap:12px;">',
-              '<div style="font-family:monospace; font-weight:800; font-size:18px; color:' + tokenCol + '; background:#ffffff; padding:6px 12px; border-radius:8px; border:1px solid #e2e8f0; min-width:54px; text-align:center;">' + tokenLabel + '</div>',
-              '<div>',
-                '<div style="font-size:13px; font-weight:700; color:var(--text-main);">',
-                  ((isCompleted || isPrinting || isPrecached) ? ('Token ' + tokenLabel) : 'Pre-processing Documents...') + ' &bull; ' + item.totalPages + ' Pages (' + item.blackAndWhitePages + ' B&amp;W, ' + item.colorPages + ' Color)',
+          '<div style="display:flex; align-items:center; justify-content:space-between; gap:12px; padding:12px 14px; margin-bottom:8px; border-radius:12px; border:1px solid ' + borderCol + '; background:' + bgCol + '; box-sizing:border-box; overflow:hidden;">',
+            '<div style="display:flex; align-items:center; gap:12px; flex:1 1 auto; min-width:0; overflow:hidden;">',
+              '<div style="display:flex; flex-direction:column; align-items:center; justify-content:center; background:#ffffff; padding:6px 10px; border-radius:10px; border:2px solid ' + (isCompleted ? '#a7f3d0' : isPrinting ? '#fde68a' : isCancelled ? '#fca5a5' : '#cbd5e1') + '; min-width:68px; text-align:center; box-shadow:0 1px 3px rgba(0,0,0,0.06); flex-shrink:0;">',
+                '<div style="font-family:monospace; font-weight:900; font-size:18px; color:' + tokenCol + '; line-height:1.1;">' + tokenLabel + '</div>',
+                '<div style="font-size:11.5px; font-weight:800; color:#047857; margin-top:3px; background:#ecfdf5; border-radius:5px; padding:1px 6px; border:1px solid #a7f3d0; white-space:nowrap; line-height:1.2;">' + amountStr + '</div>',
+              '</div>',
+              '<div style="flex:1 1 auto; min-width:0; overflow:hidden;">',
+                '<div style="display:flex; align-items:center; gap:8px; flex-wrap:wrap;">',
+                  '<span style="font-size:13.5px; font-weight:800; color:var(--text-main);">Token ' + tokenLabel + '</span>',
+                  '<span style="font-size:12.5px; font-weight:800; color:#047857; background:#d1fae5; border:1px solid #6ee7b7; padding:1px 8px; border-radius:6px; white-space:nowrap;">' + amountStr + '</span>',
+                  '<span style="font-size:12px; font-weight:600; color:var(--text-muted);">&bull; ' + item.totalPages + ' Pages (' + item.blackAndWhitePages + ' B&amp;W, ' + item.colorPages + ' Color)</span>',
                 '</div>',
-                '<div style="font-size:11px; color:var(--text-muted); margin-top:2px;">',
-                  '₹' + Number(item.totalAmount).toFixed(2) + ' &bull; ' + (item.copiesSummary ? ('<b style="color:var(--text-main);">' + escapeHtml(item.copiesSummary) + '</b> &bull; ') : '') + docNames + ' &bull; ',
-                  '<span style="font-weight:600; color:' + statusColor + ';">' + statusText + '</span>',
+                '<div style="font-size:11px; color:var(--text-muted); margin-top:3px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; max-width:100%;" title="' + escapeHtml(docNames) + '">',
+                  (item.copiesSummary ? ('<b style="color:var(--text-main);">' + escapeHtml(item.copiesSummary) + '</b> &bull; ') : '') + docNames + ' &bull; <span style="font-weight:600; color:' + statusColor + ';">' + statusText + '</span>',
                 '</div>',
               '</div>',
             '</div>',
-            '<div style="display:flex; gap:8px; align-items:center;">' + actionHtml + '</div>',
+            '<div style="display:flex; gap:8px; align-items:center; flex:0 0 auto; flex-shrink:0; justify-content:flex-end; white-space:nowrap;">' + actionHtml + '</div>',
           '</div>'
         ].join("");
       }).join("");
@@ -1704,17 +1764,17 @@ export class AgentWebServer {
               '<div style="max-height:160px; overflow-y:auto; display:flex; flex-direction:column; gap:6px;">' +
               events.map(function(e) {
                 var actionHtml = e.configUrl
-                  ? '<a href="' + escapeHtml(e.configUrl) + '" target="_blank" style="font-size:11px; color:#059669; font-weight:600; text-decoration:underline;">Open Config</a>'
+                  ? '<a href="' + escapeHtml(e.configUrl) + '" target="_blank" style="display:inline-flex; align-items:center; font-size:10.5px; color:#065f46; background:#d1fae5; border:1px solid #a7f3d0; border-radius:6px; padding:3px 8px; font-weight:700; text-decoration:none; white-space:nowrap; flex-shrink:0;">Open Config ↗</a>'
                   : (e.status === 'retrying'
-                    ? '<span style="color:#d97706; font-size:11px; font-weight:600; display:flex; align-items:center; gap:3px;">🔄 Retrying (Offline)</span>'
-                    : '<span style="color:#ef4444; font-size:11px;">Failed</span>');
+                    ? '<span style="color:#d97706; font-size:10.5px; font-weight:600; display:inline-flex; align-items:center; gap:3px; white-space:nowrap; flex-shrink:0;">🔄 Retrying</span>'
+                    : '<span style="color:#ef4444; font-size:10.5px; font-weight:600; white-space:nowrap; flex-shrink:0;">Failed</span>');
 
-                return '<div style="display:flex; justify-content:space-between; align-items:center; background:#f8fafc; border:1px solid #e2e8f0; border-radius:8px; padding:6px 10px; font-size:12px;">' +
-                  '<div>' +
+                return '<div style="display:flex; justify-content:space-between; align-items:center; gap:8px; background:#f8fafc; border:1px solid #e2e8f0; border-radius:8px; padding:6px 10px; font-size:12px; overflow:hidden; box-sizing:border-box;">' +
+                  '<div style="flex:1 1 auto; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;" title="' + escapeHtml(e.senderName) + ' (' + escapeHtml(e.senderPhone) + ') · ' + escapeHtml(e.filename) + '">' +
                     '<b>' + escapeHtml(e.senderName) + '</b> (' + escapeHtml(e.senderPhone) + ') · <span style="color:#059669; font-weight:600;">' + escapeHtml(e.filename) + '</span> (' + (e.pageCount || 0) + 'p)' +
                   '</div>' +
-                  '<div style="display:flex; align-items:center; gap:8px;">' +
-                    '<span style="font-size:11px; color:#64748b;">' + escapeHtml(e.timestamp) + '</span>' +
+                  '<div style="display:flex; align-items:center; gap:6px; flex:0 0 auto; flex-shrink:0; white-space:nowrap;">' +
+                    '<span style="font-size:10.5px; color:#64748b;">' + escapeHtml(e.timestamp) + '</span>' +
                     actionHtml +
                   '</div>' +
                 '</div>';
@@ -1723,12 +1783,12 @@ export class AgentWebServer {
           };
 
           body.innerHTML = [
-            '<div style="background:#f0fdf4; border:1px solid #bbf7d0; border-radius:10px; padding:12px; font-size:13px; color:#14532d; display:flex; justify-content:space-between; align-items:center;">',
-              '<div>',
+            '<div style="background:#f0fdf4; border:1px solid #bbf7d0; border-radius:10px; padding:12px; font-size:13px; color:#14532d; display:flex; justify-content:space-between; align-items:center; gap:8px; box-sizing:border-box; overflow:hidden;">',
+              '<div style="flex:1 1 auto; min-width:0;">',
                 '<b>✅ WhatsApp Connected:</b> Listening for customer documents on <b>' + escapeHtml(data.connectedPhone || 'Your WhatsApp') + '</b>.<br/>',
                 '<span style="font-size:11.5px; color:#166534;">Auto-reply with document configuration link is live.</span>',
               '</div>',
-              '<button type="button" class="btn-secondary" style="font-size:11px; color:#b91c1c; border-color:#fca5a5;" onclick="disconnectWhatsApp(false)">Unlink</button>',
+              '<button type="button" class="btn-secondary" style="font-size:11px; color:#b91c1c; border-color:#fca5a5; flex:0 0 auto; flex-shrink:0; white-space:nowrap;" onclick="disconnectWhatsApp(false)">Unlink</button>',
             '</div>',
             renderEventsHtml(data.recentEvents)
           ].join('');
@@ -1745,17 +1805,17 @@ export class AgentWebServer {
               '<div style="max-height:160px; overflow-y:auto; display:flex; flex-direction:column; gap:6px;">' +
               events.map(function(e) {
                 var actionHtml = e.configUrl
-                  ? '<a href="' + escapeHtml(e.configUrl) + '" target="_blank" style="font-size:11px; color:#059669; font-weight:600; text-decoration:underline;">Open Config</a>'
+                  ? '<a href="' + escapeHtml(e.configUrl) + '" target="_blank" style="display:inline-flex; align-items:center; font-size:10.5px; color:#065f46; background:#d1fae5; border:1px solid #a7f3d0; border-radius:6px; padding:3px 8px; font-weight:700; text-decoration:none; white-space:nowrap; flex-shrink:0;">Open Config ↗</a>'
                   : (e.status === 'retrying'
-                    ? '<span style="color:#d97706; font-size:11px; font-weight:600; display:flex; align-items:center; gap:3px;">🔄 Retrying (Offline)</span>'
-                    : '<span style="color:#ef4444; font-size:11px;">Failed</span>');
+                    ? '<span style="color:#d97706; font-size:10.5px; font-weight:600; display:inline-flex; align-items:center; gap:3px; white-space:nowrap; flex-shrink:0;">🔄 Retrying</span>'
+                    : '<span style="color:#ef4444; font-size:10.5px; font-weight:600; white-space:nowrap; flex-shrink:0;">Failed</span>');
 
-                return '<div style="display:flex; justify-content:space-between; align-items:center; background:#f8fafc; border:1px solid #e2e8f0; border-radius:8px; padding:6px 10px; font-size:12px;">' +
-                  '<div>' +
+                return '<div style="display:flex; justify-content:space-between; align-items:center; gap:8px; background:#f8fafc; border:1px solid #e2e8f0; border-radius:8px; padding:6px 10px; font-size:12px; overflow:hidden; box-sizing:border-box;">' +
+                  '<div style="flex:1 1 auto; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;" title="' + escapeHtml(e.senderName) + ' (' + escapeHtml(e.senderPhone) + ') · ' + escapeHtml(e.filename) + '">' +
                     '<b>' + escapeHtml(e.senderName) + '</b> (' + escapeHtml(e.senderPhone) + ') · <span style="color:#059669; font-weight:600;">' + escapeHtml(e.filename) + '</span> (' + (e.pageCount || 0) + 'p)' +
                   '</div>' +
-                  '<div style="display:flex; align-items:center; gap:8px;">' +
-                    '<span style="font-size:11px; color:#64748b;">' + escapeHtml(e.timestamp) + '</span>' +
+                  '<div style="display:flex; align-items:center; gap:6px; flex:0 0 auto; flex-shrink:0; white-space:nowrap;">' +
+                    '<span style="font-size:10.5px; color:#64748b;">' + escapeHtml(e.timestamp) + '</span>' +
                     actionHtml +
                   '</div>' +
                 '</div>';
@@ -1764,8 +1824,8 @@ export class AgentWebServer {
           };
 
           body.innerHTML = [
-            '<div style="background:#fffbeb; border:1px solid #fde68a; border-radius:10px; padding:12px; display:flex; justify-content:space-between; align-items:center;">',
-              '<div>',
+            '<div style="background:#fffbeb; border:1px solid #fde68a; border-radius:10px; padding:12px; display:flex; justify-content:space-between; align-items:center; gap:8px; flex-wrap:wrap; box-sizing:border-box; overflow:hidden;">',
+              '<div style="flex:1 1 200px; min-width:0;">',
                 '<div style="display:flex; align-items:center; gap:6px;">',
                   '<span style="font-size:13px; font-weight:700; color:#92400e;">⚡ Paired WhatsApp: ' + escapeHtml(data.connectedPhone || 'Saved Phone') + '</span>',
                 '</div>',
@@ -1773,9 +1833,9 @@ export class AgentWebServer {
                   'Waiting for internet connection. The agent automatically reconnects as soon as internet is restored. Your session remains linked.',
                 '</p>',
               '</div>',
-              '<div style="display:flex; gap:8px;">',
-                '<button type="button" class="btn-secondary" style="font-size:11px;" onclick="connectWhatsApp()">🔄 Retry Now</button>',
-                '<button type="button" class="btn-secondary" style="font-size:11px; color:#b91c1c; border-color:#fca5a5;" onclick="disconnectWhatsApp(false)">Unlink</button>',
+              '<div style="display:flex; gap:6px; flex:0 0 auto; flex-shrink:0; white-space:nowrap;">',
+                '<button type="button" class="btn-secondary" style="font-size:11px; white-space:nowrap;" onclick="connectWhatsApp()">🔄 Retry Now</button>',
+                '<button type="button" class="btn-secondary" style="font-size:11px; color:#b91c1c; border-color:#fca5a5; white-space:nowrap;" onclick="disconnectWhatsApp(false)">Unlink</button>',
               '</div>',
             '</div>',
             renderEventsHtmlOffline(data.recentEvents)
