@@ -9,6 +9,7 @@ const nextConfig: NextConfig = {
     removeConsole: process.env.NODE_ENV === "production" ? { exclude: ["error", "warn"] } : false,
   },
   experimental: {
+    agentUpgrade: "security",
     optimizePackageImports: ["lucide-react", "clsx", "tailwind-merge", "@supabase/ssr", "zod"],
     serverActions: {
       bodySizeLimit: "50mb",
