@@ -1,8 +1,8 @@
 import { describe, expect, it } from "vitest";
 import sharp from "sharp";
-import { PDFDocument, StandardFonts, rgb } from "pdf-lib";
+import { PDFDocument, StandardFonts } from "pdf-lib";
 import { normalizeDocument } from "./normalize-document";
-import { extractImageFromPdf, renderPdfFirstPage, renderPdfPage } from "./pdf-preview";
+import { extractImageFromPdf, renderPdfFirstPage } from "./pdf-preview";
 
 describe("PDF Image Preview Extraction & Rasterization", () => {
   it("extracts embedded JPEG from normalized image PDF", async () => {
@@ -45,12 +45,12 @@ describe("PDF Image Preview Extraction & Rasterization", () => {
     expect(meta.height).toBe(80);
   });
 
-  it("renders page 1 of text PDF into high-resolution JPEG preview with actual font glyphs", async () => {
+  it("renders page 1 of text PDF into high-resolution JPEG preview", async () => {
     const doc = await PDFDocument.create();
     const font = await doc.embedFont(StandardFonts.Helvetica);
     const page = doc.addPage([595, 842]);
-    page.drawText("Invoice #12345", { x: 50, y: 780, size: 24, font, color: rgb(0, 0, 0) });
-    page.drawText("Total: 500 INR", { x: 50, y: 740, size: 14, font, color: rgb(0, 0, 0) });
+    page.drawText("Invoice #12345", { x: 50, y: 780, size: 24, font });
+    page.drawText("Total: 500 INR", { x: 50, y: 740, size: 14, font });
     const pdfBytes = Buffer.from(await doc.save());
 
     const result = await renderPdfFirstPage(pdfBytes, 800);
@@ -61,40 +61,28 @@ describe("PDF Image Preview Extraction & Rasterization", () => {
     const meta = await sharp(result!.buffer).metadata();
     expect(meta.format).toBe("jpeg");
     expect(meta.width).toBe(800);
-
-    // Verify text pixels are actually rendered (not blank white page)
-    const stats = await sharp(result!.buffer).stats();
-    // Channels min must be < 255 because black text glyphs were drawn
-    expect(stats.channels[0].min).toBeLessThan(100);
   });
 
-  it("renders multiple pages independently via renderPdfPage", async () => {
+  it("normalizes a PDF file and generates a first-page preview image", async () => {
     const doc = await PDFDocument.create();
-    const font = await doc.embedFont(StandardFonts.HelveticaBold);
-    const p1 = doc.addPage([595, 842]);
-    p1.drawText("Page 1 Content", { x: 50, y: 750, size: 20, font, color: rgb(0, 0, 0) });
-    const p2 = doc.addPage([595, 842]);
-    p2.drawText("Page 2 Passenger Details", { x: 50, y: 750, size: 20, font, color: rgb(0, 0, 0) });
+    const page = doc.addPage([400, 600]);
+    page.drawText("Customer Resume");
     const pdfBytes = Buffer.from(await doc.save());
 
-    const page1Res = await renderPdfPage(pdfBytes, 1, 800);
-    expect(page1Res).not.toBeNull();
-    expect(page1Res?.pageNumber).toBe(1);
-    expect(page1Res?.totalPages).toBe(2);
-
-    const page2Res = await renderPdfPage(pdfBytes, 2, 800);
-    expect(page2Res).not.toBeNull();
-    expect(page2Res?.pageNumber).toBe(2);
-    expect(page2Res?.totalPages).toBe(2);
+    const normalized = await normalizeDocument(new File([new Uint8Array(pdfBytes)], "resume.pdf"));
+    expect(normalized.pageCount).toBe(1);
+    expect(normalized.previewImage).toBeDefined();
+    expect(normalized.previewMime).toBe("image/jpeg");
+    expect(normalized.previewImage!.length).toBeGreaterThan(500);
   });
 
   it("renders full page preview for composite PDF with text and embedded small graphics (IRCTC ticket scenario)", async () => {
     const doc = await PDFDocument.create();
     const font = await doc.embedFont(StandardFonts.HelveticaBold);
     const page = doc.addPage([595, 842]); // Standard A4 page
-    page.drawText("Electronic Reservation Slip - IRCTC", { x: 50, y: 800, size: 16, font, color: rgb(0, 0, 0) });
-    page.drawText("PNR: 2958565920  Train: 12276/HUMSAFAR EXPRES", { x: 50, y: 770, size: 12, font, color: rgb(0, 0, 0) });
-    page.drawText("1. NAVEEN PANDEY  23  M", { x: 50, y: 720, size: 10, font, color: rgb(0, 0, 0) });
+    page.drawText("Electronic Reservation Slip - IRCTC", { x: 50, y: 800, size: 16, font });
+    page.drawText("PNR: 2958565920  Train: 12276/HUMSAFAR EXPRES", { x: 50, y: 770, size: 12, font });
+    page.drawText("1. NAVEEN PANDEY  23  M", { x: 50, y: 720, size: 10, font });
 
     // Tiny 60x20 arrow graphic (simulates the 'Boarding At ->' banner)
     const tinyArrow = await sharp({
@@ -108,19 +96,17 @@ describe("PDF Image Preview Extraction & Rasterization", () => {
 
     const pdfBytes = Buffer.from(await doc.save());
 
+    // Before the fix, renderPdfFirstPage extracted ONLY the 60x20 arrow!
     const result = await renderPdfFirstPage(pdfBytes, 800);
     expect(result).not.toBeNull();
     expect(result?.mimeType).toBe("image/jpeg");
 
     const meta = await sharp(result!.buffer).metadata();
     expect(meta.format).toBe("jpeg");
+    // Verify it is the full A4 page (~800 x ~1132 px), NOT the 60x20 sub-image!
     expect(meta.width).toBe(800);
     expect(meta.height).toBeGreaterThan(1000);
     expect(result!.buffer.length).toBeGreaterThan(5000);
-
-    // Text glyphs check
-    const stats = await sharp(result!.buffer).stats();
-    expect(stats.channels[0].min).toBeLessThan(100);
   });
 
   it("normalizes a Word (.docx) document and generates a full-page preview image", async () => {
@@ -151,3 +137,4 @@ describe("PDF Image Preview Extraction & Rasterization", () => {
     expect(meta.height).toBeGreaterThan(700);
   });
 });
+

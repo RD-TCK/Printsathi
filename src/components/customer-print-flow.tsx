@@ -2277,14 +2277,6 @@ function LazyPreviewImage({
   );
 }
 
-interface CarouselSlide {
-  id: string;
-  docIndex: number;
-  pageNum: number;
-  totalPages: number;
-  doc: CustomerDocument;
-}
-
 function LargeSheetPreviewCarousel({
   documents,
   activeDocument,
@@ -2308,63 +2300,35 @@ function LargeSheetPreviewCarousel({
   const cardRefs = useRef<(HTMLDivElement | null)[]>([]);
   const isScrollingByCode = useRef(false);
   const scrollTimer = useRef<NodeJS.Timeout | null>(null);
-  const [activeSlideIndex, setActiveSlideIndex] = useState(0);
 
-  const slides = useMemo<CarouselSlide[]>(() => {
-    const list: CarouselSlide[] = [];
-    documents.forEach((doc, dIdx) => {
-      const pageCount = Math.min(Math.max(1, doc.pageCount || 1), 50);
-      for (let p = 1; p <= pageCount; p++) {
-        list.push({
-          id: `${doc.id || dIdx}-p${p}`,
-          docIndex: dIdx,
-          pageNum: p,
-          totalPages: pageCount,
-          doc,
-        });
-      }
-    });
-    return list;
-  }, [documents]);
-
-  const scrollToSlide = useCallback((index: number) => {
+  // Sync scroll position to active document when activeDocument changes
+  useEffect(() => {
     const container = scrollContainerRef.current;
-    const targetCard = cardRefs.current[index];
+    const targetCard = cardRefs.current[activeDocument];
     if (container && targetCard) {
       const targetLeft = Math.max(0, targetCard.offsetLeft - (container.clientWidth - targetCard.offsetWidth) / 2);
-      isScrollingByCode.current = true;
-      container.scrollTo({ left: targetLeft, behavior: "smooth" });
-      setActiveSlideIndex(index);
-      const timer = setTimeout(() => {
-        isScrollingByCode.current = false;
-      }, 350);
-      return () => clearTimeout(timer);
-    }
-  }, []);
-
-  // Sync scroll position when activeDocument changes externally
-  useEffect(() => {
-    if (slides.length === 0) return;
-    const currentSlide = slides[activeSlideIndex];
-    if (!currentSlide || currentSlide.docIndex !== activeDocument) {
-      const targetIdx = slides.findIndex((s) => s.docIndex === activeDocument);
-      if (targetIdx !== -1) {
-        scrollToSlide(targetIdx);
+      if (Math.abs(container.scrollLeft - targetLeft) > 15) {
+        isScrollingByCode.current = true;
+        container.scrollTo({ left: targetLeft, behavior: "smooth" });
+        const timer = setTimeout(() => {
+          isScrollingByCode.current = false;
+        }, 350);
+        return () => clearTimeout(timer);
       }
     }
-  }, [activeDocument, slides, activeSlideIndex, scrollToSlide]);
+  }, [activeDocument]);
 
-  // Sync active slide and active document when user scrolls carousel
+  // Sync active document when user scrolls carousel
   const handleScroll = useCallback(() => {
     if (isScrollingByCode.current) return;
     const container = scrollContainerRef.current;
-    if (!container || slides.length === 0) return;
+    if (!container) return;
 
     if (scrollTimer.current) clearTimeout(scrollTimer.current);
     scrollTimer.current = setTimeout(() => {
       if (isScrollingByCode.current) return;
       const containerCenter = container.scrollLeft + container.clientWidth / 2;
-      let closestIndex = activeSlideIndex;
+      let closestIndex = activeDocument;
       let minDistance = Infinity;
 
       cardRefs.current.forEach((card, index) => {
@@ -2377,17 +2341,11 @@ function LargeSheetPreviewCarousel({
         }
       });
 
-      if (closestIndex !== activeSlideIndex && closestIndex >= 0 && closestIndex < slides.length) {
-        setActiveSlideIndex(closestIndex);
-        const slide = slides[closestIndex];
-        if (slide && slide.docIndex !== activeDocument) {
-          setActiveDocument(slide.docIndex);
-        }
+      if (closestIndex !== activeDocument && closestIndex >= 0 && closestIndex < documents.length) {
+        setActiveDocument(closestIndex);
       }
     }, 80);
-  }, [activeSlideIndex, activeDocument, slides, setActiveDocument]);
-
-  const currentSlide = slides[activeSlideIndex] || slides[0];
+  }, [activeDocument, documents.length, setActiveDocument]);
 
   return (
     <div className="w-full select-none pt-0 sm:pt-0.5 pb-1">
@@ -2398,47 +2356,63 @@ function LargeSheetPreviewCarousel({
         className="flex items-center gap-3.5 sm:gap-5 overflow-x-auto snap-x snap-mandatory px-6 sm:px-10 py-1 no-scrollbar scroll-smooth"
         style={{ scrollSnapType: "x mandatory", WebkitOverflowScrolling: "touch" }}
       >
-        {slides.map((slide, idx) => {
-          const isCurrentSlide = idx === activeSlideIndex;
-          const isColor = slide.doc.ranges[0]?.colorMode === "color";
+        {documents.map((doc, idx) => {
+          const isActive = activeDocument === idx;
+          const isColor = doc.ranges[0]?.colorMode === "color";
           const docPreviewUrl =
-            slide.doc.previewUrl ||
+            doc.previewUrl ||
             (orderId && accessToken
-              ? `/api/customer/document-preview?documentId=${slide.doc.id}&orderId=${orderId}&token=${accessToken}&page=${slide.pageNum}`
+              ? `/api/customer/document-preview?documentId=${doc.id}&orderId=${orderId}&token=${accessToken}`
               : "");
-          const thumbUrl = getOptimizedPreviewUrl(docPreviewUrl, 900);
+          const thumbUrl = getOptimizedPreviewUrl(docPreviewUrl, 800);
 
           return (
             <div
-              key={slide.id}
+              key={doc.id || idx}
               ref={(el) => {
                 cardRefs.current[idx] = el;
               }}
               onClick={() => {
-                if (isCurrentSlide) {
-                  onOpenFullscreen(slide.docIndex, slide.pageNum);
+                if (isActive) {
+                  onOpenFullscreen(idx, 1);
                 } else {
-                  scrollToSlide(idx);
+                  setActiveDocument(idx);
                 }
               }}
               className={cn(
                 "group relative shrink-0 snap-center rounded-2xl bg-white border transition-all duration-200 cursor-pointer overflow-hidden p-2 sm:p-2.5 flex flex-col items-center justify-center",
                 "w-[78vw] max-w-[325px] sm:max-w-[360px] aspect-[1/1.414] max-h-[46vh] sm:max-h-[50vh]",
-                isCurrentSlide
+                isActive
                   ? "border-slate-300 shadow-xl shadow-slate-900/10 ring-1 ring-slate-900/5"
-                  : "border-slate-200/80 shadow-md shadow-slate-900/5 opacity-80 hover:opacity-100",
+                  : "border-slate-200/80 shadow-md shadow-slate-900/5 opacity-80 hover:opacity-100"
               )}
             >
+              {/* Top-Left Back Button over the preview image */}
+              {onBack && (
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onBack();
+                  }}
+                  className="absolute top-2.5 left-2.5 z-20 flex size-7.5 sm:size-8.5 items-center justify-center rounded-full bg-white/95 border border-slate-200/90 text-slate-700 shadow-md hover:bg-white hover:text-slate-900 active:scale-90 transition cursor-pointer backdrop-blur-xs"
+                  title="Go back"
+                  aria-label="Go back"
+                >
+                  <ChevronLeft className="size-4.5 sm:size-5" />
+                </button>
+              )}
+
               {/* Top-Right Delete (X) Button */}
               {documents.length > 1 && (
                 <button
                   type="button"
                   onClick={(e) => {
                     e.stopPropagation();
-                    onRemoveDocument(slide.docIndex);
+                    onRemoveDocument(idx);
                   }}
-                  className="absolute top-2.5 right-2.5 z-20 flex size-6.5 sm:size-7 items-center justify-center rounded-full bg-white/95 border border-slate-200/90 text-slate-500 shadow-sm hover:text-rose-600 hover:bg-rose-50 hover:border-rose-200 active:scale-90 transition cursor-pointer"
-                  title="Remove document"
+                  className="absolute top-2.5 right-2.5 z-20 flex size-6 sm:size-7 items-center justify-center rounded-full bg-white/95 border border-slate-200/90 text-slate-500 shadow-sm hover:text-rose-600 hover:bg-rose-50 hover:border-rose-200 active:scale-90 transition cursor-pointer"
+                  title="Remove this document"
                   aria-label="Remove document"
                 >
                   <X className="size-3.5" />
@@ -2449,11 +2423,11 @@ function LargeSheetPreviewCarousel({
               <div className="relative flex h-full w-full items-center justify-center overflow-hidden rounded-xl bg-slate-50/50">
                 <LazyPreviewImage
                   src={thumbUrl}
-                  alt={`Page ${slide.pageNum} of ${slide.doc.filename}`}
-                  isImage={slide.doc.isImage}
+                  alt={`Preview of ${doc.filename}`}
+                  isImage={doc.isImage}
                   className={cn(
                     "h-full w-full object-contain rounded-lg transition-all",
-                    !isColor && "grayscale contrast-105 brightness-95",
+                    !isColor && "grayscale contrast-105 brightness-95"
                   )}
                   style={!isColor ? { filter: "grayscale(100%) contrast(1.1) brightness(0.96)" } : undefined}
                   fallback={
@@ -2461,9 +2435,9 @@ function LargeSheetPreviewCarousel({
                       <div className="flex size-14 items-center justify-center rounded-2xl bg-emerald-50 text-emerald-600 border border-emerald-200 shadow-inner">
                         <FileText className="size-7" />
                       </div>
-                      <p className="text-xs font-bold text-slate-700 max-w-[180px] truncate">{slide.doc.filename}</p>
+                      <p className="text-xs font-bold text-slate-700 max-w-[180px] truncate">{doc.filename}</p>
                       <span className="text-[10px] text-slate-400 font-medium">
-                        Page {slide.pageNum} of {slide.totalPages}
+                        {doc.pageCount} {doc.pageCount === 1 ? "page" : "pages"}
                       </span>
                     </div>
                   }
@@ -2484,22 +2458,20 @@ function LargeSheetPreviewCarousel({
       {/* Dark Pill Indicator underneath sheet (e.g. 1/2 •) */}
       <div className="flex items-center justify-center gap-1.5 pt-2 pb-0.5">
         <span className="rounded-full bg-neutral-900 px-2.5 py-0.5 text-[11px] font-bold text-white shadow-xs">
-          {currentSlide ? `${currentSlide.pageNum}/${currentSlide.totalPages}` : "1/1"}
+          {activeDocument + 1}/{documents.length}
         </span>
-        {slides.length > 1 && (
+        {documents.length > 1 && (
           <div className="flex items-center gap-1.5 pl-0.5">
-            {slides.map((_, dotIdx) => (
+            {documents.map((_, dotIdx) => (
               <button
                 key={dotIdx}
                 type="button"
-                onClick={() => scrollToSlide(dotIdx)}
+                onClick={() => setActiveDocument(dotIdx)}
                 className={cn(
-                  "rounded-full transition-all duration-200 cursor-pointer",
-                  dotIdx === activeSlideIndex
-                    ? "size-2 bg-neutral-900 scale-110"
-                    : "size-1.5 bg-slate-300 hover:bg-slate-400",
+                  "size-1.5 rounded-full transition-all duration-200 cursor-pointer",
+                  dotIdx === activeDocument ? "bg-neutral-800 scale-125" : "bg-slate-300 hover:bg-slate-400"
                 )}
-                aria-label={`Go to page ${dotIdx + 1}`}
+                aria-label={`Go to document ${dotIdx + 1}`}
               />
             ))}
           </div>
@@ -2524,7 +2496,6 @@ function ConfigureAndCropStep({
   busy,
   uploadStatus,
   estimate,
-  pricingRules,
   onOpenCropper,
   onOpenMultiImage,
   onAddMoreFiles,
@@ -2551,7 +2522,6 @@ function ConfigureAndCropStep({
   busy: boolean;
   uploadStatus?: string | null;
   estimate?: Estimate | null;
-  pricingRules?: PricingRule[];
   onOpenCropper: (docIndex: number) => void;
   onOpenMultiImage: (initialDocIndex?: number, defaultPreset?: LayoutTemplate) => void;
   onAddMoreFiles: (files: File[]) => void;
@@ -2569,13 +2539,8 @@ function ConfigureAndCropStep({
   const reuploadInputRef = useRef<HTMLInputElement>(null);
 
   const shopPaymentMode = shop.payment_mode || "both";
-  const bwRule = pricingRules?.find((r) => r.color_mode === "black_and_white");
-  const colorRule = pricingRules?.find((r) => r.color_mode === "color");
-  const bwPriceStr = bwRule ? `₹${Number(bwRule.price_per_page).toFixed(0)}` : "₹3";
-  const colorPriceStr = colorRule ? `₹${Number(colorRule.price_per_page).toFixed(0)}` : "₹10";
 
   const [fullscreenTarget, setFullscreenTarget] = useState<{ docIndex: number; pageNum: number } | null>(null);
-  const [showAdvancedOptions, setShowAdvancedOptions] = useState(false);
 
   const totalDocPages = useMemo(() => {
     return documents.reduce((sum, doc) => sum + (doc.pageCount || 1), 0);
@@ -2757,311 +2722,614 @@ function ConfigureAndCropStep({
         onBack={onBack}
       />
 
-      {/* 1. Document Configuration Cards (Matching Reference UI) */}
-      <div className="space-y-3">
-        {(() => {
-          const firstRange = current.ranges[0] || {
-            startPage: 1,
-            endPage: current.pageCount || 1,
-            copies: 1,
-            colorMode: "black_and_white",
-            sideMode: "single_sided",
-            paperSize: "a4",
-          };
-          const copiesNum = Number(firstRange.copies) || 1;
-          const isColor = firstRange.colorMode === "color";
-          const isDoubleSided = firstRange.sideMode === "double_sided";
-          const isLandscape = firstRange.paperSize === "a3"; // Landscape / large indicator
+      {/* 1. Document Configuration Card (Below Preview) */}
+      <Card className="p-3 sm:p-6 border-slate-200/80 bg-white shadow-lg shadow-slate-900/5 rounded-2xl sm:rounded-3xl">
 
-          return (
-            <>
-              {/* Card 1: Number of copies with green stepper */}
-              <div className="flex items-center justify-between rounded-2xl bg-white border border-slate-200/90 p-3.5 sm:p-4 shadow-sm">
+        {/* MULTIPLE PHOTOS ON SAME PAGE FEATURE (DESKTOP/TABLET ONLY - HIDDEN ON MOBILE) */}
+        {hasAnyImages && (
+          <div className="hidden md:block mt-4 rounded-2xl border border-emerald-300/80 bg-gradient-to-br from-emerald-50/90 via-teal-50/40 to-emerald-50/70 p-4 sm:p-5 shadow-xs space-y-3.5">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <div className="flex items-center gap-2.5">
+                <div className="flex size-8 sm:size-9 items-center justify-center rounded-xl bg-emerald-600 text-white shadow-xs">
+                  <LayoutGrid className="size-4 sm:size-5" />
+                </div>
                 <div>
-                  <h3 className="text-sm font-bold text-slate-900">Number of copies</h3>
-                  <p className="text-xs text-slate-500 font-medium mt-0.5">
-                    File {activeDocument + 1} ({current.pageCount} {current.pageCount === 1 ? "page" : "pages"})
+                  <h3 className="text-xs sm:text-sm font-black text-emerald-950 flex items-center gap-2">
+                    Multiple Photos on Same Page
+                    <span className="rounded-full bg-emerald-600 text-white text-[9px] sm:text-[10px] font-black px-2 py-0.5">
+                      Save Paper &amp; Cost
+                    </span>
+                  </h3>
+                  <p className="text-[11px] text-emerald-800">
+                    {hasMultipleImages
+                      ? `Select a layout preset to fit your ${uncombinedImageDocuments.length} remaining uploaded photos onto 1 single A4 page.`
+                      : "Select a layout preset to print multiple copies or passport photos onto 1 single A4 page."}
                   </p>
                 </div>
-                <div className="flex items-center rounded-xl bg-emerald-700 text-white font-bold px-1.5 py-1 shadow-sm">
-                  <button
-                    type="button"
-                    onClick={() => updateRange(0, "copies", Math.max(1, copiesNum - 1))}
-                    disabled={copiesNum <= 1}
-                    className="size-7 sm:size-8 flex items-center justify-center text-white disabled:opacity-40 hover:bg-emerald-800 rounded-lg transition active:scale-90 text-lg font-bold cursor-pointer"
-                    aria-label="Decrease copies"
-                  >
-                    —
-                  </button>
-                  <span className="w-8 sm:w-10 text-center text-sm sm:text-base font-extrabold select-none">
-                    {copiesNum}
+              </div>
+
+              <button
+                type="button"
+                onClick={() => onOpenMultiImage(activeDocument, "grid-2-vert")}
+                className="inline-flex items-center gap-1.5 rounded-xl bg-emerald-600 px-3.5 py-1.5 text-xs font-bold text-white shadow-xs hover:bg-emerald-700 transition active:scale-95 cursor-pointer"
+              >
+                <Sparkles className="size-3.5" />
+                <span>Custom Sheet Editor</span>
+              </button>
+            </div>
+
+            {/* Quick Layout Presets Selection Bar */}
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 pt-0.5">
+              {/* Preset 1: 2 Photos Stacked (ID Card Front & Back) */}
+              <button
+                type="button"
+                onClick={() => onOpenMultiImage(activeDocument, "grid-2-vert")}
+                className="flex flex-col items-start rounded-xl border border-emerald-200/90 bg-white p-2.5 text-left transition hover:border-emerald-500 hover:shadow-xs hover:bg-emerald-50/60 active:scale-95 cursor-pointer group"
+              >
+                <div className="flex items-center justify-between w-full">
+                  <span className="text-xs font-bold text-slate-900 group-hover:text-emerald-900">
+                    2 Stacked (ID Card)
                   </span>
-                  <button
-                    type="button"
-                    onClick={() => updateRange(0, "copies", copiesNum + 1)}
-                    className="size-7 sm:size-8 flex items-center justify-center text-white hover:bg-emerald-800 rounded-lg transition active:scale-90 text-lg font-bold cursor-pointer"
-                    aria-label="Increase copies"
-                  >
-                    +
-                  </button>
+                  <span className="rounded-md bg-emerald-100 text-emerald-800 text-[9px] font-black px-1.5 py-0.2">
+                    2 Slots
+                  </span>
                 </div>
-              </div>
+                <p className="text-[10px] text-slate-500 mt-1 line-clamp-1">Top &amp; Bottom (Front &amp; Back)</p>
+              </button>
 
-              {/* Card 2: Choose print color */}
-              <div className="rounded-2xl bg-white border border-slate-200/90 p-3.5 sm:p-4 shadow-sm space-y-2.5">
-                <h3 className="text-xs sm:text-sm font-bold text-slate-900">Choose print color</h3>
-                <div className="grid grid-cols-2 gap-2.5">
-                  {/* Coloured Card */}
-                  <button
-                    type="button"
-                    disabled={shop.color_printer_status !== "ready"}
-                    onClick={() => updateRange(0, "colorMode", "color")}
-                    className={cn(
-                      "relative flex items-center gap-3 rounded-2xl p-3 text-left transition-all border cursor-pointer select-none",
-                      shop.color_printer_status !== "ready"
-                        ? "opacity-50 border-slate-200 bg-slate-50 cursor-not-allowed"
-                        : isColor
-                          ? "border-emerald-600 bg-emerald-50/80 shadow-xs ring-1 ring-emerald-500/30"
-                          : "border-slate-200 bg-white hover:border-slate-300"
-                    )}
-                  >
-                    {/* 3 overlapping colored circles */}
-                    <div className="relative size-7 shrink-0">
-                      <span className="absolute top-0 left-0.5 size-4 rounded-full bg-red-500 opacity-90" />
-                      <span className="absolute top-0 right-0.5 size-4 rounded-full bg-blue-500 opacity-90" />
-                      <span className="absolute bottom-0 left-2 size-4 rounded-full bg-amber-400 opacity-90" />
-                    </div>
-                    <div className="min-w-0 flex-1">
-                      <p className="text-xs sm:text-sm font-bold text-slate-900">Coloured</p>
-                      <p className="text-[11px] font-semibold text-slate-500">
-                        {shop.color_printer_status !== "ready" ? "Offline" : `${colorPriceStr}/page`}
-                      </p>
-                    </div>
-                    {isColor && (
-                      <div className="size-4.5 rounded-full bg-emerald-600 text-white flex items-center justify-center shrink-0">
-                        <Check className="size-3 stroke-[3]" />
-                      </div>
-                    )}
-                  </button>
-
-                  {/* B & W Card */}
-                  <button
-                    type="button"
-                    onClick={() => updateRange(0, "colorMode", "black_and_white")}
-                    className={cn(
-                      "relative flex items-center gap-3 rounded-2xl p-3 text-left transition-all border cursor-pointer select-none",
-                      !isColor
-                        ? "border-emerald-600 bg-emerald-50/80 shadow-xs ring-1 ring-emerald-500/30"
-                        : "border-slate-200 bg-white hover:border-slate-300"
-                    )}
-                  >
-                    {/* 3 overlapping grayscale circles */}
-                    <div className="relative size-7 shrink-0">
-                      <span className="absolute top-0 left-0.5 size-4 rounded-full bg-slate-900 opacity-90" />
-                      <span className="absolute top-0 right-0.5 size-4 rounded-full bg-slate-500 opacity-90" />
-                      <span className="absolute bottom-0 left-2 size-4 rounded-full bg-slate-300 opacity-90" />
-                    </div>
-                    <div className="min-w-0 flex-1">
-                      <p className="text-xs sm:text-sm font-bold text-slate-900">B &amp; W</p>
-                      <p className="text-[11px] font-semibold text-slate-500">
-                        {bwPriceStr}/page
-                      </p>
-                    </div>
-                    {!isColor && (
-                      <div className="size-4.5 rounded-full bg-emerald-600 text-white flex items-center justify-center shrink-0">
-                        <Check className="size-3 stroke-[3]" />
-                      </div>
-                    )}
-                  </button>
+              {/* Preset 2: 2 Photos Side-by-Side */}
+              <button
+                type="button"
+                onClick={() => onOpenMultiImage(activeDocument, "grid-2-horiz")}
+                className="flex flex-col items-start rounded-xl border border-emerald-200/90 bg-white p-2.5 text-left transition hover:border-emerald-500 hover:shadow-xs hover:bg-emerald-50/60 active:scale-95 cursor-pointer group"
+              >
+                <div className="flex items-center justify-between w-full">
+                  <span className="text-xs font-bold text-slate-900 group-hover:text-emerald-900">2 Side-by-Side</span>
+                  <span className="rounded-md bg-emerald-100 text-emerald-800 text-[9px] font-black px-1.5 py-0.2">
+                    2 Slots
+                  </span>
                 </div>
-              </div>
+                <p className="text-[10px] text-slate-500 mt-1 line-clamp-1">Left &amp; Right columns</p>
+              </button>
 
-              {/* Card 3: Choose print orientation */}
-              <div className="rounded-2xl bg-white border border-slate-200/90 p-3.5 sm:p-4 shadow-sm space-y-2.5">
-                <h3 className="text-xs sm:text-sm font-bold text-slate-900">Choose print orientation</h3>
-                <div className="grid grid-cols-2 gap-2.5">
-                  {/* Portrait Card */}
-                  <button
-                    type="button"
-                    onClick={() => updateRange(0, "paperSize", "a4")}
-                    className={cn(
-                      "relative flex items-center gap-3 rounded-2xl p-3 text-left transition-all border cursor-pointer select-none",
-                      !isLandscape
-                        ? "border-emerald-600 bg-emerald-50/80 shadow-xs ring-1 ring-emerald-500/30"
-                        : "border-slate-200 bg-white hover:border-slate-300"
-                    )}
-                  >
-                    <div className="flex size-8 items-center justify-center rounded-xl bg-blue-50 text-blue-600 shrink-0">
-                      <svg className="size-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                        <rect width="14" height="20" x="5" y="2" rx="2" fill="#bfdbfe" fillOpacity="0.4" />
-                        <path d="M9 18h6" />
-                      </svg>
-                    </div>
-                    <div className="min-w-0 flex-1">
-                      <p className="text-xs sm:text-sm font-bold text-slate-900">Portrait</p>
-                      <p className="text-[11px] text-slate-500">8.3 x 11.7 in</p>
-                    </div>
-                    {!isLandscape && (
-                      <div className="size-4.5 rounded-full bg-emerald-600 text-white flex items-center justify-center shrink-0">
-                        <Check className="size-3 stroke-[3]" />
-                      </div>
-                    )}
-                  </button>
-
-                  {/* Landscape Card */}
-                  <button
-                    type="button"
-                    onClick={() => updateRange(0, "paperSize", "a3")}
-                    className={cn(
-                      "relative flex items-center gap-3 rounded-2xl p-3 text-left transition-all border cursor-pointer select-none",
-                      isLandscape
-                        ? "border-emerald-600 bg-emerald-50/80 shadow-xs ring-1 ring-emerald-500/30"
-                        : "border-slate-200 bg-white hover:border-slate-300"
-                    )}
-                  >
-                    <div className="flex size-8 items-center justify-center rounded-xl bg-blue-50 text-blue-600 shrink-0">
-                      <svg className="size-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                        <rect width="20" height="14" x="2" y="5" rx="2" fill="#bfdbfe" fillOpacity="0.4" />
-                        <path d="M18 9v6" />
-                      </svg>
-                    </div>
-                    <div className="min-w-0 flex-1">
-                      <p className="text-xs sm:text-sm font-bold text-slate-900">Landscape</p>
-                      <p className="text-[11px] text-slate-500">11.7 x 8.3 in</p>
-                    </div>
-                    {isLandscape && (
-                      <div className="size-4.5 rounded-full bg-emerald-600 text-white flex items-center justify-center shrink-0">
-                        <Check className="size-3 stroke-[3]" />
-                      </div>
-                    )}
-                  </button>
+              {/* Preset 3: 4 Photos Grid (2x2) */}
+              <button
+                type="button"
+                onClick={() => onOpenMultiImage(activeDocument, "grid-4")}
+                className="flex flex-col items-start rounded-xl border border-emerald-200/90 bg-white p-2.5 text-left transition hover:border-emerald-500 hover:shadow-xs hover:bg-emerald-50/60 active:scale-95 cursor-pointer group"
+              >
+                <div className="flex items-center justify-between w-full">
+                  <span className="text-xs font-bold text-slate-900 group-hover:text-emerald-900">4 Photos (2×2)</span>
+                  <span className="rounded-md bg-emerald-100 text-emerald-800 text-[9px] font-black px-1.5 py-0.2">
+                    4 Slots
+                  </span>
                 </div>
-              </div>
+                <p className="text-[10px] text-slate-500 mt-1 line-clamp-1">
+                  {uncombinedImageDocuments.length >= 4 ? "Auto-fills 4 batch photos" : "4 equal quadrants"}
+                </p>
+              </button>
 
-              {/* Card 4: More print options (Collapsible Drawer / Accordion) */}
-              <div className="rounded-2xl bg-white border border-slate-200/90 shadow-sm overflow-hidden">
-                <button
-                  type="button"
-                  onClick={() => setShowAdvancedOptions(!showAdvancedOptions)}
-                  className="w-full flex items-center justify-between p-3.5 sm:p-4 text-left hover:bg-slate-50 transition cursor-pointer"
-                >
-                  <div className="min-w-0 flex-1">
-                    <p className="text-xs sm:text-sm font-bold text-slate-800 flex items-center gap-2">
-                      <span>More print options</span>
-                      <span className="text-[11px] font-normal text-slate-500 truncate">
-                        (Pages: {firstRange.startPage}–{firstRange.endPage} · {isDoubleSided ? "2-Sided" : "1-Sided"} · {firstRange.paperSize.toUpperCase()})
-                      </span>
-                    </p>
-                  </div>
-                  <ChevronDown className={cn("size-4 text-slate-400 transition-transform duration-200 shrink-0 ml-2", showAdvancedOptions && "rotate-180")} />
-                </button>
+              {/* Preset 4: 6 Photos Grid (2x3) */}
+              <button
+                type="button"
+                onClick={() => onOpenMultiImage(activeDocument, "grid-6")}
+                className="flex flex-col items-start rounded-xl border border-emerald-200/90 bg-white p-2.5 text-left transition hover:border-emerald-500 hover:shadow-xs hover:bg-emerald-50/60 active:scale-95 cursor-pointer group"
+              >
+                <div className="flex items-center justify-between w-full">
+                  <span className="text-xs font-bold text-slate-900 group-hover:text-emerald-900">6 Photos (2×3)</span>
+                  <span className="rounded-md bg-emerald-100 text-emerald-800 text-[9px] font-black px-1.5 py-0.2">
+                    6 Slots
+                  </span>
+                </div>
+                <p className="text-[10px] text-slate-500 mt-1 line-clamp-1">2 columns × 3 rows</p>
+              </button>
 
-                {showAdvancedOptions && (
-                  <div className="p-3.5 sm:p-4 pt-1 border-t border-slate-100 space-y-3.5 animate-in fade-in duration-150">
-                    {/* From Page & To Page */}
-                    <div className="grid grid-cols-2 gap-2.5">
-                      <label className="text-xs font-bold text-slate-700">
-                        From Page
-                        <input
-                          className="mt-1 h-10 w-full rounded-xl border border-slate-200 px-3 text-sm font-bold text-slate-900 focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 transition"
-                          min="1"
-                          max={current.pageCount}
-                          type="number"
-                          value={firstRange.startPage}
-                          onChange={(e) => updateRange(0, "startPage", e.target.value)}
-                        />
-                      </label>
-                      <label className="text-xs font-bold text-slate-700">
-                        To Page
-                        <input
-                          className="mt-1 h-10 w-full rounded-xl border border-slate-200 px-3 text-sm font-bold text-slate-900 focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 transition"
-                          min="1"
-                          max={current.pageCount}
-                          type="number"
-                          value={firstRange.endPage}
-                          onChange={(e) => updateRange(0, "endPage", e.target.value)}
-                        />
-                      </label>
-                    </div>
+              {/* Preset 5: 8 Photos Grid (2x4) */}
+              <button
+                type="button"
+                onClick={() => onOpenMultiImage(activeDocument, "grid-8")}
+                className="flex flex-col items-start rounded-xl border border-emerald-200/90 bg-white p-2.5 text-left transition hover:border-emerald-500 hover:shadow-xs hover:bg-emerald-50/60 active:scale-95 cursor-pointer group"
+              >
+                <div className="flex items-center justify-between w-full">
+                  <span className="text-xs font-bold text-slate-900 group-hover:text-emerald-900">8 Photos (2×4)</span>
+                  <span className="rounded-md bg-emerald-100 text-emerald-800 text-[9px] font-black px-1.5 py-0.2">
+                    8 Slots
+                  </span>
+                </div>
+                <p className="text-[10px] text-slate-500 mt-1 line-clamp-1">2 columns × 4 rows</p>
+              </button>
 
-                    {/* Paper Sides (Duplex) if supported */}
-                    {shop.allow_double_sided !== false && (
-                      <div>
-                        <label className="text-xs font-bold text-slate-700 block mb-1.5">Paper Sides (Duplex)</label>
-                        <div className="grid grid-cols-2 gap-2">
-                          <button
-                            type="button"
-                            onClick={() => updateRange(0, "sideMode", "single_sided")}
-                            className={cn(
-                              "rounded-xl border py-2 px-2.5 text-center text-xs font-bold transition cursor-pointer select-none",
-                              !isDoubleSided
-                                ? "border-emerald-600 bg-emerald-50 text-emerald-900 ring-1 ring-emerald-500/20"
-                                : "border-slate-200 bg-white text-slate-600 hover:bg-slate-50"
-                            )}
-                          >
-                            1-Sided (Single)
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => updateRange(0, "sideMode", "double_sided")}
-                            className={cn(
-                              "rounded-xl border py-2 px-2.5 text-center text-xs font-bold transition cursor-pointer select-none",
-                              isDoubleSided
-                                ? "border-emerald-600 bg-emerald-50 text-emerald-900 ring-1 ring-emerald-500/20"
-                                : "border-slate-200 bg-white text-slate-600 hover:bg-slate-50"
-                            )}
-                          >
-                            2-Sided (Both Sides)
-                          </button>
-                        </div>
-                      </div>
-                    )}
+              {/* Preset 6: 8 Passports */}
+              <button
+                type="button"
+                onClick={() => onOpenMultiImage(activeDocument, "passport-8")}
+                className="flex flex-col items-start rounded-xl border border-emerald-200/90 bg-white p-2.5 text-left transition hover:border-emerald-500 hover:shadow-xs hover:bg-emerald-50/60 active:scale-95 cursor-pointer group"
+              >
+                <div className="flex items-center justify-between w-full">
+                  <span className="text-xs font-bold text-slate-900 group-hover:text-emerald-900">8 Passports</span>
+                  <span className="rounded-md bg-emerald-100 text-emerald-800 text-[9px] font-black px-1.5 py-0.2">
+                    8 Slots
+                  </span>
+                </div>
+                <p className="text-[10px] text-slate-500 mt-1 line-clamp-1">Standard 3.5×4.5cm photos</p>
+              </button>
 
-                    {/* Image Crop & Combine Actions */}
-                    {(current.isImage || Boolean(current.previewUrl) || Boolean(current.filename.match(/\.(png|jpg|jpeg|webp)$/i))) && (
-                      <div className="flex items-center gap-2 pt-1 border-t border-slate-100">
-                        <button
-                          type="button"
-                          onClick={() => onOpenCropper(activeDocument)}
-                          className="inline-flex items-center gap-1.5 rounded-xl border border-emerald-300 bg-emerald-50 px-3 py-1.5 text-xs font-bold text-emerald-800 hover:bg-emerald-100 transition active:scale-95 cursor-pointer"
-                        >
-                          <Crop className="size-3.5 text-emerald-700" />
-                          <span>Crop Photo</span>
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => onOpenMultiImage(activeDocument, "grid-2-vert")}
-                          className="inline-flex items-center gap-1.5 rounded-xl border border-blue-300 bg-blue-50 px-3 py-1.5 text-xs font-bold text-blue-900 hover:bg-blue-100 transition active:scale-95 cursor-pointer"
-                        >
-                          <LayoutGrid className="size-3.5 text-blue-700" />
-                          <span>Combine Layout</span>
-                        </button>
-                      </div>
-                    )}
+              {/* Preset 7: 16 Passports */}
+              <button
+                type="button"
+                onClick={() => onOpenMultiImage(activeDocument, "passport-16")}
+                className="flex flex-col items-start rounded-xl border border-emerald-200/90 bg-white p-2.5 text-left transition hover:border-emerald-500 hover:shadow-xs hover:bg-emerald-50/60 active:scale-95 cursor-pointer group"
+              >
+                <div className="flex items-center justify-between w-full">
+                  <span className="text-xs font-bold text-slate-900 group-hover:text-emerald-900">16 Passports</span>
+                  <span className="rounded-md bg-emerald-100 text-emerald-800 text-[9px] font-black px-1.5 py-0.2">
+                    16 Slots
+                  </span>
+                </div>
+                <p className="text-[10px] text-slate-500 mt-1 line-clamp-1">Full A4 passport sheet</p>
+              </button>
 
-                    {/* Pehla Page Color Preset */}
-                    {current.pageCount >= 2 && (
-                      <button
-                        type="button"
-                        onClick={applyFirstPageColorPreset}
-                        className="w-full flex items-center justify-between gap-2 rounded-xl border border-amber-300 bg-amber-50/70 p-2.5 text-xs font-bold text-amber-950 hover:bg-amber-100/70 transition cursor-pointer"
-                      >
-                        <span className="flex items-center gap-2">
-                          <span>🎨</span>
-                          <span>Page 1 Color + baaki Black &amp; White</span>
-                        </span>
-                        <span className="rounded-lg bg-amber-500 text-white px-2 py-0.5 text-[10px] font-black">
-                          Apply
-                        </span>
-                      </button>
-                    )}
-                  </div>
+              {/* Preset 8: Custom Canvas */}
+              <button
+                type="button"
+                onClick={() => onOpenMultiImage(activeDocument, "custom")}
+                className="flex flex-col items-start rounded-xl border border-dashed border-emerald-300 bg-white p-2.5 text-left transition hover:border-emerald-600 hover:shadow-xs hover:bg-emerald-50/60 active:scale-95 cursor-pointer group"
+              >
+                <div className="flex items-center justify-between w-full">
+                  <span className="text-xs font-bold text-slate-900 group-hover:text-emerald-900">Custom Layout</span>
+                  <span className="rounded-md bg-slate-100 text-slate-700 text-[9px] font-bold px-1.5 py-0.2">
+                    Freeform
+                  </span>
+                </div>
+                <p className="text-[10px] text-slate-500 mt-1 line-clamp-1">Drag &amp; position freely</p>
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* Active Document Details Box */}
+        <div className="rounded-2xl bg-slate-50/80 border border-slate-200/80 p-2.5 sm:p-5 space-y-3 sm:space-y-4">
+          {/* Header Row: Document Name & Details with Add Files Button */}
+          <div className="flex items-center justify-between gap-2 pb-2 sm:pb-3 border-b border-slate-200/70">
+            <div className="min-w-0 flex-1">
+              <div className="flex flex-wrap items-center gap-1.5">
+                {documents.length > 1 && (
+                  <span className="rounded-md bg-emerald-100 px-2 py-0.5 text-[10px] font-extrabold text-emerald-900 border border-emerald-200 shrink-0">
+                    Doc #{activeDocument + 1} of {documents.length}
+                  </span>
+                )}
+                <p className="font-bold text-slate-900 text-xs sm:text-base truncate max-w-[150px] xs:max-w-[200px] sm:max-w-[320px]" title={current.filename}>
+                  {current.filename}
+                </p>
+                {isCurrentCombinedSheet && (
+                  <span className="rounded-md bg-emerald-100 text-emerald-800 text-[10px] font-extrabold px-1.5 py-0.2 border border-emerald-300 shrink-0">
+                    Combined Sheet
+                  </span>
                 )}
               </div>
-            </>
-          );
-        })()}
-      </div>
+              <p className="text-[11px] text-slate-500 flex items-center gap-1.5 mt-0.5">
+                <span>{(current.sizeBytes / 1024 / 1024).toFixed(2)} MB</span>
+                <span>•</span>
+                <span>
+                  {current.pageCount} {current.pageCount === 1 ? "page" : "pages"} in original document
+                </span>
+              </p>
+            </div>
+
+            {/* Add Files Button beside document name */}
+            <div className="flex items-center gap-2 shrink-0">
+              <input
+                ref={fileInputRef}
+                className="sr-only"
+                type="file"
+                accept=".pdf,.png,.jpg,.jpeg,.webp,.gif,.tif,.tiff,.doc,.docx,.odt,.rtf,.ppt,.pptx,.odp,.xls,.xlsx,.ods,.txt,.csv,.md"
+                multiple
+                onChange={(e) => {
+                  const files = Array.from(e.target.files ?? []);
+                  if (files.length > 0) {
+                    onAddMoreFiles(files);
+                  }
+                  e.currentTarget.value = "";
+                }}
+              />
+              <button
+                type="button"
+                disabled={busy || documents.length >= 10}
+                onClick={() => fileInputRef.current?.click()}
+                className="inline-flex items-center gap-1 rounded-full border border-emerald-500/80 bg-emerald-50/80 px-2.5 sm:px-3 py-1 text-[11px] sm:text-xs font-bold text-emerald-800 shadow-2xs hover:bg-emerald-100 hover:border-emerald-600 transition active:scale-95 cursor-pointer disabled:opacity-40"
+              >
+                <FilePlus className="size-3.5 text-emerald-600" />
+                <span>Add files</span>
+              </button>
+            </div>
+          </div>
+
+          {/* Action Row: Prev/Next, Crop, Combine (persists even if already edited), and Delete */}
+          <div className="flex flex-wrap items-center justify-between gap-1.5 pt-0.5">
+            <div className="flex items-center gap-1.5">
+              {documents.length > 1 && (
+                <div className="flex items-center gap-1 mr-1">
+                  <button
+                    type="button"
+                    disabled={activeDocument === 0}
+                    onClick={() => {
+                      const prev = Math.max(0, activeDocument - 1);
+                      setActiveDocument(prev);
+                    }}
+                    className="flex size-7 items-center justify-center rounded-lg border border-slate-200 bg-white text-slate-700 hover:bg-slate-50 disabled:opacity-30 disabled:pointer-events-none transition shadow-2xs cursor-pointer"
+                    title="Previous file"
+                  >
+                    <ChevronLeft className="size-3.5" />
+                  </button>
+                  <button
+                    type="button"
+                    disabled={activeDocument >= documents.length - 1}
+                    onClick={() => {
+                      const next = Math.min(documents.length - 1, activeDocument + 1);
+                      setActiveDocument(next);
+                    }}
+                    className="flex size-7 items-center justify-center rounded-lg border border-slate-200 bg-white text-slate-700 hover:bg-slate-50 disabled:opacity-30 disabled:pointer-events-none transition shadow-2xs cursor-pointer"
+                    title="Next file"
+                  >
+                    <ChevronRight className="size-3.5" />
+                  </button>
+                </div>
+              )}
+
+              {/* Crop & Multi-Image Action Buttons */}
+              {(isImageDoc || isCurrentCombinedSheet) && (
+                <>
+                  <button
+                    type="button"
+                    onClick={() => onOpenCropper(activeDocument)}
+                    className="inline-flex items-center gap-1.5 rounded-xl border border-emerald-300 bg-emerald-50 px-2.5 sm:px-3 py-1.5 text-xs font-bold text-emerald-800 shadow-2xs hover:bg-emerald-100 transition active:scale-95 cursor-pointer"
+                  >
+                    <Crop className="size-3.5 text-emerald-700" />
+                    <span>Crop</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => onOpenMultiImage(activeDocument, "grid-2-vert")}
+                    className="inline-flex items-center gap-1.5 rounded-xl border border-blue-300 bg-blue-50 px-2.5 sm:px-3 py-1.5 text-xs font-bold text-blue-900 shadow-2xs hover:bg-blue-100 transition active:scale-95 cursor-pointer"
+                  >
+                    <LayoutGrid className="size-3.5 text-blue-700" />
+                    <span>{isCurrentCombinedSheet ? "Combine / Add" : "Combine"}</span>
+                  </button>
+                </>
+              )}
+            </div>
+
+            <button
+              type="button"
+              disabled={documents.length <= 1}
+              onClick={() => removeDocument(activeDocument)}
+              className="rounded-xl border border-slate-200 bg-white p-2 text-xs font-semibold text-rose-600 hover:bg-rose-50 disabled:opacity-40 transition cursor-pointer"
+              title="Remove this document"
+            >
+              <Trash2 className="size-3.5" />
+            </button>
+          </div>
+
+          {/* Page Ranges List */}
+          {current.ranges.map((range, index) => {
+            const startNum = Number(range.startPage) || 1;
+            const endNum = Number(range.endPage) || startNum;
+            const copiesNum = Number(range.copies) || 1;
+            const pageSpan = Math.max(0, endNum - startNum + 1);
+            const rangePrintedPages = pageSpan * copiesNum;
+            const isColor = range.colorMode === "color";
+            const isDoubleSided = range.sideMode === "double_sided";
+
+            return (
+              <div
+                key={`${current.id}-${index}`}
+                className="rounded-2xl border border-slate-200 bg-white p-3.5 sm:p-5 shadow-2xs space-y-4"
+              >
+                {/* 1. From, To, Copies Stepper */}
+                <div className="grid grid-cols-3 gap-2 sm:gap-3">
+                  <label className="text-xs font-bold text-slate-700">
+                    From Page
+                    <input
+                      className="mt-1 h-11 w-full rounded-xl border border-slate-200 px-2 sm:px-3 text-center sm:text-left text-sm font-bold text-slate-900 focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 transition"
+                      min="1"
+                      max={current.pageCount}
+                      type="number"
+                      placeholder="1"
+                      value={range.startPage}
+                      onChange={(event) => updateRange(index, "startPage", event.target.value)}
+                      onBlur={() => {
+                        if (!range.startPage || Number(range.startPage) < 1) {
+                          updateRange(index, "startPage", 1);
+                        }
+                      }}
+                    />
+                  </label>
+
+                  <label className="text-xs font-bold text-slate-700">
+                    To Page
+                    <input
+                      className="mt-1 h-11 w-full rounded-xl border border-slate-200 px-2 sm:px-3 text-center sm:text-left text-sm font-bold text-slate-900 focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 transition"
+                      min="1"
+                      max={current.pageCount}
+                      type="number"
+                      placeholder={String(current.pageCount)}
+                      value={range.endPage}
+                      onChange={(event) => updateRange(index, "endPage", event.target.value)}
+                      onBlur={() => {
+                        if (!range.endPage || Number(range.endPage) < 1) {
+                          updateRange(index, "endPage", current.pageCount);
+                        }
+                      }}
+                    />
+                  </label>
+
+                  {/* Copies Stepper */}
+                  <div className="text-xs font-bold text-slate-700">
+                    <span>Copies</span>
+                    <div className="mt-1 flex h-11 items-center rounded-xl border border-slate-200 bg-white overflow-hidden shadow-2xs">
+                      <button
+                        type="button"
+                        onClick={() => updateRange(index, "copies", Math.max(1, copiesNum - 1))}
+                        disabled={copiesNum <= 1}
+                        className="flex h-full w-9 sm:w-10 items-center justify-center bg-slate-50 text-slate-700 hover:bg-slate-100 disabled:opacity-30 transition font-bold text-lg select-none cursor-pointer"
+                      >
+                        -
+                      </button>
+                      <input
+                        className="h-full w-full min-w-0 border-0 text-center text-sm font-black text-slate-900 focus:ring-0 focus:outline-none"
+                        min="1"
+                        max="100"
+                        type="number"
+                        placeholder="1"
+                        value={range.copies}
+                        onChange={(event) => updateRange(index, "copies", event.target.value)}
+                        onBlur={() => {
+                          if (!range.copies || Number(range.copies) < 1) {
+                            updateRange(index, "copies", 1);
+                          }
+                        }}
+                      />
+                      <button
+                        type="button"
+                        onClick={() => updateRange(index, "copies", copiesNum + 1)}
+                        className="flex h-full w-9 sm:w-10 items-center justify-center bg-slate-50 text-slate-700 hover:bg-slate-100 transition font-bold text-lg select-none cursor-pointer"
+                      >
+                        +
+                      </button>
+                    </div>
+                  </div>
+                </div>
+
+                {/* 2. Tactile Color Mode Selector Cards */}
+                <div>
+                  <label className="text-xs font-bold text-slate-700 block mb-1.5">Print Color Mode</label>
+                  <div className="grid grid-cols-2 gap-2.5">
+                    {/* B&W Card */}
+                    <button
+                      type="button"
+                      onClick={() => updateRange(index, "colorMode", "black_and_white")}
+                      className={cn(
+                        "flex items-center gap-2.5 rounded-xl border p-3 text-left transition-all cursor-pointer select-none",
+                        !isColor
+                          ? "border-slate-800 bg-slate-900 text-white shadow-md shadow-slate-900/15 ring-2 ring-slate-800/20"
+                          : "border-slate-200 bg-white text-slate-700 hover:bg-slate-50",
+                      )}
+                    >
+                      <div
+                        className={cn(
+                          "flex size-8 items-center justify-center rounded-lg shrink-0",
+                          !isColor ? "bg-white/20 text-white" : "bg-slate-100 text-slate-700",
+                        )}
+                      >
+                        <FileText className="size-4" />
+                      </div>
+                      <div className="min-w-0 flex-1">
+                        <p className="text-xs font-bold truncate">Black &amp; White</p>
+                        <p className={cn("text-[10px] truncate", !isColor ? "text-slate-300" : "text-slate-400")}>
+                          Standard text &amp; docs
+                        </p>
+                      </div>
+                      {!isColor && <CheckCircle2 className="size-4 text-emerald-400 shrink-0" />}
+                    </button>
+
+                    {/* Color Card */}
+                    <button
+                      type="button"
+                      disabled={shop.color_printer_status !== "ready"}
+                      onClick={() => updateRange(index, "colorMode", "color")}
+                      className={cn(
+                        "flex items-center gap-2.5 rounded-xl border p-3 text-left transition-all cursor-pointer select-none",
+                        shop.color_printer_status !== "ready"
+                          ? "opacity-50 border-slate-200 bg-slate-50 cursor-not-allowed"
+                          : isColor
+                            ? "border-emerald-600 bg-emerald-600 text-white shadow-md shadow-emerald-900/20 ring-2 ring-emerald-500/30"
+                            : "border-slate-200 bg-white text-slate-700 hover:bg-slate-50",
+                      )}
+                    >
+                      <div
+                        className={cn(
+                          "flex size-8 items-center justify-center rounded-lg shrink-0",
+                          isColor ? "bg-white/20 text-white" : "bg-emerald-50 text-emerald-600",
+                        )}
+                      >
+                        <Palette className="size-4" />
+                      </div>
+                      <div className="min-w-0 flex-1">
+                        <p className="text-xs font-bold truncate">Full Color</p>
+                        <p className={cn("text-[10px] truncate", isColor ? "text-emerald-100" : "text-slate-400")}>
+                          {shop.color_printer_status !== "ready" ? "Printer Offline" : "Vibrant photos & charts"}
+                        </p>
+                      </div>
+                      {isColor && <CheckCircle2 className="size-4 text-amber-300 shrink-0" />}
+                    </button>
+                  </div>
+                </div>
+
+                {/* 3. Tactile Side / Duplex Mode Selector Cards (Only shown if shop allows double-sided printing) */}
+                {shop.allow_double_sided !== false && (
+                  <div>
+                    <label className="text-xs font-bold text-slate-700 block mb-1.5">Paper Sides (Duplex)</label>
+                    <div className="grid grid-cols-2 gap-2.5">
+                      {/* Single Sided */}
+                      <button
+                        type="button"
+                        onClick={() => updateRange(index, "sideMode", "single_sided")}
+                        className={cn(
+                          "flex items-center gap-2.5 rounded-xl border p-3 text-left transition-all cursor-pointer select-none",
+                          !isDoubleSided
+                            ? "border-emerald-600 bg-emerald-50/90 text-emerald-950 font-bold shadow-2xs ring-1 ring-emerald-500/30"
+                            : "border-slate-200 bg-white text-slate-600 hover:bg-slate-50",
+                        )}
+                      >
+                        <div className="flex size-7 items-center justify-center rounded-lg bg-white text-slate-700 shadow-2xs shrink-0">
+                          <FileText className="size-3.5 text-emerald-600" />
+                        </div>
+                        <div className="min-w-0 flex-1">
+                          <p className="text-xs font-bold truncate">1-Sided (Single)</p>
+                          <p className="text-[10px] text-slate-500 truncate">Front only</p>
+                        </div>
+                      </button>
+
+                      {/* Double Sided */}
+                      <button
+                        type="button"
+                        onClick={() => updateRange(index, "sideMode", "double_sided")}
+                        className={cn(
+                          "flex items-center gap-2.5 rounded-xl border p-3 text-left transition-all cursor-pointer select-none",
+                          isDoubleSided
+                            ? "border-emerald-600 bg-emerald-50/90 text-emerald-950 font-bold shadow-2xs ring-1 ring-emerald-500/30"
+                            : "border-slate-200 bg-white text-slate-600 hover:bg-slate-50",
+                        )}
+                      >
+                        <div className="flex size-7 items-center justify-center rounded-lg bg-white text-slate-700 shadow-2xs shrink-0">
+                          <Layers className="size-3.5 text-emerald-600" />
+                        </div>
+                        <div className="min-w-0 flex-1">
+                          <p className="text-xs font-bold truncate">2-Sided (Duplex)</p>
+                          <p className="text-[10px] text-slate-500 truncate">Both sides (Save paper)</p>
+                        </div>
+                      </button>
+                    </div>
+                  </div>
+                )}
+
+                {/* 4. Tactile Paper Size Chips */}
+                <div>
+                  <label className="text-xs font-bold text-slate-700 block mb-1.5">Paper Size</label>
+                  <div className="grid grid-cols-4 gap-2">
+                    {[
+                      { id: "a4", label: "A4", sub: "Standard" },
+                      { id: "a3", label: "A3", sub: "Large" },
+                      { id: "letter", label: "Letter", sub: "8.5x11" },
+                      { id: "legal", label: "Legal", sub: "8.5x14" },
+                    ].map((ps) => {
+                      const active = range.paperSize === ps.id;
+                      return (
+                        <button
+                          key={ps.id}
+                          type="button"
+                          onClick={() => updateRange(index, "paperSize", ps.id)}
+                          className={cn(
+                            "rounded-xl border py-2 px-1 text-center transition-all cursor-pointer select-none",
+                            active
+                              ? "border-slate-800 bg-slate-900 text-white font-bold shadow-xs"
+                              : "border-slate-200 bg-white text-slate-700 hover:bg-slate-50",
+                          )}
+                        >
+                          <p className="text-xs font-bold">{ps.label}</p>
+                          <p className={cn("text-[9px]", active ? "text-slate-300" : "text-slate-400")}>{ps.sub}</p>
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                {/* Range Calculation Breakdown Footer */}
+                <div className="flex flex-wrap items-center justify-between gap-2 border-t border-slate-100 pt-3 text-xs">
+                  <div className="flex flex-wrap items-center gap-1.5 font-medium text-slate-600">
+                    <span className="rounded-md bg-slate-100 px-2 py-0.5 font-bold text-slate-800">
+                      {range.startPage === range.endPage
+                        ? `Page ${range.startPage}`
+                        : `Pages ${range.startPage}–${range.endPage}`}
+                    </span>
+                    <span>({pageSpan}p)</span>
+                    <span className="font-bold text-emerald-700">
+                      × {copiesNum} {copiesNum === 1 ? "copy" : "copies"}
+                    </span>
+                    <span>=</span>
+                    <span className="rounded-lg bg-emerald-50 px-2.5 py-0.5 font-black text-emerald-800 border border-emerald-200 shadow-2xs">
+                      {rangePrintedPages} Printed {rangePrintedPages === 1 ? "Page" : "Pages"}
+                    </span>
+                  </div>
+
+                  {current.ranges.length > 1 && (
+                    <button
+                      type="button"
+                      className="ml-auto rounded-lg p-1.5 text-rose-600 hover:bg-rose-50 transition active:scale-95 cursor-pointer"
+                      aria-label="Remove page range"
+                      onClick={() => removeRange(index)}
+                    >
+                      <Trash2 className="size-4" />
+                    </button>
+                  )}
+                </div>
+              </div>
+            );
+          })}
+
+          {rangeError && (
+            <p className="text-xs font-bold text-rose-600">{rangeError}</p>
+          )}
+
+          {/* Pehla Page Color 1-click Preset Card */}
+          {current.pageCount >= 2 && current.ranges.length === 1 && (
+            <button
+              type="button"
+              onClick={applyFirstPageColorPreset}
+              className="w-full flex items-center justify-between gap-3 rounded-2xl border-2 border-dashed border-amber-300 bg-gradient-to-r from-amber-50 to-orange-50/60 p-3.5 text-xs font-bold text-amber-950 hover:from-amber-100 hover:to-orange-100 transition active:scale-[0.99] cursor-pointer shadow-2xs"
+            >
+              <div className="flex items-center gap-3">
+                <div className="flex size-9 shrink-0 items-center justify-center rounded-xl bg-amber-200/80 text-lg shadow-inner">
+                  🎨
+                </div>
+                <div className="text-left">
+                  <div className="font-extrabold text-amber-950 text-sm">Pehla page color chahiye?</div>
+                  <div className="text-[11px] text-amber-800 font-medium">
+                    Page 1 Color + baaki saare Black &amp; White (Instant 1-Click Preset)
+                  </div>
+                </div>
+              </div>
+              <span className="shrink-0 rounded-xl bg-amber-500 text-white px-3 py-1.5 text-xs font-black shadow-xs hover:bg-amber-600 transition">
+                Apply Preset
+              </span>
+            </button>
+          )}
+
+          {current.pageCount >= 2 && (
+            (() => {
+              const lastRange = current.ranges[current.ranges.length - 1];
+              const lastEnd = Number(lastRange?.endPage) || 0;
+              const isAllCovered = lastEnd >= current.pageCount;
+              const nextStart = Math.min(current.pageCount, lastEnd + 1);
+
+              return (
+                <button
+                  type="button"
+                  disabled={isAllCovered}
+                  onClick={addRange}
+                  className="inline-flex items-center gap-1.5 rounded-xl border border-slate-200 bg-white px-3.5 py-2 text-xs font-bold text-slate-700 shadow-2xs hover:bg-slate-50 hover:border-emerald-500 transition active:scale-95 cursor-pointer disabled:opacity-40 disabled:pointer-events-none"
+                >
+                  <Plus className="size-3.5 text-emerald-600" />
+                  {isAllCovered
+                    ? `All ${current.pageCount} pages covered`
+                    : `Add Page Range (Pages ${nextStart}–${current.pageCount})`}
+                </button>
+              );
+            })()
+          )}
+        </div>
+      </Card>
 
       {/* Primary Action Buttons (Generate Token & Pay Online) */}
       <div className="pt-2 space-y-2.5">
@@ -3286,10 +3554,10 @@ function ConfigureAndCropStep({
 
               <div className="relative flex flex-1 items-center justify-center overflow-auto p-4 select-none bg-slate-100/90">
                 <div className="relative flex max-h-[80vh] w-auto max-w-[90vw] items-center justify-center rounded-2xl bg-white p-2 shadow-2xl border border-slate-800/10">
-                  {targetDocPreviewUrl ? (
+                  {targetDocPreviewUrl && (fullscreenTarget.pageNum === 1 || targetTotalPages === 1 || targetIsImage) ? (
                     // eslint-disable-next-line @next/next/no-img-element
                     <img
-                      src={getOptimizedPreviewUrl(`${targetDocPreviewUrl}&page=${fullscreenTarget.pageNum}`, 1400)}
+                      src={getOptimizedPreviewUrl(targetDocPreviewUrl, 1400)}
                       alt={`Page ${fullscreenTarget.pageNum}`}
                       className="max-h-[75vh] w-auto max-w-full object-contain rounded-lg"
                       style={isColor ? undefined : { filter: "grayscale(100%) contrast(1.1) brightness(0.96)" }}
