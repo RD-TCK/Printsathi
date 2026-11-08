@@ -85,6 +85,38 @@ describe("server document normalization", () => {
     await expect(normalizeDocument(new File([encryptedPdf], "locked.pdf"))).rejects.toThrow("password-protected");
   });
 
+  it("auto-rotates mobile photos with EXIF orientation metadata to upright A4", async () => {
+    // 400x200 image with orientation 6 (portrait shot on phone, should be upright 200x400)
+    const rawJpeg = await sharp({
+      create: { width: 400, height: 200, channels: 3, background: { r: 255, g: 0, b: 0 } },
+    })
+      .withMetadata({ orientation: 6 })
+      .jpeg()
+      .toBuffer();
+
+    const result = await normalizeDocument(new File([new Uint8Array(rawJpeg)], "phone_shot.jpg"));
+    expect(result.pageCount).toBe(1);
+    const pdf = await PDFDocument.load(result.bytes);
+    const page = pdf.getPage(0);
+    // Because it was rotated upright (200w x 400h), page should be Portrait A4 (595.28 width, 841.89 height)
+    expect(page.getWidth()).toBeCloseTo(595.28);
+    expect(page.getHeight()).toBeCloseTo(841.89);
+  });
+
+  it("flattens transparent PNG images on clean white background", async () => {
+    // Transparent PNG with alpha channel
+    const transparentPng = await sharp({
+      create: { width: 100, height: 100, channels: 4, background: { r: 0, g: 0, b: 255, alpha: 0.5 } },
+    })
+      .png()
+      .toBuffer();
+
+    const result = await normalizeDocument(new File([new Uint8Array(transparentPng)], "stamp.png"));
+    expect(result.pageCount).toBe(1);
+    const pdf = await PDFDocument.load(result.bytes);
+    expect(pdf.getPageCount()).toBe(1);
+  });
+
   it.skipIf(!process.env.LIBREOFFICE_PATH && !existsSync("C:/Program Files/LibreOffice/program/soffice.exe"))(
     "renders actual Office content including page breaks",
     async () => {

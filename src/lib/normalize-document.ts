@@ -89,7 +89,12 @@ export async function normalizeDocument(file: DocumentInputSource): Promise<Norm
 
     if (isJpeg) {
       try {
-        // Fast-path: Directly embed raw JPEG bytes into PDF in ~10ms without heavy Sharp re-encoding
+        const meta = await sharp(bytes, { limitInputPixels: 268402689 }).metadata();
+        // If the JPEG has EXIF orientation (e.g. mobile photo) or non-sRGB profile, process via Sharp auto-rotate
+        if (meta.orientation && meta.orientation > 1) {
+          throw new Error("Requires EXIF auto-rotation");
+        }
+        // Fast-path: Directly embed raw upright JPEG bytes into PDF in ~10ms without heavy Sharp re-encoding
         embeddedImage = await pdf.embedJpg(bytes);
         if (bytes.length <= 2.5 * 1024 * 1024) {
           previewImage = bytes;
@@ -101,10 +106,11 @@ export async function normalizeDocument(file: DocumentInputSource): Promise<Norm
         }
         previewMime = "image/jpeg";
       } catch {
-        // Fallback to Sharp pipeline if raw embedding fails (e.g. progressive JPEG or CMYK)
+        // Fallback to Sharp pipeline if raw embedding fails, EXIF orientation is present, or CMYK
         const baseSharp = sharp(bytes, { limitInputPixels: 268402689 })
           .rotate()
-          .toColorspace("srgb");
+          .toColorspace("srgb")
+          .flatten({ background: "white" });
         const [processedJpeg, previewBuf] = await Promise.all([
           baseSharp.clone().jpeg({ quality: 95 }).toBuffer(),
           baseSharp
@@ -119,7 +125,11 @@ export async function normalizeDocument(file: DocumentInputSource): Promise<Norm
       }
     } else if (isPng) {
       try {
-        // Fast-path: Directly embed raw PNG bytes into PDF in ~10ms
+        const meta = await sharp(bytes, { limitInputPixels: 268402689 }).metadata();
+        if ((meta.orientation && meta.orientation > 1) || meta.hasAlpha) {
+          throw new Error("Requires Sharp normalization");
+        }
+        // Fast-path: Directly embed opaque PNG bytes into PDF in ~10ms
         embeddedImage = await pdf.embedPng(bytes);
         if (bytes.length <= 2.5 * 1024 * 1024) {
           previewImage = bytes;
@@ -134,7 +144,8 @@ export async function normalizeDocument(file: DocumentInputSource): Promise<Norm
       } catch {
         const baseSharp = sharp(bytes, { limitInputPixels: 268402689 })
           .rotate()
-          .toColorspace("srgb");
+          .toColorspace("srgb")
+          .flatten({ background: "white" });
         const [processedPng, previewBuf] = await Promise.all([
           baseSharp.clone().png().toBuffer(),
           baseSharp
