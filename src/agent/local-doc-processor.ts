@@ -151,66 +151,73 @@ export async function processAndCacheDocument(
     let embeddedImage;
     const isPng = rawBuffer.subarray(0, 4).toString("hex") === "89504e47" || ext === ".png";
     let thumbBuf: Buffer | undefined = undefined;
+    let processedBuffer: Buffer = rawBuffer;
 
     const sharpFn = getSharp();
     if (sharpFn) {
       try {
-        thumbBuf = await sharpFn(rawBuffer, { limitInputPixels: 268402689 })
+        const baseSharp = sharpFn(rawBuffer, { limitInputPixels: 268402689 })
           .rotate()
-          .resize({ width: 640, height: 900, fit: "inside", withoutEnlargement: true })
-          .jpeg({ quality: 75, mozjpeg: true })
-          .toBuffer();
+          .toColorspace("srgb")
+          .flatten({ background: "white" });
+
+        const [jpeg, thumb] = await Promise.all([
+          baseSharp.clone().jpeg({ quality: 90 }).toBuffer(),
+          baseSharp
+            .clone()
+            .resize({ width: 720, height: 1020, fit: "inside", withoutEnlargement: true })
+            .jpeg({ quality: 78, mozjpeg: true })
+            .toBuffer(),
+        ]);
+        processedBuffer = jpeg;
+        thumbBuf = thumb;
       } catch (err) {
-        logger.debug("Sharp thumbnail generation skipped:", { error: err });
+        logger.debug("Sharp image processing skipped:", { error: err });
       }
     }
 
-    // Fast-path: directly embed raw JPEG / PNG into PDF in ~10ms
-    try {
-      if (isPng) {
-        embeddedImage = await pdf.embedPng(rawBuffer);
-      } else {
-        embeddedImage = await pdf.embedJpg(rawBuffer);
-      }
-      previewBuffer = thumbBuf || (rawBuffer.length <= 4 * 1024 * 1024 ? rawBuffer : undefined);
-    } catch {
-      // Fallback: use sharp if raw embed failed
-      let processedJpeg: Buffer = rawBuffer;
-
-      if (sharpFn && !thumbBuf) {
-        try {
-          const baseSharp = sharpFn(rawBuffer, { limitInputPixels: 268402689 })
-            .rotate()
-            .toColorspace("srgb")
-            .flatten({ background: "white" });
-
-          const [jpeg, thumb] = await Promise.all([
-            baseSharp.clone().jpeg({ quality: 90 }).toBuffer(),
-            baseSharp
-              .clone()
-              .resize({ width: 640, height: 900, fit: "inside", withoutEnlargement: true })
-              .jpeg({ quality: 75 })
-              .toBuffer(),
-          ]);
-          processedJpeg = jpeg;
-          thumbBuf = thumb;
-        } catch (err) {
-          logger.warn("Sharp image processing fallback:", { error: err });
-        }
-      }
-
-      previewBuffer = thumbBuf || (rawBuffer.length <= 4 * 1024 * 1024 ? rawBuffer : undefined);
-
+    // Robust canvas fallback if sharp wasn't available or couldn't process this image
+    if (!thumbBuf) {
       try {
-        embeddedImage = (isPng && !sharpFn) ? await pdf.embedPng(processedJpeg) : await pdf.embedJpg(processedJpeg);
-      } catch {
-        try {
-          embeddedImage = await pdf.embedJpg(processedJpeg);
-        } catch {
-          embeddedImage = await pdf.embedPng(processedJpeg);
-        }
+        // eslint-disable-next-line @typescript-eslint/no-require-imports
+        const { createCanvas, loadImage } = require("@napi-rs/canvas");
+        const img = await loadImage(rawBuffer);
+        const canvas = createCanvas(img.width, img.height);
+        const ctx = canvas.getContext("2d");
+        ctx.fillStyle = "#ffffff";
+        ctx.fillRect(0, 0, img.width, img.height);
+        ctx.drawImage(img, 0, 0);
+        processedBuffer = canvas.toBuffer("image/jpeg");
+
+        const scale = Math.min(720 / img.width, 1020 / img.height, 1);
+        const tw = Math.max(1, Math.round(img.width * scale));
+        const th = Math.max(1, Math.round(img.height * scale));
+        const thumbCanvas = createCanvas(tw, th);
+        const tctx = thumbCanvas.getContext("2d");
+        tctx.fillStyle = "#ffffff";
+        tctx.fillRect(0, 0, tw, th);
+        tctx.drawImage(img, 0, 0, tw, th);
+        thumbBuf = thumbCanvas.toBuffer("image/jpeg");
+      } catch (canvasErr) {
+        logger.debug("Canvas image processing fallback skipped:", { error: canvasErr });
       }
     }
+
+    try {
+      if (isPng && !thumbBuf) {
+        embeddedImage = await pdf.embedPng(processedBuffer);
+      } else {
+        embeddedImage = await pdf.embedJpg(processedBuffer);
+      }
+    } catch {
+      try {
+        embeddedImage = await pdf.embedJpg(processedBuffer);
+      } catch {
+        embeddedImage = await pdf.embedPng(processedBuffer);
+      }
+    }
+
+    previewBuffer = thumbBuf || (processedBuffer.length <= 4 * 1024 * 1024 ? processedBuffer : undefined);
 
     const isLandscape = embeddedImage.width > embeddedImage.height * 1.15;
     const pageWidth = isLandscape ? 841.89 : 595.28;

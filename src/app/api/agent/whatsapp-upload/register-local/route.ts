@@ -96,14 +96,14 @@ export async function POST(request: Request) {
         let uploadBuffer = rawBuffer;
 
         try {
-          if (rawBuffer.length > 120 * 1024) {
-            uploadBuffer = await sharp(rawBuffer, { limitInputPixels: 268402689 })
-              .rotate()
-              .resize({ width: 720, height: 1020, fit: "inside", withoutEnlargement: true })
-              .jpeg({ quality: 80, mozjpeg: true })
-              .toBuffer();
-            uploadContentType = "image/jpeg";
-          }
+          uploadBuffer = await sharp(rawBuffer, { limitInputPixels: 268402689 })
+            .rotate()
+            .toColorspace("srgb")
+            .flatten({ background: "white" })
+            .resize({ width: 720, height: 1020, fit: "inside", withoutEnlargement: true })
+            .jpeg({ quality: 80, mozjpeg: true })
+            .toBuffer();
+          uploadContentType = "image/jpeg";
         } catch {
           // If sharp optimization fails, upload original rawBuffer
           uploadBuffer = rawBuffer;

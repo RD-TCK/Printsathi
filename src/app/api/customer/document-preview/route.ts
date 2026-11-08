@@ -1,4 +1,7 @@
 import { NextResponse } from "next/server";
+import fs from "node:fs";
+import path from "node:path";
+import os from "node:os";
 import { z } from "zod";
 import sharp from "sharp";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
@@ -188,12 +191,58 @@ export async function GET(request: Request) {
     });
   }
 
-  // If the document is stored strictly locally on the shop PC and has no preview image,
-  // return a beautiful vector SVG document sheet so <img> tags never show broken image icons.
+  // If the document is stored strictly locally on the shop PC and preview was not found in cloud storage:
   if (doc.storage_path.startsWith("local://")) {
-    // For image files (e.g. WhatsApp photos), the preview thumbnail should have been uploaded
-    // to Supabase during registration. If it wasn't (upload failed), we still return the SVG
-    // placeholder — the user can still proceed; the actual image is on the shop PC.
+    const rawId = doc.storage_path
+      .replace("local://", "")
+      .replace(/\.pdf$/i, "")
+      .replace(/^doc_/, "")
+      .replace(/[^A-Za-z0-9_-]/g, "");
+
+    // 1. Check local disk cache if running on Windows (e.g. localhost dev/desktop agent)
+    const appData =
+      process.env.LOCALAPPDATA ||
+      (process.platform === "win32" ? path.join(os.homedir(), "AppData", "Local") : "");
+    if (appData) {
+      const cacheDir = path.join(appData, "PrintivaAgent", "document_cache");
+      const directPath = path.join(cacheDir, `doc_${rawId}.pdf`);
+      const altPath = path.join(cacheDir, `${rawId}.pdf`);
+      const pathToRead = fs.existsSync(directPath) ? directPath : fs.existsSync(altPath) ? altPath : null;
+
+      if (pathToRead) {
+        try {
+          const pdfBuf = fs.readFileSync(pathToRead);
+          const rendered = await renderPdfFirstPage(pdfBuf, targetWidth || 800);
+          if (rendered?.buffer) {
+            // Opportunistically upload to Supabase Storage so subsequent remote/mobile requests find it instantly
+            void client.storage
+              .from("print-documents")
+              .upload(standardPreviewPath, rendered.buffer, {
+                contentType: rendered.mimeType || "image/jpeg",
+                upsert: true,
+              })
+              .catch(() => {});
+
+            const { buffer: optimizedBuffer, mimeType } = await optimizePreviewImage(rendered.buffer, targetWidth);
+            const headers = new Headers();
+            headers.set("Content-Type", mimeType);
+            headers.set("Cache-Control", "private, max-age=86400, stale-while-revalidate=604800");
+            headers.set("Access-Control-Allow-Origin", "*");
+            headers.set("Content-Disposition", `inline; filename="${encodeURIComponent(doc.original_filename)}"`);
+
+            return new NextResponse(new Uint8Array(optimizedBuffer), {
+              status: 200,
+              headers,
+            });
+          }
+        } catch {
+          // Fall through to placeholder SVG
+        }
+      }
+    }
+
+    // 2. Return vector SVG document sheet so <img> tags never show broken image icons.
+    // For images, set no-cache so when the thumbnail finishes uploading, the client sees it immediately.
     const svg = renderDocPlaceholderSvg({
       filename: doc.original_filename,
       pageCount: doc.page_count,
@@ -201,7 +250,12 @@ export async function GET(request: Request) {
     });
     const headers = new Headers();
     headers.set("Content-Type", "image/svg+xml");
-    headers.set("Cache-Control", "private, max-age=60"); // short cache: preview may appear later
+    headers.set(
+      "Cache-Control",
+      isImageDoc
+        ? "no-cache, no-store, max-age=0, must-revalidate"
+        : "private, max-age=60",
+    );
     headers.set("Access-Control-Allow-Origin", "*");
     headers.set("Content-Disposition", `inline; filename="${encodeURIComponent(doc.original_filename)}"`);
 
