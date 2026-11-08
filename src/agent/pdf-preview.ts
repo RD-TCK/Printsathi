@@ -119,6 +119,29 @@ export async function extractImageFromPdf(pdfBuffer: Buffer): Promise<{ buffer: 
   return null;
 }
 
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function createNapiCanvasFactory(napiCanvas: any) {
+  return {
+    create(width: number, height: number) {
+      const canvas = napiCanvas.createCanvas(Math.max(1, Math.round(width)), Math.max(1, Math.round(height)));
+      const context = canvas.getContext("2d");
+      return { canvas, context };
+    },
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    reset(canvasAndContext: { canvas: any; context: any }, width: number, height: number) {
+      canvasAndContext.canvas.width = Math.max(1, Math.round(width));
+      canvasAndContext.canvas.height = Math.max(1, Math.round(height));
+    },
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    destroy(canvasAndContext: { canvas: any; context: any }) {
+      canvasAndContext.canvas.width = 0;
+      canvasAndContext.canvas.height = 0;
+      canvasAndContext.canvas = null;
+      canvasAndContext.context = null;
+    },
+  };
+}
+
 /**
  * Renders the first page of ANY PDF buffer (text, fonts, vectors, Word docs, photos)
  * into a high-quality JPEG image buffer.
@@ -127,11 +150,6 @@ export async function renderPdfFirstPage(
   pdfBuffer: Buffer,
   targetWidth = 800,
 ): Promise<{ buffer: Buffer; mimeType: string } | null> {
-  const fastExtracted = await extractImageFromPdf(pdfBuffer);
-  if (fastExtracted?.buffer) {
-    return fastExtracted;
-  }
-
   try {
     // eslint-disable-next-line @typescript-eslint/no-require-imports
     const napiCanvas = require("@napi-rs/canvas");
@@ -148,11 +166,13 @@ export async function renderPdfFirstPage(
     // eslint-disable-next-line @typescript-eslint/no-require-imports
     const path = require("node:path");
     const fontDir = path.join(process.cwd(), "node_modules", "pdfjs-dist", "standard_fonts") + path.sep;
+    const canvasFactory = createNapiCanvasFactory(napiCanvas);
 
     const loadingTask = pdfjs.getDocument({
       data: new Uint8Array(pdfBuffer),
       standardFontDataUrl: fontDir,
       disableFontFace: false,
+      canvasFactory,
     });
 
     const pdfDoc = await loadingTask.promise;
@@ -163,19 +183,33 @@ export async function renderPdfFirstPage(
     const scale = Math.min(2.5, Math.max(0.6, targetWidth / Math.max(1, initialViewport.width)));
     const viewport = page.getViewport({ scale });
 
-    const canvas = napiCanvas.createCanvas(Math.round(viewport.width), Math.round(viewport.height));
-    const context = canvas.getContext("2d");
+    const { canvas, context } = canvasFactory.create(viewport.width, viewport.height);
     context.fillStyle = "#ffffff";
     context.fillRect(0, 0, canvas.width, canvas.height);
 
     await page.render({
       canvasContext: context,
       viewport: viewport,
+      canvasFactory,
     }).promise;
 
     const buffer = canvas.toBuffer("image/jpeg", 82);
     return { buffer, mimeType: "image/jpeg" };
-  } catch {
+  } catch (error) {
+    // Fallback: only extract embedded image if rasterization failed completely
+    // AND the image is large enough to represent a full page (not a tiny icon or logo)
+    try {
+      const fallback = await extractImageFromPdf(pdfBuffer);
+      const sharpFn = getSharp();
+      if (fallback?.buffer && sharpFn) {
+        const meta = await sharpFn(fallback.buffer).metadata();
+        if (meta.width && meta.height && meta.width >= 400 && meta.height >= 400) {
+          return fallback;
+        }
+      }
+    } catch {
+      // ignore
+    }
     return null;
   }
 }

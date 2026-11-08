@@ -75,5 +75,66 @@ describe("PDF Image Preview Extraction & Rasterization", () => {
     expect(normalized.previewMime).toBe("image/jpeg");
     expect(normalized.previewImage!.length).toBeGreaterThan(500);
   });
+
+  it("renders full page preview for composite PDF with text and embedded small graphics (IRCTC ticket scenario)", async () => {
+    const doc = await PDFDocument.create();
+    const font = await doc.embedFont(StandardFonts.HelveticaBold);
+    const page = doc.addPage([595, 842]); // Standard A4 page
+    page.drawText("Electronic Reservation Slip - IRCTC", { x: 50, y: 800, size: 16, font });
+    page.drawText("PNR: 2958565920  Train: 12276/HUMSAFAR EXPRES", { x: 50, y: 770, size: 12, font });
+    page.drawText("1. NAVEEN PANDEY  23  M", { x: 50, y: 720, size: 10, font });
+
+    // Tiny 60x20 arrow graphic (simulates the 'Boarding At ->' banner)
+    const tinyArrow = await sharp({
+      create: { width: 60, height: 20, channels: 3, background: { r: 50, g: 100, b: 200 } },
+    })
+      .jpeg()
+      .toBuffer();
+
+    const embeddedImg = await doc.embedJpg(tinyArrow);
+    page.drawImage(embeddedImg, { x: 200, y: 750, width: 60, height: 20 });
+
+    const pdfBytes = Buffer.from(await doc.save());
+
+    // Before the fix, renderPdfFirstPage extracted ONLY the 60x20 arrow!
+    const result = await renderPdfFirstPage(pdfBytes, 800);
+    expect(result).not.toBeNull();
+    expect(result?.mimeType).toBe("image/jpeg");
+
+    const meta = await sharp(result!.buffer).metadata();
+    expect(meta.format).toBe("jpeg");
+    // Verify it is the full A4 page (~800 x ~1132 px), NOT the 60x20 sub-image!
+    expect(meta.width).toBe(800);
+    expect(meta.height).toBeGreaterThan(1000);
+    expect(result!.buffer.length).toBeGreaterThan(5000);
+  });
+
+  it("normalizes a Word (.docx) document and generates a full-page preview image", async () => {
+    const JSZip = (await import("jszip")).default;
+    const zip = new JSZip();
+    zip.file(
+      "[Content_Types].xml",
+      '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/word/document.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/></Types>',
+    );
+    zip.file(
+      "_rels/.rels",
+      '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="word/document.xml"/></Relationships>',
+    );
+    zip.file(
+      "word/document.xml",
+      '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:body><w:p><w:r><w:t>Project Proposal - Printiva Services</w:t></w:r></w:p><w:p><w:r><w:t>Section 1: Summary of Operations and Requirements.</w:t></w:r></w:p></w:body></w:document>',
+    );
+    const docxBytes = await zip.generateAsync({ type: "uint8array" });
+
+    const normalized = await normalizeDocument(new File([Buffer.from(docxBytes)], "proposal.docx"));
+    expect(normalized.pageCount).toBeGreaterThanOrEqual(1);
+    expect(normalized.previewImage).toBeDefined();
+    expect(normalized.previewMime).toBe("image/jpeg");
+
+    const meta = await sharp(normalized.previewImage!).metadata();
+    expect(meta.format).toBe("jpeg");
+    expect(meta.width).toBeGreaterThanOrEqual(600);
+    expect(meta.height).toBeGreaterThan(700);
+  });
 });
 

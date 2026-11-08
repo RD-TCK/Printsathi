@@ -130,21 +130,21 @@ export async function processAndCacheDocument(
       }
     }
 
-    // Try extracting page 1 thumbnail from PDF
+    // Render full-page high-resolution page 1 thumbnail from PDF (all text, tables, fonts, barcodes, graphics)
     try {
-      const extracted = await extractImageFromPdf(rawBuffer);
+      const rendered = await renderPdfFirstPage(rawBuffer, 800);
       const sharpFn = getSharp();
-      if (extracted?.buffer && sharpFn) {
-        previewBuffer = await sharpFn(extracted.buffer, { limitInputPixels: 268402689 })
+      if (rendered?.buffer && sharpFn) {
+        previewBuffer = await sharpFn(rendered.buffer, { limitInputPixels: 268402689 })
           .rotate()
           .resize({ width: 640, height: 900, fit: "inside", withoutEnlargement: true })
           .jpeg({ quality: 75, mozjpeg: true })
           .toBuffer();
-      } else if (extracted?.buffer && extracted.buffer.length <= 4 * 1024 * 1024) {
-        previewBuffer = extracted.buffer;
+      } else if (rendered?.buffer && rendered.buffer.length <= 4 * 1024 * 1024) {
+        previewBuffer = rendered.buffer;
       }
-    } catch {
-      // ignore
+    } catch (err) {
+      logger.debug("Local PDF preview generation failed:", { error: String(err) });
     }
   } else if (isImage) {
     const pdf = await PDFDocument.create();

@@ -34,6 +34,26 @@ function getStandardFontDataUrl(): string {
   return path.join(process.cwd(), "node_modules", "pdfjs-dist", "standard_fonts") + path.sep;
 }
 
+function createNapiCanvasFactory(napiCanvas: any) {
+  return {
+    create(width: number, height: number) {
+      const canvas = napiCanvas.createCanvas(Math.max(1, Math.round(width)), Math.max(1, Math.round(height)));
+      const context = canvas.getContext("2d");
+      return { canvas, context };
+    },
+    reset(canvasAndContext: { canvas: any; context: any }, width: number, height: number) {
+      canvasAndContext.canvas.width = Math.max(1, Math.round(width));
+      canvasAndContext.canvas.height = Math.max(1, Math.round(height));
+    },
+    destroy(canvasAndContext: { canvas: any; context: any }) {
+      canvasAndContext.canvas.width = 0;
+      canvasAndContext.canvas.height = 0;
+      canvasAndContext.canvas = null;
+      canvasAndContext.context = null;
+    },
+  };
+}
+
 /**
  * Attempts to extract an embedded JPEG or PNG/Flate image from a PDF buffer.
  * Used when serving image previews for documents that were converted to PDF on the server.
@@ -139,13 +159,8 @@ export async function renderPdfFirstPage(
   pdfBuffer: Buffer,
   targetWidth = 900,
 ): Promise<{ buffer: Buffer; mimeType: string } | null> {
-  // 1. First, check fast embedded image extraction (instant for photo PDFs)
-  const fastExtracted = await extractImageFromPdf(pdfBuffer);
-  if (fastExtracted?.buffer) {
-    return fastExtracted;
-  }
-
-  // 2. Full PDF rasterization via @napi-rs/canvas + pdfjs-dist
+  // 1. Full PDF rasterization via @napi-rs/canvas + pdfjs-dist
+  // Always rasterizes the complete first page (all text, fonts, tables, barcodes, and graphics)
   try {
     // eslint-disable-next-line @typescript-eslint/no-require-imports
     const napiCanvas = require("@napi-rs/canvas");
@@ -154,11 +169,13 @@ export async function renderPdfFirstPage(
     // eslint-disable-next-line @typescript-eslint/no-require-imports
     const pdfjs = require("pdfjs-dist/legacy/build/pdf.js");
     const fontDir = getStandardFontDataUrl();
+    const canvasFactory = createNapiCanvasFactory(napiCanvas);
 
     const loadingTask = pdfjs.getDocument({
       data: new Uint8Array(pdfBuffer),
       standardFontDataUrl: fontDir,
       disableFontFace: false,
+      canvasFactory,
     });
 
     const pdfDoc = await loadingTask.promise;
@@ -170,22 +187,35 @@ export async function renderPdfFirstPage(
     const scale = Math.min(2.5, Math.max(0.6, targetWidth / Math.max(1, initialViewport.width)));
     const viewport = page.getViewport({ scale });
 
-    const canvas = napiCanvas.createCanvas(Math.round(viewport.width), Math.round(viewport.height));
-    const context = canvas.getContext("2d");
+    const { canvas, context } = canvasFactory.create(viewport.width, viewport.height);
 
-    // White background to avoid transparent page issues
+    // Crisp white background to avoid transparent page issues
     context.fillStyle = "#ffffff";
     context.fillRect(0, 0, canvas.width, canvas.height);
 
     await page.render({
       canvasContext: context,
       viewport: viewport,
+      canvasFactory,
     }).promise;
 
     const buffer = canvas.toBuffer("image/jpeg", 82);
     return { buffer, mimeType: "image/jpeg" };
   } catch (error) {
     console.warn("[renderPdfFirstPage] Fallback: Could not rasterize PDF page 1:", error);
+    // 2. Fallback: Only extract embedded image if rasterization failed completely
+    // AND the extracted image is large enough to represent a full page (not a tiny icon or logo)
+    try {
+      const fallback = await extractImageFromPdf(pdfBuffer);
+      if (fallback?.buffer) {
+        const meta = await sharp(fallback.buffer).metadata();
+        if (meta.width && meta.height && meta.width >= 400 && meta.height >= 400) {
+          return fallback;
+        }
+      }
+    } catch {
+      // ignore
+    }
     return null;
   }
 }
