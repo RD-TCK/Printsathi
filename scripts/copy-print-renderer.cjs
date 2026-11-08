@@ -18,10 +18,7 @@ if (fs.existsSync(source)) {
 const assetsSrc = path.join(__dirname, "../assets");
 const assetsDst = path.join(__dirname, "../dist/assets");
 if (fs.existsSync(assetsSrc)) {
-  fs.mkdirSync(assetsDst, { recursive: true });
-  for (const file of fs.readdirSync(assetsSrc)) {
-    fs.copyFileSync(path.join(assetsSrc, file), path.join(assetsDst, file));
-  }
+  fs.cpSync(assetsSrc, assetsDst, { recursive: true });
 }
 try {
   const pkgJsonPath = path.join(__dirname, "../node_modules/whatsapp-rust-bridge/package.json");

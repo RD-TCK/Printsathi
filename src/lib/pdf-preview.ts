@@ -1,7 +1,7 @@
 import sharp from "sharp";
 import zlib from "node:zlib";
 import path from "node:path";
-import { existsSync } from "node:fs";
+import fs from "node:fs";
 
 // Polyfill DOMMatrix and Path2D for pdfjs in Node.js
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -15,23 +15,166 @@ function ensureCanvasPolyfills(napiCanvas: any) {
   }
 }
 
-function getStandardFontDataUrl(): string {
-  try {
-    const candidateDirs = [
-      path.join(process.cwd(), "node_modules", "pdfjs-dist", "standard_fonts"),
-      path.resolve(__dirname, "../../node_modules/pdfjs-dist/standard_fonts"),
-      path.resolve(__dirname, "../../../node_modules/pdfjs-dist/standard_fonts"),
-      path.resolve(__dirname, "node_modules/pdfjs-dist/standard_fonts"),
-    ];
-    for (const d of candidateDirs) {
-      if (existsSync(/*turbopackIgnore: true*/ d)) {
-        return d.endsWith(path.sep) ? d : `${d}${path.sep}`;
-      }
+const fontCache = new Map<string, Uint8Array>();
+const cmapCache = new Map<string, Uint8Array>();
+
+function getCandidateFontDirs(): string[] {
+  const dirs = [
+    path.join(process.cwd(), "assets", "standard_fonts"),
+    path.join(process.cwd(), "dist", "assets", "standard_fonts"),
+    path.resolve(__dirname, "../../assets/standard_fonts"),
+    path.resolve(__dirname, "../assets/standard_fonts"),
+    path.resolve(__dirname, "assets/standard_fonts"),
+    path.join(process.cwd(), "node_modules", "pdfjs-dist", "standard_fonts"),
+    path.resolve(__dirname, "../../node_modules/pdfjs-dist/standard_fonts"),
+    path.resolve(__dirname, "../node_modules/pdfjs-dist/standard_fonts"),
+  ];
+  return dirs.filter((d) => {
+    try {
+      return fs.existsSync(d);
+    } catch {
+      return false;
     }
-  } catch {
-    // fallback
+  });
+}
+
+function getCandidateCmapDirs(): string[] {
+  const dirs = [
+    path.join(process.cwd(), "assets", "cmaps"),
+    path.join(process.cwd(), "dist", "assets", "cmaps"),
+    path.resolve(__dirname, "../../assets/cmaps"),
+    path.resolve(__dirname, "../assets/cmaps"),
+    path.resolve(__dirname, "assets/cmaps"),
+    path.join(process.cwd(), "node_modules", "pdfjs-dist", "cmaps"),
+    path.resolve(__dirname, "../../node_modules/pdfjs-dist/cmaps"),
+    path.resolve(__dirname, "../node_modules/pdfjs-dist/cmaps"),
+  ];
+  return dirs.filter((d) => {
+    try {
+      return fs.existsSync(d);
+    } catch {
+      return false;
+    }
+  });
+}
+
+function getStandardFontDataUrl(): string {
+  const candidate = getCandidateFontDirs()[0];
+  if (candidate) {
+    return candidate.endsWith(path.sep) ? candidate : `${candidate}${path.sep}`;
   }
-  return path.join(process.cwd(), "node_modules", "pdfjs-dist", "standard_fonts") + path.sep;
+  return path.join(process.cwd(), "assets", "standard_fonts") + path.sep;
+}
+
+function getCMapUrl(): string {
+  const candidate = getCandidateCmapDirs()[0];
+  if (candidate) {
+    return candidate.endsWith(path.sep) ? candidate : `${candidate}${path.sep}`;
+  }
+  return path.join(process.cwd(), "assets", "cmaps") + path.sep;
+}
+
+class ResilientStandardFontDataFactory {
+  baseUrl: string;
+  constructor(baseUrl?: string) {
+    this.baseUrl = baseUrl || "";
+  }
+  async fetch({ filename }: { filename: string }): Promise<Uint8Array> {
+    if (fontCache.has(filename)) {
+      return fontCache.get(filename)!;
+    }
+    // 1. Try candidate local filesystem directories
+    for (const dir of getCandidateFontDirs()) {
+      try {
+        const fullPath = path.join(dir, filename);
+        if (fs.existsSync(fullPath)) {
+          const buf = fs.readFileSync(fullPath);
+          const data = new Uint8Array(buf.buffer, buf.byteOffset, buf.byteLength);
+          fontCache.set(filename, data);
+          return data;
+        }
+      } catch {}
+    }
+    // 2. Try Windows system fonts as aliases for Helvetica/LiberationSans
+    if (process.platform === "win32") {
+      try {
+        const winFontDir = path.join(process.env.WINDIR || "C:\\Windows", "Fonts");
+        let winFontFile: string | null = null;
+        const lower = filename.toLowerCase();
+        if (lower.includes("bolditalic")) {
+          winFontFile = "arialbi.ttf";
+        } else if (lower.includes("bold")) {
+          winFontFile = "arialbd.ttf";
+        } else if (lower.includes("italic")) {
+          winFontFile = "ariali.ttf";
+        } else if (lower.includes("sans") || lower.includes("foxitfixed")) {
+          winFontFile = "arial.ttf";
+        }
+        if (winFontFile) {
+          const fullPath = path.join(winFontDir, winFontFile);
+          if (fs.existsSync(fullPath)) {
+            const buf = fs.readFileSync(fullPath);
+            const data = new Uint8Array(buf.buffer, buf.byteOffset, buf.byteLength);
+            fontCache.set(filename, data);
+            return data;
+          }
+        }
+      } catch {}
+    }
+    // 3. Fallback to CDN fetch
+    const cdnUrls = [
+      `https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/standard_fonts/${filename}`,
+      `https://unpkg.com/pdfjs-dist@3.11.174/standard_fonts/${filename}`,
+    ];
+    for (const url of cdnUrls) {
+      try {
+        const res = await fetch(url);
+        if (res.ok) {
+          const ab = await res.arrayBuffer();
+          const data = new Uint8Array(ab);
+          fontCache.set(filename, data);
+          return data;
+        }
+      } catch {}
+    }
+    throw new Error(`Unable to load standard font: ${filename}`);
+  }
+}
+
+class ResilientCMapReaderFactory {
+  baseUrl: string;
+  isCompressed: boolean;
+  constructor(baseUrl?: string, isCompressed = true) {
+    this.baseUrl = baseUrl || "";
+    this.isCompressed = isCompressed;
+  }
+  async fetch({ name }: { name: string }): Promise<{ cMapData: Uint8Array; compressionType: number }> {
+    const filename = `${name}.bcmap`;
+    if (cmapCache.has(filename)) {
+      return { cMapData: cmapCache.get(filename)!, compressionType: 1 };
+    }
+    for (const dir of getCandidateCmapDirs()) {
+      try {
+        const fullPath = path.join(dir, filename);
+        if (fs.existsSync(fullPath)) {
+          const buf = fs.readFileSync(fullPath);
+          const data = new Uint8Array(buf.buffer, buf.byteOffset, buf.byteLength);
+          cmapCache.set(filename, data);
+          return { cMapData: data, compressionType: 1 };
+        }
+      } catch {}
+    }
+    try {
+      const cdnUrl = `https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/cmaps/${filename}`;
+      const res = await fetch(cdnUrl);
+      if (res.ok) {
+        const data = new Uint8Array(await res.arrayBuffer());
+        cmapCache.set(filename, data);
+        return { cMapData: data, compressionType: 1 };
+      }
+    } catch {}
+    throw new Error(`Unable to load cMap: ${name}`);
+  }
 }
 
 function createNapiCanvasFactory(napiCanvas: any) {
@@ -169,11 +312,16 @@ export async function renderPdfFirstPage(
     // eslint-disable-next-line @typescript-eslint/no-require-imports
     const pdfjs = require("pdfjs-dist/legacy/build/pdf.js");
     const fontDir = getStandardFontDataUrl();
+    const cMapUrl = getCMapUrl();
     const canvasFactory = createNapiCanvasFactory(napiCanvas);
 
     const loadingTask = pdfjs.getDocument({
       data: new Uint8Array(pdfBuffer),
       standardFontDataUrl: fontDir,
+      StandardFontDataFactory: ResilientStandardFontDataFactory,
+      cMapUrl,
+      cMapPacked: true,
+      CMapReaderFactory: ResilientCMapReaderFactory,
       disableFontFace: false,
       canvasFactory,
     });
