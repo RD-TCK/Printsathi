@@ -80,6 +80,16 @@ export type CustomerDocument = {
   croppedImageUrl?: string;
 };
 
+export function isRealImageDoc(d?: { filename?: string; isImage?: boolean } | null): boolean {
+  if (!d || !d.filename) return false;
+  const name = d.filename.toLowerCase();
+  // PDF, Office docs, and text files can NEVER be treated as images
+  if (/\.(pdf|docx?|xlsx?|pptx?|txt|csv|rtf|odt|ods|odp)$/i.test(name)) {
+    return false;
+  }
+  return Boolean(d.isImage || /\.(png|jpg|jpeg|webp|gif|bmp|tif|tiff|heic|heif|avif)$/i.test(name));
+}
+
 type Props = {
   shop: PublicShop;
   identifier: string;
@@ -425,7 +435,7 @@ export function CustomerPrintFlow({
   const initialDocs = useMemo<CustomerDocument[]>(() => {
     if (!initialDraftOrder?.documents || initialDraftOrder.documents.length === 0) return [];
     return initialDraftOrder.documents.map((d) => {
-      const isImg = Boolean(d.filename.match(/\.(jpg|jpeg|png|webp|gif|bmp)$/i));
+      const isImg = isRealImageDoc(d);
       const previewUrl = `/api/customer/document-preview?documentId=${d.id}&orderId=${initialDraftOrder.orderId}&token=${initialDraftOrder.accessToken}`;
 
       return {
@@ -617,7 +627,7 @@ export function CustomerPrintFlow({
   const existingDocImages = useMemo(() => {
     return documents
       .filter((d) => !d.isCombinedSheet && !d.filename.startsWith("multi-photo-sheet-"))
-      .filter((d) => d.previewUrl || d.isImage || /\.(png|jpg|jpeg|webp|gif|bmp)$/i.test(d.filename))
+      .filter((d) => isRealImageDoc(d))
       .map((d) => ({
         documentId: d.id,
         dataUrl:
@@ -640,7 +650,7 @@ export function CustomerPrintFlow({
       (d) =>
         (!d.isCombinedSheet || d.id === activeDoc?.id) &&
         (!d.filename.startsWith("multi-photo-sheet-") || d.id === activeDoc?.id) &&
-        (d.previewUrl || d.isImage || /\.(png|jpg|jpeg|webp|gif|bmp)$/i.test(d.filename)),
+        (isRealImageDoc(d) || Boolean((d.isCombinedSheet || d.filename.startsWith("multi-photo-sheet-")) && d.id === activeDoc?.id)),
     );
 
     if (activeDoc) {
@@ -793,7 +803,7 @@ export function CustomerPrintFlow({
 
         const docs: CustomerDocument[] = (data.documents || []).map(
           (d: { id: string; filename: string; pageCount: number; sizeBytes?: number }) => {
-            const isImg = Boolean(d.filename.match(/\.(jpg|jpeg|png|webp|gif|bmp)$/i));
+            const isImg = isRealImageDoc(d);
             const previewUrl = `/api/customer/document-preview?documentId=${d.id}&orderId=${data.orderId}&token=${data.accessToken}`;
 
             return {
@@ -1016,8 +1026,11 @@ export function CustomerPrintFlow({
       const newDocs: CustomerDocument[] = result.documents.map((document: CustomerDocument, index: number) => {
         const matchingFile = processedFiles[index];
         const isImg = matchingFile
-          ? Boolean(matchingFile.type.startsWith("image/"))
-          : Boolean(document.filename.match(/\.(jpg|jpeg|png|webp|gif|bmp)$/i));
+          ? Boolean(
+              matchingFile.type.startsWith("image/") &&
+                !matchingFile.name.match(/\.(pdf|docx?|xlsx?|pptx?|txt|csv|rtf|odt|ods|odp)$/i)
+            )
+          : isRealImageDoc(document);
         const previewUrl =
           matchingFile && isImg
             ? URL.createObjectURL(matchingFile)
@@ -1404,7 +1417,7 @@ export function CustomerPrintFlow({
           idx > combinedIndex &&
           !d.isCombinedSheet &&
           !d.filename.startsWith("multi-photo-sheet-") &&
-          (d.previewUrl || d.isImage || /\.(png|jpg|jpeg|webp|gif|bmp)$/i.test(d.filename)),
+          isRealImageDoc(d),
       );
 
       // If there are subsequent uncombined images, automatically focus on the next uncombined image
@@ -1629,6 +1642,8 @@ export function CustomerPrintFlow({
             estimate={estimate}
 
             onOpenCropper={(docIndex) => {
+              const target = documents[docIndex];
+              if (!target || (!isRealImageDoc(target) && !target.isCombinedSheet && !target.filename.startsWith("multi-photo-sheet-"))) return;
               setCropTargetDocIndex(docIndex);
               setCropperOpen(true);
             }}
@@ -2565,14 +2580,11 @@ function ConfigureAndCropStep({
     (d) =>
       !d.isCombinedSheet &&
       !d.filename.startsWith("multi-photo-sheet-") &&
-      (d.isImage || Boolean(d.previewUrl) || Boolean(d.filename.match(/\.(png|jpg|jpeg|webp|gif|bmp)$/i))),
+      isRealImageDoc(d),
   );
   const hasMultipleImages = uncombinedImageDocuments.length >= 2;
   const hasAnyImages = uncombinedImageDocuments.length >= 1;
-  const isImageDoc =
-    current.isImage ||
-    Boolean(current.filename.match(/\.(png|jpg|jpeg|webp|gif|bmp)$/i)) ||
-    Boolean(current.previewUrl);
+  const isImageDoc = isRealImageDoc(current);
   const isCurrentCombinedSheet = Boolean(current.isCombinedSheet || current.filename.startsWith("multi-photo-sheet-"));
 
   const closeFullscreenPreview = useCallback(() => {
@@ -3516,9 +3528,8 @@ function ConfigureAndCropStep({
               ? `/api/customer/document-preview?documentId=${targetDoc.id}&orderId=${orderId}&token=${accessToken}`
               : "");
           const targetIsImage =
-            targetDoc.isImage ||
-            Boolean(targetDoc.filename.match(/\.(png|jpg|jpeg|webp|gif|bmp)$/i)) ||
-            Boolean(targetDoc.previewUrl);
+            isRealImageDoc(targetDoc) ||
+            Boolean(targetDoc?.isCombinedSheet || targetDoc?.filename?.startsWith("multi-photo-sheet-"));
           const config = targetIncludedMap.get(fullscreenTarget.pageNum);
           const isColor = config?.colorMode === "color";
           const isDuplex = config?.sideMode === "double_sided";
