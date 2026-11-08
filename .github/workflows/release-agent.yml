@@ -33,7 +33,8 @@ jobs:
       - name: Package native Windows desktop installer
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          ELECTRON_BUILDER_BINARIES_MIRROR: https://registry.npmmirror.com/-/binary/electron-builder-binaries/
+          ELECTRON_MIRROR: https://cdn.npmmirror.com/binaries/electron/
+          ELECTRON_BUILDER_BINARIES_MIRROR: https://cdn.npmmirror.com/binaries/electron-builder-binaries/
         run: npm run build:desktop
 
       - name: Prepare release assets with backward-compatible aliases

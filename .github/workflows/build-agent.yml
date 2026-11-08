@@ -29,7 +29,8 @@ jobs:
       - name: Package native Windows desktop app
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          ELECTRON_BUILDER_BINARIES_MIRROR: https://registry.npmmirror.com/-/binary/electron-builder-binaries/
+          ELECTRON_MIRROR: https://cdn.npmmirror.com/binaries/electron/
+          ELECTRON_BUILDER_BINARIES_MIRROR: https://cdn.npmmirror.com/binaries/electron-builder-binaries/
         run: npm run build:desktop
 
       - name: Upload Desktop Agent Installer

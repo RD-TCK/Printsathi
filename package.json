@@ -41,6 +41,8 @@
       "package.json"
     ],
     "win": {
+      "signExecutable": false,
+      "forceCodeSigning": false,
       "target": [
         {
           "target": "nsis",
