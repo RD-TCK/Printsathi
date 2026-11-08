@@ -160,18 +160,19 @@ export async function GET(request: Request) {
   const ext = extMatch ? `.${extMatch[1].toLowerCase()}` : "";
   const isImageDoc = imageExtensions.has(ext) || Boolean(doc.original_filename.match(/^(photo_|image_)/i));
 
-  // 1. First, check if a direct preview.jpg exists for this document in storage
-  const standardPreviewPath = `shops/${order.shop_id}/orders/${orderId}/documents/${documentId}/preview.jpg`;
-  const legacyPreviewPath = doc.storage_path.replace(/source\.pdf$/, "preview.jpg");
-  const previewPath = doc.storage_path.startsWith("local://") ? standardPreviewPath : legacyPreviewPath;
-  let { data: previewBlob } = await client.storage.from("print-documents").download(previewPath);
+  // 1. First, check if high-fidelity preview_v2.jpg exists in storage
+  const standardPreviewV2Path = `shops/${order.shop_id}/orders/${orderId}/documents/${documentId}/preview_v2.jpg`;
+  const legacyPreviewV2Path = doc.storage_path.replace(/source\.pdf$/, "preview_v2.jpg");
+  const previewV2Path = doc.storage_path.startsWith("local://") ? standardPreviewV2Path : legacyPreviewV2Path;
 
-  if (!previewBlob || previewBlob.size === 0) {
-    // Retry once in case of storage replication or upload concurrency
-    await new Promise((r) => setTimeout(r, 200));
-    const { data: secondTry } = await client.storage.from("print-documents").download(previewPath);
-    if (secondTry && secondTry.size > 0) {
-      previewBlob = secondTry;
+  let { data: previewBlob } = await client.storage.from("print-documents").download(previewV2Path);
+
+  // If not found and the document is a local/WhatsApp document, check agent's preview.jpg
+  if ((!previewBlob || previewBlob.size === 0) && doc.storage_path.startsWith("local://")) {
+    const standardPreviewPath = `shops/${order.shop_id}/orders/${orderId}/documents/${documentId}/preview.jpg`;
+    const { data: agentBlob } = await client.storage.from("print-documents").download(standardPreviewPath);
+    if (agentBlob && agentBlob.size > 0) {
+      previewBlob = agentBlob;
     }
   }
 
@@ -217,7 +218,7 @@ export async function GET(request: Request) {
             // Opportunistically upload to Supabase Storage so subsequent remote/mobile requests find it instantly
             void client.storage
               .from("print-documents")
-              .upload(standardPreviewPath, rendered.buffer, {
+              .upload(standardPreviewV2Path, rendered.buffer, {
                 contentType: rendered.mimeType || "image/jpeg",
                 upsert: true,
               })
@@ -299,10 +300,10 @@ export async function GET(request: Request) {
   if (isImageDoc || doc.mime_type === "application/pdf" || doc.storage_path.endsWith(".pdf")) {
     const rendered = await renderPdfFirstPage(buffer, targetWidth || 900);
     if (rendered?.buffer) {
-      // Opportunistically cache preview.jpg for instant subsequent requests
+      // Opportunistically cache preview_v2.jpg for instant subsequent requests
       void client.storage
         .from("print-documents")
-        .upload(previewPath, rendered.buffer, {
+        .upload(previewV2Path, rendered.buffer, {
           contentType: rendered.mimeType || "image/jpeg",
           upsert: true,
         })

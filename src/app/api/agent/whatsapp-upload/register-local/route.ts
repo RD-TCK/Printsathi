@@ -125,6 +125,7 @@ export async function POST(request: Request) {
         }
 
         const previewStoragePath = `shops/${shop.id}/orders/${orderId}/documents/${doc.id}/preview.jpg`;
+        const previewV2StoragePath = `shops/${shop.id}/orders/${orderId}/documents/${doc.id}/preview_v2.jpg`;
 
         let uploadSucceeded = false;
         let lastUploadError: unknown;
@@ -140,6 +141,13 @@ export async function POST(request: Request) {
           if (!uploadErr) {
             storedPreviewPaths.push(previewStoragePath);
             uploadSucceeded = true;
+            void client.storage
+              .from("print-documents")
+              .upload(previewV2StoragePath, uploadBuffer, {
+                contentType: uploadContentType,
+                upsert: true,
+              })
+              .catch(() => {});
             console.log(`[register-local] Uploaded preview for document ${doc.id} (${uploadBuffer.length} bytes) to ${previewStoragePath}`);
             break;
           }

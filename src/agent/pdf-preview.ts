@@ -344,7 +344,7 @@ export async function renderPdfFirstPage(
       cMapUrl,
       cMapPacked: true,
       CMapReaderFactory: ResilientCMapReaderFactory,
-      disableFontFace: false,
+      disableFontFace: true,
       canvasFactory,
     });
 
