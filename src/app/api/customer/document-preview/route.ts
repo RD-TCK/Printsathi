@@ -163,18 +163,18 @@ export async function GET(request: Request) {
   const ext = extMatch ? `.${extMatch[1].toLowerCase()}` : "";
   const isImageDoc = imageExtensions.has(ext) || Boolean(doc.original_filename.match(/^(photo_|image_)/i));
 
-  // 1. Check if a high-fidelity v2 preview exists in Supabase storage for this document & page
+  // 1. Check if a high-fidelity v3 preview exists in Supabase storage for this document & page
   const suffix = pageNumber === 1 ? "" : `_p${pageNumber}`;
-  const standardPreviewV2Path = `shops/${order.shop_id}/orders/${orderId}/documents/${documentId}/preview_v2${suffix}.jpg`;
-  const legacyPreviewV2Path = doc.storage_path.replace(/source\.pdf$/, `preview_v2${suffix}.jpg`);
-  const previewV2Path = doc.storage_path.startsWith("local://") ? standardPreviewV2Path : legacyPreviewV2Path;
+  const standardPreviewV3Path = `shops/${order.shop_id}/orders/${orderId}/documents/${documentId}/preview_v3${suffix}.jpg`;
+  const legacyPreviewV3Path = doc.storage_path.replace(/source\.pdf$/, `preview_v3${suffix}.jpg`);
+  const previewV3Path = doc.storage_path.startsWith("local://") ? standardPreviewV3Path : legacyPreviewV3Path;
 
-  let { data: previewBlob } = await client.storage.from("print-documents").download(previewV2Path);
+  let { data: previewBlob } = await client.storage.from("print-documents").download(previewV3Path);
 
   if (!previewBlob || previewBlob.size === 0) {
     // Retry once in case of storage replication or upload concurrency
     await new Promise((r) => setTimeout(r, 150));
-    const { data: secondTry } = await client.storage.from("print-documents").download(previewV2Path);
+    const { data: secondTry } = await client.storage.from("print-documents").download(previewV3Path);
     if (secondTry && secondTry.size > 0) {
       previewBlob = secondTry;
     }
@@ -222,7 +222,7 @@ export async function GET(request: Request) {
           if (rendered?.buffer) {
             void client.storage
               .from("print-documents")
-              .upload(standardPreviewV2Path, rendered.buffer, {
+              .upload(standardPreviewV3Path, rendered.buffer, {
                 contentType: rendered.mimeType || "image/jpeg",
                 upsert: true,
               })
@@ -299,10 +299,10 @@ export async function GET(request: Request) {
   if (isImageDoc || doc.mime_type === "application/pdf" || doc.storage_path.endsWith(".pdf")) {
     const rendered = await renderPdfPage(buffer, pageNumber, targetWidth || 900);
     if (rendered?.buffer) {
-      // Opportunistically cache preview_v2 in Supabase storage
+      // Opportunistically cache preview_v3 in Supabase storage
       void client.storage
         .from("print-documents")
-        .upload(previewV2Path, rendered.buffer, {
+        .upload(previewV3Path, rendered.buffer, {
           contentType: rendered.mimeType || "image/jpeg",
           upsert: true,
         })
