@@ -250,6 +250,7 @@ export async function GET(request: Request) {
     });
     const headers = new Headers();
     headers.set("Content-Type", "image/svg+xml");
+    headers.set("X-Printiva-Placeholder", "1");
     headers.set(
       "Cache-Control",
       isImageDoc

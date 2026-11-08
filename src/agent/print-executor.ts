@@ -81,9 +81,20 @@ function runPowerShellInline(script: string, timeoutMs = 5000): Promise<string> 
   });
 }
 
-export async function wakeWindowsPrinter(printerName: string): Promise<boolean> {
+const lastPrinterWakeupTime = new Map<string, number>();
+
+export async function wakeWindowsPrinter(printerName: string, force = false): Promise<boolean> {
   const isWindows = process.platform === "win32" || os.platform() === "win32";
   if (!isWindows || process.env.NODE_ENV === "test") return true;
+
+  const key = printerName.toLowerCase();
+  const now = Date.now();
+  const lastWake = lastPrinterWakeupTime.get(key) || 0;
+  // If invoked within 45 seconds and not forced, printer is already active/warm
+  if (!force && now - lastWake < 45000) {
+    return true;
+  }
+  lastPrinterWakeupTime.set(key, now);
 
   try {
     const escaped = printerName.replace(/'/g, "''");
@@ -116,6 +127,11 @@ if ($woke) { "WOKE" } else { "READY" }
     logger.warn(`Could not send wake signal to printer "${printerName}": ${err instanceof Error ? err.message : String(err)}`);
     return false;
   }
+}
+
+export async function proactiveWarmupPrinter(printerName: string): Promise<boolean> {
+  logger.info(`🔥 Proactive printer warmup initiated for "${printerName}" so fuser is hot when order is approved.`);
+  return wakeWindowsPrinter(printerName, false);
 }
 
 export async function getPrinterQueueCount(printerName: string): Promise<number> {
@@ -227,6 +243,218 @@ export async function loadSourceAsPdfDocument(filePath: string): Promise<PDFDocu
   return PDFDocument.load(sourceBuffer, { ignoreEncryption: true });
 }
 
+export interface SlicePdfOptions {
+  isHardwareDuplex?: boolean;
+  isManualDuplexOdd?: boolean;
+  isManualDuplexEven?: boolean;
+  shouldAddSeparatorPage?: boolean;
+  defaultPageSize?: [number, number];
+}
+
+export async function slicePdfForConfigs(
+  sourcePdf: PDFDocument,
+  configsToProcess: Array<{
+    startPage: number;
+    endPage: number;
+    copies?: number;
+    sideMode?: "single_sided" | "double_sided";
+  }>,
+  options?: SlicePdfOptions,
+): Promise<{ outputPdf: PDFDocument; calculatedPages: number }> {
+  const outputPdf = await PDFDocument.create();
+  let calculatedPages = 0;
+  const isHardwareDuplex = Boolean(options?.isHardwareDuplex);
+  const isManualDuplexOdd = Boolean(options?.isManualDuplexOdd);
+  const isManualDuplexEven = Boolean(options?.isManualDuplexEven);
+  const shouldAddSeparatorPage = Boolean(options?.shouldAddSeparatorPage);
+
+  const firstPageRef = sourcePdf.getPageCount() > 0 ? sourcePdf.getPage(0) : null;
+  const defaultPageSize: [number, number] = options?.defaultPageSize || (firstPageRef
+    ? [firstPageRef.getWidth(), firstPageRef.getHeight()]
+    : [595.28, 841.89]);
+
+  for (const config of configsToProcess) {
+    const start = Math.max(1, config.startPage);
+    const end = Math.min(sourcePdf.getPageCount(), config.endPage);
+    const copies = Math.max(1, config.copies ?? 1);
+
+    if (isHardwareDuplex) {
+      const pageIndices: number[] = [];
+      for (let i = start; i <= end; i++) {
+        pageIndices.push(i - 1);
+      }
+      const rangeCount = pageIndices.length;
+      if (rangeCount > 0) {
+        for (let c = 0; c < copies; c++) {
+          const copiedPages = await outputPdf.copyPages(sourcePdf, pageIndices);
+          copiedPages.forEach((p) => outputPdf.addPage(p));
+          calculatedPages += rangeCount;
+
+          if (rangeCount % 2 === 1) {
+            const lastPage = copiedPages[copiedPages.length - 1];
+            const { width, height } = lastPage.getSize();
+            outputPdf.addPage([width, height]);
+          }
+        }
+      }
+    } else if (isManualDuplexOdd) {
+      const oddIndices: number[] = [];
+      for (let i = start; i <= end; i++) {
+        if (i % 2 === 1) {
+          oddIndices.push(i - 1);
+        }
+      }
+      if (oddIndices.length > 0) {
+        for (let c = 0; c < copies; c++) {
+          const copiedPages = await outputPdf.copyPages(sourcePdf, oddIndices);
+          copiedPages.forEach((p) => outputPdf.addPage(p));
+          calculatedPages += oddIndices.length;
+        }
+      }
+    } else if (isManualDuplexEven) {
+      const evenPagesInConfig: number[] = [];
+      for (let i = start; i <= end; i++) {
+        if (i % 2 === 0) evenPagesInConfig.push(i);
+      }
+
+      if (evenPagesInConfig.length > 0) {
+        const oddPagesInConfig: number[] = [];
+        for (let i = start; i <= end; i++) {
+          if (i % 2 === 1) oddPagesInConfig.push(i);
+        }
+
+        for (let c = 0; c < copies; c++) {
+          for (const oddPage of oddPagesInConfig) {
+            const evenPage = oddPage + 1;
+            if (evenPage <= end) {
+              const [copiedPage] = await outputPdf.copyPages(sourcePdf, [evenPage - 1]);
+              outputPdf.addPage(copiedPage);
+              calculatedPages += 1;
+            } else {
+              const [correspondingOdd] = await outputPdf.copyPages(sourcePdf, [oddPage - 1]);
+              const { width, height } = correspondingOdd.getSize();
+              outputPdf.addPage([width, height]);
+            }
+          }
+        }
+      }
+    } else {
+      const pageIndices: number[] = [];
+      for (let i = start; i <= end; i++) {
+        pageIndices.push(i - 1);
+      }
+      if (pageIndices.length > 0) {
+        for (let c = 0; c < copies; c++) {
+          const copiedPages = await outputPdf.copyPages(sourcePdf, pageIndices);
+          copiedPages.forEach((p) => outputPdf.addPage(p));
+          calculatedPages += pageIndices.length;
+        }
+      }
+    }
+  }
+
+  if (shouldAddSeparatorPage && !isManualDuplexOdd && outputPdf.getPageCount() > 0) {
+    if (isHardwareDuplex) {
+      outputPdf.addPage(defaultPageSize);
+      outputPdf.addPage(defaultPageSize);
+    } else {
+      outputPdf.addPage(defaultPageSize);
+    }
+  }
+
+  return { outputPdf, calculatedPages };
+}
+
+export function getPreslicedSpoolPath(jobId: string, duplexStep?: string): string {
+  const tempDir = path.join(os.tmpdir(), "printsaathi_spool");
+  const stepSuffix = duplexStep && duplexStep !== "none" ? `_${duplexStep}` : "";
+  return path.join(tempDir, `presliced_${jobId}${stepSuffix}.pdf`);
+}
+
+export function cleanSpoolDirectory(maxAgeMs = 10 * 60 * 1000): void {
+  try {
+    const tempDir = path.join(os.tmpdir(), "printsaathi_spool");
+    if (!fs.existsSync(tempDir)) return;
+    const now = Date.now();
+    for (const f of fs.readdirSync(tempDir)) {
+      try {
+        const fp = path.join(tempDir, f);
+        const stat = fs.statSync(fp);
+        if (stat.isFile() && now - stat.mtimeMs > maxAgeMs) {
+          fs.unlinkSync(fp);
+        }
+      } catch {
+        // ignore
+      }
+    }
+  } catch {
+    // ignore
+  }
+}
+
+export async function presliceJobDocument(
+  sourcePdfPath: string,
+  jobId: string,
+  configs: ClaimedJob["pagesConfig"],
+  options?: {
+    isHardwareDuplex?: boolean;
+    duplexStep?: "odd" | "even" | "all" | "none";
+    includeSeparatorPage?: boolean;
+  },
+): Promise<string | null> {
+  try {
+    if (!fs.existsSync(sourcePdfPath) || fs.statSync(sourcePdfPath).size === 0) return null;
+    const sourcePdf = await loadSourceAsPdfDocument(sourcePdfPath);
+    const totalPages = sourcePdf.getPageCount();
+    if (totalPages === 0) return null;
+
+    const duplexStep = options?.duplexStep || "none";
+    const isManualDuplexOdd = duplexStep === "odd";
+    const isManualDuplexEven = duplexStep === "even";
+    const hasDoubleSided = configs.some((c) => c.sideMode === "double_sided");
+    const isHardwareDuplex = Boolean(options?.isHardwareDuplex && hasDoubleSided && duplexStep === "all");
+
+    const isSimple =
+      configs.length === 1 &&
+      configs[0].startPage === 1 &&
+      configs[0].endPage === totalPages &&
+      (configs[0].copies || 1) === 1 &&
+      !options?.includeSeparatorPage &&
+      !isManualDuplexOdd &&
+      !isManualDuplexEven &&
+      (!isHardwareDuplex || totalPages % 2 === 0);
+
+    // If simple full print, direct source print will be used; no pre-slice file needed
+    if (isSimple) return sourcePdfPath;
+
+    const { outputPdf } = await slicePdfForConfigs(sourcePdf, configs, {
+      isHardwareDuplex,
+      isManualDuplexOdd,
+      isManualDuplexEven,
+      shouldAddSeparatorPage: options?.includeSeparatorPage,
+    });
+
+    if (outputPdf.getPageCount() === 0) return null;
+
+    const tempDir = path.join(os.tmpdir(), "printsaathi_spool");
+    if (!fs.existsSync(tempDir)) {
+      fs.mkdirSync(tempDir, { recursive: true });
+    }
+    const preslicedPath = getPreslicedSpoolPath(jobId, duplexStep);
+    const bytes = await outputPdf.save();
+    fs.writeFileSync(preslicedPath, bytes);
+    logger.info(
+      `⚡ Pre-sliced spool document generated for Job #${jobId.slice(0, 8)} (${outputPdf.getPageCount()} pages ready).`,
+    );
+    return preslicedPath;
+  } catch (err) {
+    logger.debug(`Background pre-slicing skipped for Job #${jobId}:`, {
+      error: err instanceof Error ? err.message : String(err),
+    });
+    return null;
+  }
+}
+
 export async function prepareAndPrintDocument(
   sourcePdfPath: string,
   job: ClaimedJob,
@@ -246,6 +474,8 @@ export async function prepareAndPrintDocument(
 
   let finalPdfPath = sourcePdfPath;
   let tempExtractedPath: string | null = null;
+  let preslicedCandidate: string | null = null;
+  let preslicedValid = false;
 
   try {
     if (!isWindows) throw new Error("Physical printing requires Windows; no job was submitted.");
@@ -358,7 +588,7 @@ export async function prepareAndPrintDocument(
             },
           ];
 
-    let outputPdf: PDFDocument;
+    let outputPdf: PDFDocument = sourcePdf;
 
     const isSimpleFullPrint =
       configsToProcess.length === 1 &&
@@ -368,130 +598,71 @@ export async function prepareAndPrintDocument(
       !isManualDuplexOdd &&
       !isManualDuplexEven;
 
-    if (isSimpleFullPrint) {
-      outputPdf = sourcePdf;
-      calculatedPages = sourcePdf.getPageCount();
+    preslicedCandidate = getPreslicedSpoolPath(job.id, job.duplexStep);
+    preslicedValid = false;
 
-      if (isHardwareDuplex && calculatedPages % 2 === 1) {
-        outputPdf.addPage(defaultPageSize);
+    if (!isSimpleFullPrint && fs.existsSync(preslicedCandidate) && fs.statSync(preslicedCandidate).size > 0) {
+      try {
+        const preslicedDoc = await PDFDocument.load(fs.readFileSync(preslicedCandidate), { ignoreEncryption: true });
+        if (preslicedDoc.getPageCount() > 0) {
+          outputPdf = preslicedDoc;
+          calculatedPages = preslicedDoc.getPageCount();
+          finalPdfPath = preslicedCandidate;
+          preslicedValid = true;
+          logger.info(
+            `⚡ Instant Pre-sliced Hit: Using pre-sliced spool PDF for Job #${job.id.slice(0, 8)} (${calculatedPages} pages, 0ms latency).`,
+          );
+        }
+      } catch {
+        preslicedValid = false;
       }
+    }
 
-      if (shouldAddSeparatorPage) {
-        if (isHardwareDuplex) {
-          outputPdf.addPage(defaultPageSize);
-          outputPdf.addPage(defaultPageSize);
-        } else {
+    if (!preslicedValid) {
+      if (isSimpleFullPrint) {
+        outputPdf = sourcePdf;
+        calculatedPages = sourcePdf.getPageCount();
+
+        if (isHardwareDuplex && calculatedPages % 2 === 1) {
           outputPdf.addPage(defaultPageSize);
         }
-      }
-    } else {
-      outputPdf = await PDFDocument.create();
 
-      for (const config of configsToProcess) {
-        const start = Math.max(1, config.startPage);
-        const end = Math.min(sourcePdf.getPageCount(), config.endPage);
-        const copies = Math.max(1, config.copies ?? 1);
-
-        if (isHardwareDuplex) {
-          const pageIndices: number[] = [];
-          for (let i = start; i <= end; i++) {
-            pageIndices.push(i - 1);
-          }
-          const rangeCount = pageIndices.length;
-          if (rangeCount > 0) {
-            for (let c = 0; c < copies; c++) {
-              const copiedPages = await outputPdf.copyPages(sourcePdf, pageIndices);
-              copiedPages.forEach((p) => outputPdf.addPage(p));
-              calculatedPages += rangeCount;
-
-              if (rangeCount % 2 === 1) {
-                const lastPage = copiedPages[copiedPages.length - 1];
-                const { width, height } = lastPage.getSize();
-                outputPdf.addPage([width, height]);
-              }
-            }
-          }
-        } else if (isManualDuplexOdd) {
-          const oddIndices: number[] = [];
-          for (let i = start; i <= end; i++) {
-            if (i % 2 === 1) {
-              oddIndices.push(i - 1);
-            }
-          }
-          if (oddIndices.length > 0) {
-            for (let c = 0; c < copies; c++) {
-              const copiedPages = await outputPdf.copyPages(sourcePdf, oddIndices);
-              copiedPages.forEach((p) => outputPdf.addPage(p));
-              calculatedPages += oddIndices.length;
-            }
-          }
-        } else if (isManualDuplexEven) {
-          const evenPagesInConfig: number[] = [];
-          for (let i = start; i <= end; i++) {
-            if (i % 2 === 0) evenPagesInConfig.push(i);
-          }
-
-          if (evenPagesInConfig.length > 0) {
-            const oddPagesInConfig: number[] = [];
-            for (let i = start; i <= end; i++) {
-              if (i % 2 === 1) oddPagesInConfig.push(i);
-            }
-
-            for (let c = 0; c < copies; c++) {
-              for (const oddPage of oddPagesInConfig) {
-                const evenPage = oddPage + 1;
-                if (evenPage <= end) {
-                  const [copiedPage] = await outputPdf.copyPages(sourcePdf, [evenPage - 1]);
-                  outputPdf.addPage(copiedPage);
-                  calculatedPages += 1;
-                } else {
-                  const [correspondingOdd] = await outputPdf.copyPages(sourcePdf, [oddPage - 1]);
-                  const { width, height } = correspondingOdd.getSize();
-                  outputPdf.addPage([width, height]);
-                }
-              }
-            }
-          }
-        } else {
-          const pageIndices: number[] = [];
-          for (let i = start; i <= end; i++) {
-            pageIndices.push(i - 1);
-          }
-          if (pageIndices.length > 0) {
-            for (let c = 0; c < copies; c++) {
-              const copiedPages = await outputPdf.copyPages(sourcePdf, pageIndices);
-              copiedPages.forEach((p) => outputPdf.addPage(p));
-              calculatedPages += pageIndices.length;
-            }
+        if (shouldAddSeparatorPage) {
+          if (isHardwareDuplex) {
+            outputPdf.addPage(defaultPageSize);
+            outputPdf.addPage(defaultPageSize);
+          } else {
+            outputPdf.addPage(defaultPageSize);
           }
         }
+      } else {
+        const sliced = await slicePdfForConfigs(sourcePdf, configsToProcess, {
+          isHardwareDuplex,
+          isManualDuplexOdd,
+          isManualDuplexEven,
+          shouldAddSeparatorPage,
+          defaultPageSize,
+        });
+        outputPdf = sliced.outputPdf;
+        calculatedPages = sliced.calculatedPages;
       }
+    }
 
-      if (outputPdf.getPageCount() === 0) {
-        logger.info(`Job #${job.id.slice(0, 8)}: No pages to print for step "${duplexStep || "standard"}".`);
-        return {
-          success: true,
-          status: "PRINT_SUBMITTED",
-          printerName: targetPrinterName,
-          pagesSubmitted: 0,
-          duplexModeUsed: isHardwareDuplex
-            ? "hardware"
-            : isManualDuplexOdd
-              ? "manual_odd"
-              : isManualDuplexEven
-                ? "manual_even"
-                : "simplex",
-        };
-      }
-
-      if (shouldAddSeparatorPage && !isManualDuplexOdd) {
-        if (isHardwareDuplex) {
-          outputPdf.addPage(defaultPageSize);
-          outputPdf.addPage(defaultPageSize);
-        } else {
-          outputPdf.addPage(defaultPageSize);
-        }
-      }
+    if (outputPdf.getPageCount() === 0) {
+      logger.info(`Job #${job.id.slice(0, 8)}: No pages to print for step "${duplexStep || "standard"}".`);
+      return {
+        success: true,
+        status: "PRINT_SUBMITTED",
+        printerName: targetPrinterName,
+        pagesSubmitted: 0,
+        duplexModeUsed: isHardwareDuplex
+          ? "hardware"
+          : isManualDuplexOdd
+            ? "manual_odd"
+            : isManualDuplexEven
+              ? "manual_even"
+              : "simplex",
+      };
     }
 
     const canDirectPrintSource =
@@ -499,7 +670,9 @@ export async function prepareAndPrintDocument(
       !shouldAddSeparatorPage &&
       (!isHardwareDuplex || calculatedPages % 2 === 0);
 
-    if (canDirectPrintSource) {
+    if (preslicedValid) {
+      finalPdfPath = preslicedCandidate;
+    } else if (canDirectPrintSource) {
       finalPdfPath = sourcePdfPath;
     } else {
       const outputBytes = await outputPdf.save();
@@ -576,6 +749,26 @@ export async function prepareAndPrintDocument(
           try {
             if (fs.existsSync(fileToClean)) {
               fs.unlinkSync(fileToClean);
+            }
+          } catch {
+            // Ignore deletion errors
+          }
+        }, 60000);
+      }
+    }
+    if (preslicedValid && preslicedCandidate && fs.existsSync(preslicedCandidate)) {
+      const candidatePath = preslicedCandidate;
+      if (process.env.NODE_ENV === "test") {
+        try {
+          fs.unlinkSync(candidatePath);
+        } catch {
+          // Ignore deletion errors in test
+        }
+      } else {
+        setTimeout(() => {
+          try {
+            if (fs.existsSync(candidatePath)) {
+              fs.unlinkSync(candidatePath);
             }
           } catch {
             // Ignore deletion errors

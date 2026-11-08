@@ -12,7 +12,14 @@ vi.mock("./printer-discovery", () => ({
   isPhysicalPrinter: (printer: { name: string }) => printer.name !== "Microsoft Print to PDF",
 }));
 vi.mock("./logger", () => ({ logger: { info: vi.fn(), error: vi.fn() } }));
-import { prepareAndPrintBatch, prepareAndPrintDocument } from "./print-executor";
+import {
+  cleanSpoolDirectory,
+  getPreslicedSpoolPath,
+  prepareAndPrintBatch,
+  prepareAndPrintDocument,
+  presliceJobDocument,
+  proactiveWarmupPrinter,
+} from "./print-executor";
 
 describe("PDF print submission", () => {
   let directory: string;
@@ -561,6 +568,61 @@ describe("PDF print submission", () => {
       expect(spooledPageCount).toBe(5);
       // SumatraPDF was invoked only once for all 4 photos!
       expect(mocks.execute).toHaveBeenCalledTimes(1);
+    });
+
+    it("pre-slices custom page ranges in background and uses the presliced file on print", async () => {
+      const multiDoc = await PDFDocument.create();
+      multiDoc.addPage();
+      multiDoc.addPage();
+      multiDoc.addPage();
+      multiDoc.addPage();
+      multiDoc.addPage();
+      const multiSource = path.join(directory, "five_page.pdf");
+      fs.writeFileSync(multiSource, await multiDoc.save());
+
+      const sliceJob = {
+        id: "job-preslice-test",
+        orderId: "order-slice",
+        totalPages: 5,
+        pagesConfig: [
+          {
+            startPage: 2,
+            endPage: 4,
+            copies: 1,
+            colorMode: "black_and_white",
+            paperSize: "a4",
+          },
+        ],
+      } as ClaimedJob;
+
+      // Generate presliced spool document
+      const preslicedResult = await presliceJobDocument(multiSource, sliceJob.id, sliceJob.pagesConfig);
+      expect(preslicedResult).toBeTruthy();
+      expect(fs.existsSync(preslicedResult!)).toBe(true);
+
+      let submittedPath = "";
+      mocks.execute.mockImplementation((_file, args, _options, callback) => {
+        submittedPath = args.at(-1);
+        callback(null, "", "");
+      });
+
+      const printResult = await prepareAndPrintDocument(multiSource, sliceJob, printerName, undefined, {
+        includeSeparatorPage: false,
+      });
+
+      expect(printResult.success).toBe(true);
+      expect(printResult.pagesSubmitted).toBe(3);
+      // Confirmed: SumatraPDF was called with the pre-sliced path directly
+      expect(submittedPath).toBe(preslicedResult);
+    });
+
+    it("wakes up target printer proactively", async () => {
+      const woke = await proactiveWarmupPrinter(printerName);
+      expect(woke).toBe(true);
+    });
+
+    it("cleans old spool files without error", () => {
+      expect(() => cleanSpoolDirectory(0)).not.toThrow();
     });
   });
 });

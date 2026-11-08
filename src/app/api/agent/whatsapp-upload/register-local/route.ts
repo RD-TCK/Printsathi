@@ -76,22 +76,36 @@ export async function POST(request: Request) {
           console.warn(`[register-local] No previewBase64 for document ${doc.id} (${doc.filename}), skipping preview upload`);
           return;
         }
-        let rawBuffer: Buffer;
+        let rawBuffer: Buffer | null = null;
         let uploadContentType = "image/jpeg";
 
-        const dataUriMatch = doc.previewBase64.match(/^data:(image\/[a-zA-Z0-9.+-]+);base64,(.+)$/);
-        if (dataUriMatch) {
-          uploadContentType = dataUriMatch[1].toLowerCase() === "image/jpg" ? "image/jpeg" : dataUriMatch[1];
-          rawBuffer = Buffer.from(dataUriMatch[2], "base64");
-        } else {
+        if (doc.previewBase64.startsWith("data:")) {
+          const commaIdx = doc.previewBase64.indexOf(",");
+          if (commaIdx !== -1) {
+            const meta = doc.previewBase64.slice(5, commaIdx);
+            const mime = meta.split(";")[0]?.toLowerCase() || "image/jpeg";
+            uploadContentType = mime === "image/jpg" ? "image/jpeg" : mime;
+            const b64Data = doc.previewBase64.slice(commaIdx + 1).replace(/[\r\n\s]/g, "");
+            try {
+              rawBuffer = Buffer.from(b64Data, "base64");
+            } catch {
+              rawBuffer = null;
+            }
+          }
+        }
+        if (!rawBuffer) {
           try {
-            rawBuffer = Buffer.from(doc.previewBase64, "base64");
+            const clean = doc.previewBase64.replace(/[\r\n\s]/g, "");
+            rawBuffer = Buffer.from(clean, "base64");
           } catch {
-            return;
+            rawBuffer = null;
           }
         }
 
-        if (!rawBuffer || rawBuffer.length === 0) return;
+        if (!rawBuffer || rawBuffer.length === 0) {
+          console.warn(`[register-local] Could not decode base64 buffer for document ${doc.id} (${doc.filename})`);
+          return;
+        }
 
         let uploadBuffer = rawBuffer;
 
@@ -104,8 +118,9 @@ export async function POST(request: Request) {
             .jpeg({ quality: 80, mozjpeg: true })
             .toBuffer();
           uploadContentType = "image/jpeg";
-        } catch {
-          // If sharp optimization fails, upload original rawBuffer
+        } catch (sharpErr) {
+          // If sharp optimization fails, upload original rawBuffer directly
+          console.warn(`[register-local] Sharp resize fallback for ${doc.id}:`, sharpErr);
           uploadBuffer = rawBuffer;
         }
 
@@ -125,11 +140,12 @@ export async function POST(request: Request) {
           if (!uploadErr) {
             storedPreviewPaths.push(previewStoragePath);
             uploadSucceeded = true;
+            console.log(`[register-local] Uploaded preview for document ${doc.id} (${uploadBuffer.length} bytes) to ${previewStoragePath}`);
             break;
           }
           lastUploadError = uploadErr;
           if (attempt < 5) {
-            await new Promise((r) => setTimeout(r, 250 * Math.pow(2, attempt - 1)));
+            await new Promise((r) => setTimeout(r, 200 * attempt));
           }
         }
         if (!uploadSucceeded) {
@@ -180,6 +196,7 @@ export async function POST(request: Request) {
         filename: d.filename,
         pageCount: Math.max(1, d.pageCount || 1),
         sizeBytes: d.sizeBytes,
+        hasPreview: storedPreviewPaths.includes(`shops/${shop.id}/orders/${orderId}/documents/${d.id}/preview.jpg`),
       })),
     });
   } catch (err) {

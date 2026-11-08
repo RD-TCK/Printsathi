@@ -203,6 +203,11 @@ export async function processAndCacheDocument(
       }
     }
 
+    // If native modules (sharp/canvas) are not available, rawBuffer is already a valid image (e.g. WhatsApp photo)
+    if (!thumbBuf && rawBuffer.length <= 4 * 1024 * 1024) {
+      thumbBuf = rawBuffer;
+    }
+
     try {
       if (isPng && !thumbBuf) {
         embeddedImage = await pdf.embedPng(processedBuffer);
@@ -217,7 +222,7 @@ export async function processAndCacheDocument(
       }
     }
 
-    previewBuffer = thumbBuf || (processedBuffer.length <= 4 * 1024 * 1024 ? processedBuffer : undefined);
+    previewBuffer = thumbBuf || (processedBuffer.length <= 4 * 1024 * 1024 ? processedBuffer : rawBuffer);
 
     const isLandscape = embeddedImage.width > embeddedImage.height * 1.15;
     const pageWidth = isLandscape ? 841.89 : 595.28;

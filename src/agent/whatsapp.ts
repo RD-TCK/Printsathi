@@ -1117,6 +1117,30 @@ export class WhatsAppAgentService {
               logger.info(
                 `⚡ Local-First Success: Registered ${successfulDocs.length} file(s) locally. Zero cloud bandwidth used.`,
               );
+
+              // Double-check previews: if any document did not get its preview uploaded in register-local,
+              // asynchronously push the preview thumbnail directly to ensure the mobile customer sees it immediately.
+              for (const sDoc of successfulDocs) {
+                const regDoc = (regData.documents || []).find(
+                  (d: { id: string; hasPreview?: boolean }) => d.id === sDoc.id,
+                );
+                if (sDoc.previewBase64 && (!regDoc || !regDoc.hasPreview)) {
+                  void fetch(`${serverUrl}/api/agent/whatsapp-upload/preview-image`, {
+                    method: "POST",
+                    headers: {
+                      "x-agent-token": config.agentToken,
+                      "Content-Type": "application/json",
+                    },
+                    body: JSON.stringify({
+                      orderId: regData.orderId,
+                      documentId: sDoc.id,
+                      previewBase64: sDoc.previewBase64,
+                    }),
+                  }).catch((err) => {
+                    logger.debug(`Background preview-image upload fallback failed for ${sDoc.id}:`, { error: err });
+                  });
+                }
+              }
             } else {
               logger.warn(`register-local returned HTTP ${registerRes.status}, falling back to cloud upload...`);
             }

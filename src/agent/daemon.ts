@@ -6,7 +6,15 @@ import type { AgentConfig, AgentStatusSnapshot, ClaimedJob, DiscoveredPrinter } 
 import { clearConfig, isConfigPaired, loadConfig, saveConfig, getDocumentCacheDirectory, cleanDocumentCache } from "./config";
 import { AgentApiClient } from "./client";
 import { discoverWindowsPrinters, findBestPrinterForJob, findDefaultPrinter, isPhysicalPrinter } from "./printer-discovery";
-import { prepareAndPrintBatch, prepareAndPrintDocument, waitForPhysicalPrintCompletion } from "./print-executor";
+import {
+  cleanSpoolDirectory,
+  getPreslicedSpoolPath,
+  prepareAndPrintBatch,
+  prepareAndPrintDocument,
+  presliceJobDocument,
+  proactiveWarmupPrinter,
+  waitForPhysicalPrintCompletion,
+} from "./print-executor";
 import { logger } from "./logger";
 import { whatsAppAgent } from "./whatsapp";
 import { createClient, SupabaseClient, RealtimeChannel } from "@supabase/supabase-js";
@@ -83,10 +91,12 @@ export class AgentDaemon {
     }
 
     cleanDocumentCache();
+    cleanSpoolDirectory();
 
     this.discoveryTimer = setInterval(async () => {
       if (this.discovering) return;
       cleanDocumentCache();
+      cleanSpoolDirectory();
 
       await this.refreshPrinters();
       const currentSignature = JSON.stringify(
@@ -403,8 +413,9 @@ export class AgentDaemon {
           'postgres_changes',
           { event: 'INSERT', schema: 'public', table: 'print_jobs', filter: `shop_id=eq.${this.config.shopId}` },
           () => {
-            logger.info("⚡ Realtime event: new print job created. Pre-caching documents & checking queue...");
+            logger.info("⚡ Realtime event: new print job created. Pre-caching documents, warming up printers & checking queue...");
             void this.precachePendingCounterDocuments();
+            void this.warmupTargetPrinters();
             void this.triggerPoll();
           }
         )
@@ -414,6 +425,7 @@ export class AgentDaemon {
           (payload) => {
             const status = payload.new ? (payload.new as { status?: string }).status : undefined;
             void this.precachePendingCounterDocuments();
+            void this.warmupTargetPrinters();
             if (!status || status === 'queued' || status === 'paid') {
               logger.info(`⚡ Realtime event: print job status updated${status ? ` to "${status}"` : ""}. Waking up agent immediately...`);
               void this.triggerPoll();
@@ -1047,13 +1059,30 @@ export class AgentDaemon {
           !o.isExpired,
       );
 
+      if (pendingOrders.length > 0) {
+        void this.warmupTargetPrinters();
+      }
+
       for (const order of pendingOrders) {
         for (const doc of order.documents || []) {
           if (!doc.id || this.precachingDocIds.has(doc.id)) continue;
 
           const targetPath = path.join(cacheDir, `doc_${doc.id}.pdf`);
+          const matchingJob =
+            ((order.jobs || []) as any[]).find((j: any) => j.documentId === doc.id) ||
+            ((order.jobs?.[0] as any) || null);
+
           if (fs.existsSync(targetPath) && fs.statSync(targetPath).size > 0) {
             void this.client.reportPrecacheComplete(doc.id, order.id);
+            // Optimization: Pre-slice custom page ranges in background if not already pre-sliced
+            if (matchingJob?.id && matchingJob?.pagesConfig?.length) {
+              const preslicedPath = getPreslicedSpoolPath(matchingJob.id, matchingJob.duplexStep);
+              if (!fs.existsSync(preslicedPath) || fs.statSync(preslicedPath).size === 0) {
+                void presliceJobDocument(targetPath, matchingJob.id, matchingJob.pagesConfig, {
+                  duplexStep: matchingJob.duplexStep,
+                }).catch(() => {});
+              }
+            }
             continue;
           }
 
@@ -1062,11 +1091,17 @@ export class AgentDaemon {
             try {
               logger.info(`⚡ Pre-caching document "${doc.filename}" for Token #${order.tokenNumber ?? order.publicId}...`);
               // Provide matching jobId if available so production servers requiring jobId accept the request
-              const matchingJob = (order.jobs || []).find((j: any) => j.documentId === doc.id) || order.jobs?.[0];
               const jobIdToUse = matchingJob?.id;
               await this.client.downloadDocument(doc.id, jobIdToUse, targetPath);
               logger.info(`✅ Successfully pre-cached "${doc.filename}" in local SSD cache (0s latency on print).`);
               await this.client.reportPrecacheComplete(doc.id, order.id);
+
+              // Optimization: Pre-slice custom page ranges immediately after download
+              if (matchingJob?.id && matchingJob?.pagesConfig?.length) {
+                void presliceJobDocument(targetPath, matchingJob.id, matchingJob.pagesConfig, {
+                  duplexStep: matchingJob.duplexStep,
+                }).catch(() => {});
+              }
             } catch (err) {
               logger.debug(`Background pre-cache skipped or failed for doc ${doc.id}:`, {
                 err: err instanceof Error ? err.message : String(err),
@@ -1175,11 +1210,43 @@ export class AgentDaemon {
     }
   }
 
+  async warmupTargetPrinters(specificPrinterName?: string): Promise<void> {
+    if (!this.isRunning || process.env.NODE_ENV === "test") return;
+    try {
+      if (specificPrinterName) {
+        void proactiveWarmupPrinter(specificPrinterName);
+        return;
+      }
+      if (this.discoveredPrinters.length === 0) {
+        await this.refreshPrinters();
+      }
+      const target = findDefaultPrinter(this.discoveredPrinters, this.config.selectedPrinter, false);
+      if (target && isPhysicalPrinter(target)) {
+        void proactiveWarmupPrinter(target.name);
+      }
+      const colorPrinter = this.discoveredPrinters.find(
+        (p) => isPhysicalPrinter(p) && p.capabilities?.colorSupport === true && p.name !== target?.name,
+      );
+      if (colorPrinter) {
+        void proactiveWarmupPrinter(colorPrinter.name);
+      }
+    } catch {
+      // non-fatal
+    }
+  }
+
   async approveCounterOrder(orderId: string, duplexStep?: "odd" | "even" | "all") {
     // Clear processed keys for this order so re-approving or printing next side can claim and print fresh
     this.clearProcessedJob(orderId);
-    const result = await this.client.approveCounterOrder(orderId, duplexStep);
-    // Immediately claim and print the newly approved job via agent
+    // 1. Proactively ensure target printers are warm & awake
+    void this.warmupTargetPrinters();
+    // 2. Dispatch cloud approval request
+    const approvalPromise = this.client.approveCounterOrder(orderId, duplexStep);
+    // 3. Immediately trigger poll cycle so claim overlaps network round-trip time
+    void this.triggerPoll();
+    // 4. Await cloud approval confirmation
+    const result = await approvalPromise;
+    // 5. Trigger final poll in case previous poll ran before DB row was marked queued
     void this.triggerPoll();
     return result;
   }

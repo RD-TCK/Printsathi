@@ -2176,17 +2176,21 @@ function LazyPreviewImage({
   className,
   style,
   fallback,
+  isImage,
 }: {
   src?: string;
   alt: string;
   className?: string;
   style?: React.CSSProperties;
   fallback?: React.ReactNode;
+  isImage?: boolean;
 }) {
   const [isLoaded, setIsLoaded] = useState(false);
   const [hasError, setHasError] = useState(false);
   const [isVisible, setIsVisible] = useState(() => typeof window === "undefined" || typeof IntersectionObserver === "undefined");
   const containerRef = useRef<HTMLDivElement>(null);
+  const [cacheBust, setCacheBust] = useState(0);
+  const pollCountRef = useRef(0);
 
   useEffect(() => {
     if (!src) return;
@@ -2223,9 +2227,25 @@ function LazyPreviewImage({
     }
   };
 
+  const handleImageLoad = (e: React.SyntheticEvent<HTMLImageElement>) => {
+    setIsLoaded(true);
+    const img = e.currentTarget;
+    // Detect if this image received the temporary placeholder SVG (viewBox 0 0 480 600)
+    if (isImage && pollCountRef.current < 5) {
+      if (img.naturalWidth === 480 && img.naturalHeight === 600) {
+        pollCountRef.current += 1;
+        setTimeout(() => {
+          setCacheBust(Date.now());
+        }, 1200);
+      }
+    }
+  };
+
   if (!src || hasError) {
     return <>{fallback || <FileText className="size-8 text-slate-300" />}</>;
   }
+
+  const finalSrc = src ? (cacheBust ? `${src}${src.includes("?") ? "&" : "?"}_t=${cacheBust}` : src) : "";
 
   return (
     <div ref={containerRef} className="relative flex h-full w-full items-center justify-center overflow-hidden">
@@ -2238,12 +2258,12 @@ function LazyPreviewImage({
       {isVisible && (
         // eslint-disable-next-line @next/next/no-img-element
         <img
-          key={retryCount}
-          src={src}
+          key={`${retryCount}-${cacheBust}`}
+          src={finalSrc}
           alt={alt}
           loading="lazy"
           decoding="async"
-          onLoad={() => setIsLoaded(true)}
+          onLoad={handleImageLoad}
           onError={handleImageError}
           className={cn(
             className,
@@ -2404,6 +2424,7 @@ function LargeSheetPreviewCarousel({
                 <LazyPreviewImage
                   src={thumbUrl}
                   alt={`Preview of ${doc.filename}`}
+                  isImage={doc.isImage}
                   className={cn(
                     "h-full w-full object-contain rounded-lg transition-all",
                     !isColor && "grayscale contrast-105 brightness-95"
