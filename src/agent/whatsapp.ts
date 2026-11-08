@@ -161,6 +161,9 @@ export class WhatsAppAgentService {
   private retryBatches: Map<string, PendingSenderBatch> = new Map();
   private retryTimer: NodeJS.Timeout | null = null;
   private pendingRepliesQueue: PendingReply[] = [];
+  // Serialized outbound reply queue to pace messages under heavy concurrent load (prevents Meta spam bans)
+  private outboundReplyQueue: PendingReply[] = [];
+  private isDrainingOutboundQueue = false;
 
   // Anti-ban safety: track timestamps of replies to prevent rapid multi-burst spam
   private lastReplyTimeBySender: Map<string, number> = new Map();
@@ -1522,8 +1525,8 @@ export class WhatsAppAgentService {
   }
 
   /**
-   * Sends a WhatsApp reply immediately if socket is connected,
-   * or enqueues it to be sent the moment the socket re-establishes connection.
+   * Enqueues a reply into the serialized outbound queue to ensure safe delivery,
+   * natural typing presence, and adaptive pacing under high concurrent load (prevents Meta bans).
    */
   private async sendOrQueueReply(
     remoteJid: string,
@@ -1531,45 +1534,76 @@ export class WhatsAppAgentService {
     replyText: string,
     lastMessage?: WAMessage,
   ): Promise<void> {
-    if (!this.socket || this.state !== "connected") {
-      logger.info(`WhatsApp socket offline; queued reply for +${senderPhone} for delivery upon reconnect.`);
-      this.pendingRepliesQueue.push({ remoteJid, senderPhone, replyText, lastMessage });
-      return;
-    }
+    this.outboundReplyQueue.push({ remoteJid, senderPhone, replyText, lastMessage });
+    void this.drainOutboundReplyQueue();
+  }
+
+  private async drainOutboundReplyQueue(): Promise<void> {
+    if (this.isDrainingOutboundQueue) return;
+    this.isDrainingOutboundQueue = true;
 
     try {
-      // Anti-ban protections:
-      // 1. Send blue tick read-receipt so Meta telemetry sees the message was opened
-      // 2. Simulate natural typing presence with quick presence update (200ms - 500ms)
-      if (lastMessage?.key) {
+      while (this.outboundReplyQueue.length > 0) {
+        if (!this.socket || this.state !== "connected") {
+          logger.info(
+            `WhatsApp socket offline; queued ${this.outboundReplyQueue.length} reply(ies) for reconnect delivery.`,
+          );
+          this.pendingRepliesQueue.push(...this.outboundReplyQueue.splice(0, this.outboundReplyQueue.length));
+          break;
+        }
+
+        const item = this.outboundReplyQueue.shift();
+        if (!item) break;
+
+        const { remoteJid, senderPhone, replyText, lastMessage } = item;
+
         try {
-          await this.socket.readMessages([lastMessage.key]);
-        } catch {
-          // ignore
+          // Anti-ban protections:
+          // 1. Send blue tick read-receipt so Meta telemetry sees message was opened
+          if (lastMessage?.key) {
+            try {
+              await this.socket.readMessages([lastMessage.key]);
+            } catch {
+              // ignore
+            }
+          }
+
+          // 2. Natural typing presence update (200ms - 350ms)
+          try {
+            await this.socket.sendPresenceUpdate("composing", remoteJid);
+            const humanDelay = Math.floor(Math.random() * 150) + 200;
+            await new Promise((resolve) => setTimeout(resolve, humanDelay));
+            await this.socket.sendPresenceUpdate("paused", remoteJid);
+          } catch {
+            // ignore
+          }
+
+          // 3. Dispatch message
+          try {
+            await this.socket.sendMessage(remoteJid, { text: replyText }, { quoted: lastMessage });
+            logger.info(`Sent Printiva reply to +${senderPhone} (quoted)`);
+          } catch (sendErr) {
+            logger.warn(`Quoted reply failed, trying direct reply to ${remoteJid}:`, { error: sendErr });
+            await this.socket.sendMessage(remoteJid, { text: replyText });
+            logger.info(`Sent Printiva reply to +${senderPhone} (direct)`);
+          }
+
+          // 4. Adaptive pacing delay between different recipients
+          if (this.outboundReplyQueue.length > 0) {
+            // Under heavy queue backlog (> 10 items), pace briskly at 250ms so users get links quickly.
+            // Under normal load, pace gently at 500ms.
+            const interDelay = this.outboundReplyQueue.length > 10 ? 250 : 500;
+            await new Promise((resolve) => setTimeout(resolve, interDelay));
+          }
+        } catch (socketErr) {
+          logger.warn(`Failed to dispatch WhatsApp message to +${senderPhone} (socket drop); queued for reconnect retry:`, {
+            error: socketErr,
+          });
+          this.pendingRepliesQueue.push(item);
         }
       }
-      try {
-        await this.socket.sendPresenceUpdate("composing", remoteJid);
-        const humanDelay = Math.floor(Math.random() * 300) + 200;
-        await new Promise((resolve) => setTimeout(resolve, humanDelay));
-        await this.socket.sendPresenceUpdate("paused", remoteJid);
-      } catch {
-        // ignore
-      }
-
-      try {
-        await this.socket.sendMessage(remoteJid, { text: replyText }, { quoted: lastMessage });
-        logger.info(`Sent Printiva reply to +${senderPhone} (quoted)`);
-      } catch (sendErr) {
-        logger.warn(`Quoted reply failed, trying direct reply to ${remoteJid}:`, { error: sendErr });
-        await this.socket.sendMessage(remoteJid, { text: replyText });
-        logger.info(`Sent Printiva reply to +${senderPhone} (direct)`);
-      }
-    } catch (socketErr) {
-      logger.warn(`Failed to dispatch WhatsApp message to +${senderPhone} (socket drop); queued for reconnect retry:`, {
-        error: socketErr,
-      });
-      this.pendingRepliesQueue.push({ remoteJid, senderPhone, replyText, lastMessage });
+    } finally {
+      this.isDrainingOutboundQueue = false;
     }
   }
 

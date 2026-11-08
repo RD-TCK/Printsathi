@@ -1042,6 +1042,60 @@ export class AgentDaemon {
   }
 
   private precachingDocIds: Set<string> = new Set();
+  private precacheQueue: Array<{
+    order: any;
+    doc: any;
+    targetPath: string;
+    matchingJob: any;
+  }> = [];
+  private activePrecacheCount = 0;
+  private static readonly MAX_CONCURRENT_PRECACHES = 5;
+
+  private drainPrecacheQueue(): void {
+    while (
+      this.activePrecacheCount < AgentDaemon.MAX_CONCURRENT_PRECACHES &&
+      this.precacheQueue.length > 0
+    ) {
+      const item = this.precacheQueue.shift();
+      if (!item) break;
+      this.activePrecacheCount++;
+
+      void (async () => {
+        const { order, doc, targetPath, matchingJob } = item;
+        try {
+          if (!fs.existsSync(targetPath) || fs.statSync(targetPath).size === 0) {
+            logger.info(`⚡ Pre-caching document "${doc.filename}" for Token #${order.tokenNumber ?? order.publicId}...`);
+            const jobIdToUse = matchingJob?.id;
+            const tmpPath = `${targetPath}.${Date.now()}.tmp`;
+            await this.client.downloadDocument(doc.id, jobIdToUse, tmpPath);
+            if (fs.existsSync(tmpPath) && fs.statSync(tmpPath).size > 0) {
+              fs.renameSync(tmpPath, targetPath);
+            }
+            logger.info(`✅ Successfully pre-cached "${doc.filename}" in local SSD cache (0s latency on print).`);
+          }
+          await this.client.reportPrecacheComplete(doc.id, order.id);
+
+          // Optimization: Pre-slice custom page ranges immediately after download
+          if (matchingJob?.id && matchingJob?.pagesConfig?.length) {
+            const preslicedPath = getPreslicedSpoolPath(matchingJob.id, matchingJob.duplexStep);
+            if (!fs.existsSync(preslicedPath) || fs.statSync(preslicedPath).size === 0) {
+              void presliceJobDocument(targetPath, matchingJob.id, matchingJob.pagesConfig, {
+                duplexStep: matchingJob.duplexStep,
+              }).catch(() => {});
+            }
+          }
+        } catch (err) {
+          logger.debug(`Background pre-cache skipped or failed for doc ${doc.id}:`, {
+            err: err instanceof Error ? err.message : String(err),
+          });
+        } finally {
+          this.precachingDocIds.delete(doc.id);
+          this.activePrecacheCount--;
+          this.drainPrecacheQueue();
+        }
+      })();
+    }
+  }
 
   async precachePendingCounterDocuments(): Promise<void> {
     if (!this.isRunning || !isConfigPaired(this.config)) return;
@@ -1087,31 +1141,10 @@ export class AgentDaemon {
           }
 
           this.precachingDocIds.add(doc.id);
-          void (async () => {
-            try {
-              logger.info(`⚡ Pre-caching document "${doc.filename}" for Token #${order.tokenNumber ?? order.publicId}...`);
-              // Provide matching jobId if available so production servers requiring jobId accept the request
-              const jobIdToUse = matchingJob?.id;
-              await this.client.downloadDocument(doc.id, jobIdToUse, targetPath);
-              logger.info(`✅ Successfully pre-cached "${doc.filename}" in local SSD cache (0s latency on print).`);
-              await this.client.reportPrecacheComplete(doc.id, order.id);
-
-              // Optimization: Pre-slice custom page ranges immediately after download
-              if (matchingJob?.id && matchingJob?.pagesConfig?.length) {
-                void presliceJobDocument(targetPath, matchingJob.id, matchingJob.pagesConfig, {
-                  duplexStep: matchingJob.duplexStep,
-                }).catch(() => {});
-              }
-            } catch (err) {
-              logger.debug(`Background pre-cache skipped or failed for doc ${doc.id}:`, {
-                err: err instanceof Error ? err.message : String(err),
-              });
-            } finally {
-              this.precachingDocIds.delete(doc.id);
-            }
-          })();
+          this.precacheQueue.push({ order, doc, targetPath, matchingJob });
         }
       }
+      this.drainPrecacheQueue();
     } catch {
       // Non-fatal
     }
