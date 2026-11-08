@@ -108,3 +108,4 @@ export async function POST(request: Request) {
   console.error(`[preview-image] Failed to upload preview for ${documentId}:`, lastError);
   return NextResponse.json({ error: "Failed to store preview image." }, { status: 500 });
 }
+
