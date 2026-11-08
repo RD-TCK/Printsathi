@@ -32,14 +32,14 @@ export default function DownloadPage() {
         </p>
         <div className="mt-6 flex flex-wrap items-center gap-4">
           <a
-            href="https://github.com/RD-TCK/Printsathi/releases/download/v1.8.25/PrintivaAgent.exe"
+            href="/api/agent/download"
             className="inline-flex items-center gap-2 rounded-xl bg-white px-5 py-3 font-semibold text-brand-900 shadow-sm transition hover:bg-white/90"
           >
             <Download className="size-5" />
-            Download Windows Agent (v1.8.25)
+            Download Windows Agent (v1.8.27)
           </a>
           <span className="text-xs text-white/70">
-            Version 1.8.25 &bull; 64-bit Windows 10/11
+            Version 1.8.27 &bull; 64-bit Windows 10/11
           </span>
         </div>
       </div>
