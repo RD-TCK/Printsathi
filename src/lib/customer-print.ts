@@ -6,6 +6,7 @@ export const rangeSchema = z.object({
   colorMode: z.enum(["black_and_white", "color"]),
   paperSize: z.enum(["a4", "a3", "letter", "legal"]),
   sideMode: z.enum(["single_sided", "double_sided"]).default("single_sided"),
+  orientation: z.enum(["portrait", "landscape"]).default("portrait").optional(),
   copies: z.coerce.number().int().min(1).max(100).default(1),
 });
 
@@ -48,12 +49,15 @@ export function countModes(ranges: Array<PrintRange | Record<string, unknown>>):
 } {
   return ranges.reduce<{ color: number; black_and_white: number }>(
     (result, range) => {
-      const copies = Math.max(1, Number(range.copies) || 1);
-      const start = Math.max(1, Number(range.startPage) || 1);
-      const end = Math.max(start, Number(range.endPage) || start);
-      const pages = (end - start + 1) * copies;
-      const mode = (range.colorMode as "color" | "black_and_white") === "color" ? "color" : "black_and_white";
-      result[mode] += pages;
+      const start = Number(range.startPage) || 1;
+      const end = Number(range.endPage) || start;
+      const copies = Number(range.copies) || 1;
+      const count = Math.max(0, end - start + 1) * copies;
+      if (range.colorMode === "color") {
+        result.color += count;
+      } else {
+        result.black_and_white += count;
+      }
       return result;
     },
     { color: 0, black_and_white: 0 },

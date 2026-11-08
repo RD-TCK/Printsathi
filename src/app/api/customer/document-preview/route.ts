@@ -6,7 +6,7 @@ import { z } from "zod";
 import sharp from "sharp";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import { hashGuestOrderToken } from "@/lib/guest-order";
-import { extractImageFromPdf, renderPdfFirstPage } from "@/lib/pdf-preview";
+import { renderPdfPage } from "@/lib/pdf-preview";
 
 export const runtime = "nodejs";
 
@@ -14,6 +14,7 @@ const QuerySchema = z.object({
   documentId: z.string().uuid(),
   orderId: z.string().uuid(),
   accessToken: z.string().min(10),
+  page: z.coerce.number().min(1).max(500).optional(),
   w: z.coerce.number().min(60).max(2000).optional(),
 });
 
@@ -117,6 +118,7 @@ export async function GET(request: Request) {
     documentId: url.searchParams.get("documentId"),
     orderId: url.searchParams.get("orderId"),
     accessToken: url.searchParams.get("accessToken") || url.searchParams.get("token"),
+    page: url.searchParams.get("page") || undefined,
     w: url.searchParams.get("w") || undefined,
   });
 
@@ -124,7 +126,8 @@ export async function GET(request: Request) {
     return NextResponse.json({ error: "Missing or invalid document preview parameters." }, { status: 400 });
   }
 
-  const { documentId, orderId, accessToken, w: targetWidth } = parsed.data;
+  const { documentId, orderId, accessToken, page: requestedPage, w: targetWidth } = parsed.data;
+  const pageNumber = requestedPage || 1;
   const client = createSupabaseAdminClient();
   if (!client) {
     return NextResponse.json({ error: "Service unavailable." }, { status: 503 });
@@ -160,16 +163,18 @@ export async function GET(request: Request) {
   const ext = extMatch ? `.${extMatch[1].toLowerCase()}` : "";
   const isImageDoc = imageExtensions.has(ext) || Boolean(doc.original_filename.match(/^(photo_|image_)/i));
 
-  // 1. First, check if a direct preview.jpg exists for this document in storage
-  const standardPreviewPath = `shops/${order.shop_id}/orders/${orderId}/documents/${documentId}/preview.jpg`;
-  const legacyPreviewPath = doc.storage_path.replace(/source\.pdf$/, "preview.jpg");
-  const previewPath = doc.storage_path.startsWith("local://") ? standardPreviewPath : legacyPreviewPath;
-  let { data: previewBlob } = await client.storage.from("print-documents").download(previewPath);
+  // 1. Check if a high-fidelity v2 preview exists in Supabase storage for this document & page
+  const suffix = pageNumber === 1 ? "" : `_p${pageNumber}`;
+  const standardPreviewV2Path = `shops/${order.shop_id}/orders/${orderId}/documents/${documentId}/preview_v2${suffix}.jpg`;
+  const legacyPreviewV2Path = doc.storage_path.replace(/source\.pdf$/, `preview_v2${suffix}.jpg`);
+  const previewV2Path = doc.storage_path.startsWith("local://") ? standardPreviewV2Path : legacyPreviewV2Path;
+
+  let { data: previewBlob } = await client.storage.from("print-documents").download(previewV2Path);
 
   if (!previewBlob || previewBlob.size === 0) {
     // Retry once in case of storage replication or upload concurrency
-    await new Promise((r) => setTimeout(r, 200));
-    const { data: secondTry } = await client.storage.from("print-documents").download(previewPath);
+    await new Promise((r) => setTimeout(r, 150));
+    const { data: secondTry } = await client.storage.from("print-documents").download(previewV2Path);
     if (secondTry && secondTry.size > 0) {
       previewBlob = secondTry;
     }
@@ -184,6 +189,8 @@ export async function GET(request: Request) {
     headers.set("Cache-Control", "private, max-age=86400, stale-while-revalidate=604800");
     headers.set("Access-Control-Allow-Origin", "*");
     headers.set("Content-Disposition", `inline; filename="${encodeURIComponent(doc.original_filename)}"`);
+    headers.set("X-Page-Number", String(pageNumber));
+    headers.set("X-Total-Pages", String(doc.page_count || 1));
 
     return new NextResponse(new Uint8Array(optimizedBuffer), {
       status: 200,
@@ -191,7 +198,7 @@ export async function GET(request: Request) {
     });
   }
 
-  // If the document is stored strictly locally on the shop PC and preview was not found in cloud storage:
+  // If stored strictly locally on the shop PC:
   if (doc.storage_path.startsWith("local://")) {
     const rawId = doc.storage_path
       .replace("local://", "")
@@ -199,7 +206,6 @@ export async function GET(request: Request) {
       .replace(/^doc_/, "")
       .replace(/[^A-Za-z0-9_-]/g, "");
 
-    // 1. Check local disk cache if running on Windows (e.g. localhost dev/desktop agent)
     const appData =
       process.env.LOCALAPPDATA ||
       (process.platform === "win32" ? path.join(os.homedir(), "AppData", "Local") : "");
@@ -212,12 +218,11 @@ export async function GET(request: Request) {
       if (pathToRead) {
         try {
           const pdfBuf = fs.readFileSync(pathToRead);
-          const rendered = await renderPdfFirstPage(pdfBuf, targetWidth || 800);
+          const rendered = await renderPdfPage(pdfBuf, pageNumber, targetWidth || 900);
           if (rendered?.buffer) {
-            // Opportunistically upload to Supabase Storage so subsequent remote/mobile requests find it instantly
             void client.storage
               .from("print-documents")
-              .upload(standardPreviewPath, rendered.buffer, {
+              .upload(standardPreviewV2Path, rendered.buffer, {
                 contentType: rendered.mimeType || "image/jpeg",
                 upsert: true,
               })
@@ -229,6 +234,8 @@ export async function GET(request: Request) {
             headers.set("Cache-Control", "private, max-age=86400, stale-while-revalidate=604800");
             headers.set("Access-Control-Allow-Origin", "*");
             headers.set("Content-Disposition", `inline; filename="${encodeURIComponent(doc.original_filename)}"`);
+            headers.set("X-Page-Number", String(rendered.pageNumber));
+            headers.set("X-Total-Pages", String(rendered.totalPages));
 
             return new NextResponse(new Uint8Array(optimizedBuffer), {
               status: 200,
@@ -241,8 +248,6 @@ export async function GET(request: Request) {
       }
     }
 
-    // 2. Return vector SVG document sheet so <img> tags never show broken image icons.
-    // For images, set no-cache so when the thumbnail finishes uploading, the client sees it immediately.
     const svg = renderDocPlaceholderSvg({
       filename: doc.original_filename,
       pageCount: doc.page_count,
@@ -266,7 +271,7 @@ export async function GET(request: Request) {
     });
   }
 
-  // 2. Otherwise download the stored document file (source.pdf) from cloud
+  // 2. Otherwise download the stored document file (source.pdf) from cloud storage
   const { data: fileBlob, error: downloadError } = await client.storage
     .from("print-documents")
     .download(doc.storage_path);
@@ -290,19 +295,14 @@ export async function GET(request: Request) {
   const arrayBuf = await fileBlob.arrayBuffer();
   const buffer = Buffer.from(arrayBuf);
 
-  // If this document is an image (or single-photo PDF), extract the original image stream.
-  // For WhatsApp/image uploads the source.pdf is a single-page image PDF created by pdf-lib.
-  // First try fast binary extraction of the embedded JPEG/PNG; if that fails (e.g. pdf-lib
-  // used object streams or compressed cross-reference tables that hide the raw image bytes),
-  // fall back to rendering the PDF page via sharp so we always serve a real preview instead
-  // of the SVG placeholder card.
+  // Rasterize the requested page using full typography font support
   if (isImageDoc || doc.mime_type === "application/pdf" || doc.storage_path.endsWith(".pdf")) {
-    const rendered = await renderPdfFirstPage(buffer, targetWidth || 900);
+    const rendered = await renderPdfPage(buffer, pageNumber, targetWidth || 900);
     if (rendered?.buffer) {
-      // Opportunistically cache preview.jpg for instant subsequent requests
+      // Opportunistically cache preview_v2 in Supabase storage
       void client.storage
         .from("print-documents")
-        .upload(previewPath, rendered.buffer, {
+        .upload(previewV2Path, rendered.buffer, {
           contentType: rendered.mimeType || "image/jpeg",
           upsert: true,
         })
@@ -315,6 +315,8 @@ export async function GET(request: Request) {
       headers.set("Cache-Control", "private, max-age=86400, stale-while-revalidate=604800");
       headers.set("Access-Control-Allow-Origin", "*");
       headers.set("Content-Disposition", `inline; filename="${encodeURIComponent(doc.original_filename)}"`);
+      headers.set("X-Page-Number", String(rendered.pageNumber));
+      headers.set("X-Total-Pages", String(rendered.totalPages));
 
       return new NextResponse(new Uint8Array(optimizedBuffer), {
         status: 200,
@@ -337,8 +339,7 @@ export async function GET(request: Request) {
     });
   }
 
-  // Non-image document where no preview thumbnail could be extracted:
-  // Render clean vector SVG card instead of raw PDF bytes so HTML <img> renders flawlessly.
+  // Non-image document where no preview thumbnail could be rendered:
   const svg = renderDocPlaceholderSvg({
     filename: doc.original_filename,
     pageCount: doc.page_count,

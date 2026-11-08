@@ -1,4 +1,6 @@
 import zlib from "node:zlib";
+import path from "node:path";
+import fs, { existsSync } from "node:fs";
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 let sharpModule: any = undefined;
@@ -13,6 +15,143 @@ function getSharp(): any {
     }
   }
   return sharpModule;
+}
+
+const standardFontCache = new Map<string, Uint8Array>();
+const cmapDataCache = new Map<string, Uint8Array>();
+
+class ResilientStandardFontDataFactory {
+  baseUrl: string;
+  constructor(options?: { baseUrl?: string }) {
+    this.baseUrl =
+      options?.baseUrl ||
+      path.join(process.cwd(), "node_modules", "pdfjs-dist", "standard_fonts");
+  }
+
+  async fetch({ filename }: { filename: string }): Promise<Uint8Array> {
+    if (!filename) throw new Error("Font filename is required");
+    if (standardFontCache.has(filename)) {
+      return standardFontCache.get(filename)!;
+    }
+
+    const candidateDirs = [
+      this.baseUrl,
+      path.join(process.cwd(), "node_modules", "pdfjs-dist", "standard_fonts"),
+      path.resolve(__dirname, "../../node_modules/pdfjs-dist/standard_fonts"),
+      path.resolve(__dirname, "../../../node_modules/pdfjs-dist/standard_fonts"),
+      path.resolve(__dirname, "node_modules/pdfjs-dist/standard_fonts"),
+    ];
+
+    for (const dir of candidateDirs) {
+      try {
+        const fullPath = path.join(dir, filename);
+        if (existsSync(fullPath)) {
+          const bytes = new Uint8Array(await fs.promises.readFile(fullPath));
+          standardFontCache.set(filename, bytes);
+          return bytes;
+        }
+      } catch {
+        // continue
+      }
+    }
+
+    // CDN fallback
+    try {
+      const res = await fetch(`https://unpkg.com/pdfjs-dist@3.11.174/standard_fonts/${filename}`, {
+        signal: AbortSignal.timeout(4000),
+      });
+      if (res.ok) {
+        const bytes = new Uint8Array(await res.arrayBuffer());
+        standardFontCache.set(filename, bytes);
+        return bytes;
+      }
+    } catch {
+      // ignore
+    }
+
+    throw new Error(`[ResilientStandardFontDataFactory] Font file could not be loaded: ${filename}`);
+  }
+}
+
+class ResilientCMapReaderFactory {
+  baseUrl: string;
+  isCompressed: boolean;
+
+  constructor(options?: { baseUrl?: string; isCompressed?: boolean }) {
+    this.baseUrl =
+      options?.baseUrl ||
+      path.join(process.cwd(), "node_modules", "pdfjs-dist", "cmaps");
+    this.isCompressed = options?.isCompressed !== false;
+  }
+
+  async fetch({ name }: { name: string }): Promise<{ cMapData: Uint8Array; compressionType: number }> {
+    if (!name) throw new Error("CMap name is required");
+    const ext = this.isCompressed ? ".bcmap" : "";
+    const filename = `${name}${ext}`;
+    const compressionType = this.isCompressed ? 1 : 0;
+
+    if (cmapDataCache.has(filename)) {
+      return { cMapData: cmapDataCache.get(filename)!, compressionType };
+    }
+
+    const candidateDirs = [
+      this.baseUrl,
+      path.join(process.cwd(), "node_modules", "pdfjs-dist", "cmaps"),
+      path.resolve(__dirname, "../../node_modules/pdfjs-dist/cmaps"),
+      path.resolve(__dirname, "../../../node_modules/pdfjs-dist/cmaps"),
+    ];
+
+    for (const dir of candidateDirs) {
+      try {
+        const fullPath = path.join(dir, filename);
+        if (existsSync(fullPath)) {
+          const bytes = new Uint8Array(await fs.promises.readFile(fullPath));
+          cmapDataCache.set(filename, bytes);
+          return { cMapData: bytes, compressionType };
+        }
+      } catch {
+        // continue
+      }
+    }
+
+    try {
+      const res = await fetch(`https://unpkg.com/pdfjs-dist@3.11.174/cmaps/${filename}`, {
+        signal: AbortSignal.timeout(4000),
+      });
+      if (res.ok) {
+        const bytes = new Uint8Array(await res.arrayBuffer());
+        cmapDataCache.set(filename, bytes);
+        return { cMapData: bytes, compressionType };
+      }
+    } catch {
+      // ignore
+    }
+
+    throw new Error(`[ResilientCMapReaderFactory] CMap could not be loaded: ${filename}`);
+  }
+}
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function createNapiCanvasFactory(napiCanvas: any) {
+  return {
+    create(width: number, height: number) {
+      const canvas = napiCanvas.createCanvas(Math.max(1, Math.round(width)), Math.max(1, Math.round(height)));
+      const context = canvas.getContext("2d");
+      return { canvas, context };
+    },
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    reset(canvasAndContext: { canvas: any; context: any }, width: number, height: number) {
+      canvasAndContext.canvas.width = Math.max(1, Math.round(width));
+      canvasAndContext.canvas.height = Math.max(1, Math.round(height));
+    },
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    destroy(canvasAndContext: { canvas: any; context: any }) {
+      canvasAndContext.canvas.width = 0;
+      canvasAndContext.canvas.height = 0;
+      canvasAndContext.canvas = null;
+      canvasAndContext.context = null;
+    },
+  };
 }
 
 /**
@@ -119,37 +258,15 @@ export async function extractImageFromPdf(pdfBuffer: Buffer): Promise<{ buffer: 
   return null;
 }
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-function createNapiCanvasFactory(napiCanvas: any) {
-  return {
-    create(width: number, height: number) {
-      const canvas = napiCanvas.createCanvas(Math.max(1, Math.round(width)), Math.max(1, Math.round(height)));
-      const context = canvas.getContext("2d");
-      return { canvas, context };
-    },
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    reset(canvasAndContext: { canvas: any; context: any }, width: number, height: number) {
-      canvasAndContext.canvas.width = Math.max(1, Math.round(width));
-      canvasAndContext.canvas.height = Math.max(1, Math.round(height));
-    },
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    destroy(canvasAndContext: { canvas: any; context: any }) {
-      canvasAndContext.canvas.width = 0;
-      canvasAndContext.canvas.height = 0;
-      canvasAndContext.canvas = null;
-      canvasAndContext.context = null;
-    },
-  };
-}
-
 /**
- * Renders the first page of ANY PDF buffer (text, fonts, vectors, Word docs, photos)
- * into a high-quality JPEG image buffer.
+ * Renders any specified page of ANY PDF buffer (text, fonts, vectors, Word docs, photos)
+ * into a high-quality JPEG image buffer with full typography support.
  */
-export async function renderPdfFirstPage(
+export async function renderPdfPage(
   pdfBuffer: Buffer,
+  pageNumber = 1,
   targetWidth = 800,
-): Promise<{ buffer: Buffer; mimeType: string } | null> {
+): Promise<{ buffer: Buffer; mimeType: string; totalPages: number; pageNumber: number } | null> {
   try {
     // eslint-disable-next-line @typescript-eslint/no-require-imports
     const napiCanvas = require("@napi-rs/canvas");
@@ -163,14 +280,12 @@ export async function renderPdfFirstPage(
 
     // eslint-disable-next-line @typescript-eslint/no-require-imports
     const pdfjs = require("pdfjs-dist/legacy/build/pdf.js");
-    // eslint-disable-next-line @typescript-eslint/no-require-imports
-    const path = require("node:path");
-    const fontDir = path.join(process.cwd(), "node_modules", "pdfjs-dist", "standard_fonts") + path.sep;
     const canvasFactory = createNapiCanvasFactory(napiCanvas);
 
     const loadingTask = pdfjs.getDocument({
       data: new Uint8Array(pdfBuffer),
-      standardFontDataUrl: fontDir,
+      StandardFontDataFactory: ResilientStandardFontDataFactory,
+      CMapReaderFactory: ResilientCMapReaderFactory,
       disableFontFace: false,
       canvasFactory,
     });
@@ -178,7 +293,10 @@ export async function renderPdfFirstPage(
     const pdfDoc = await loadingTask.promise;
     if (!pdfDoc || pdfDoc.numPages < 1) return null;
 
-    const page = await pdfDoc.getPage(1);
+    const totalPages = pdfDoc.numPages;
+    const clampedPage = Math.min(totalPages, Math.max(1, pageNumber));
+
+    const page = await pdfDoc.getPage(clampedPage);
     const initialViewport = page.getViewport({ scale: 1.0 });
     const scale = Math.min(2.5, Math.max(0.6, targetWidth / Math.max(1, initialViewport.width)));
     const viewport = page.getViewport({ scale });
@@ -194,23 +312,34 @@ export async function renderPdfFirstPage(
     }).promise;
 
     const buffer = canvas.toBuffer("image/jpeg", 82);
-    return { buffer, mimeType: "image/jpeg" };
+    return { buffer, mimeType: "image/jpeg", totalPages, pageNumber: clampedPage };
   } catch (error) {
-    // Fallback: only extract embedded image if rasterization failed completely
-    // AND the image is large enough to represent a full page (not a tiny icon or logo)
-    try {
-      const fallback = await extractImageFromPdf(pdfBuffer);
-      const sharpFn = getSharp();
-      if (fallback?.buffer && sharpFn) {
-        const meta = await sharpFn(fallback.buffer).metadata();
-        if (meta.width && meta.height && meta.width >= 400 && meta.height >= 400) {
-          return fallback;
+    if (pageNumber === 1) {
+      try {
+        const fallback = await extractImageFromPdf(pdfBuffer);
+        const sharpFn = getSharp();
+        if (fallback?.buffer && sharpFn) {
+          const meta = await sharpFn(fallback.buffer).metadata();
+          if (meta.width && meta.height && meta.width >= 400 && meta.height >= 400) {
+            return { ...fallback, totalPages: 1, pageNumber: 1 };
+          }
         }
+      } catch {
+        // ignore
       }
-    } catch {
-      // ignore
     }
     return null;
   }
 }
 
+/**
+ * Backward-compatible helper that renders page 1 of a PDF.
+ */
+export async function renderPdfFirstPage(
+  pdfBuffer: Buffer,
+  targetWidth = 800,
+): Promise<{ buffer: Buffer; mimeType: string } | null> {
+  const result = await renderPdfPage(pdfBuffer, 1, targetWidth);
+  if (!result) return null;
+  return { buffer: result.buffer, mimeType: result.mimeType };
+}
