@@ -1282,14 +1282,17 @@ export class WhatsAppAgentService {
         chunkResults.push(chunkResult);
 
         for (const d of chunkResult.documents) {
-          // If this file had a 'retrying' event in recentEvents, update it in place to 'success'
+          // If this sender had a 'retrying' event in recentEvents, update it in place to 'success'
           const existingEvent = this.recentEvents.find(
-            (ev) => ev.senderPhone === `+${senderPhone}` && ev.filename === d.filename && ev.status === "retrying",
+            (ev) =>
+              ev.senderPhone === `+${senderPhone}` &&
+              (ev.filename === d.filename || ev.status === "retrying"),
           );
           if (existingEvent) {
             existingEvent.status = "success";
             existingEvent.configUrl = chunkResult.configUrl;
             existingEvent.pageCount = d.pageCount;
+            existingEvent.filename = d.filename;
             existingEvent.timestamp = new Date().toLocaleTimeString();
             existingEvent.errorMessage = undefined;
           } else {
@@ -1303,6 +1306,15 @@ export class WhatsAppAgentService {
               configUrl: chunkResult.configUrl,
               status: "success",
             });
+          }
+        }
+
+        // Clean up any remaining stale "retrying" events for this sender that were superseded by this successful batch
+        for (const ev of this.recentEvents) {
+          if (ev.senderPhone === `+${senderPhone}` && ev.status === "retrying") {
+            ev.status = "success";
+            ev.configUrl = chunkResult.configUrl;
+            ev.errorMessage = undefined;
           }
         }
       }
@@ -1549,6 +1561,7 @@ export class WhatsAppAgentService {
             `WhatsApp socket offline; queued ${this.outboundReplyQueue.length} reply(ies) for reconnect delivery.`,
           );
           this.pendingRepliesQueue.push(...this.outboundReplyQueue.splice(0, this.outboundReplyQueue.length));
+          this.scheduleRetryQueue();
           break;
         }
 
@@ -1560,7 +1573,7 @@ export class WhatsAppAgentService {
         try {
           // Anti-ban protections:
           // 1. Send blue tick read-receipt so Meta telemetry sees message was opened
-          if (lastMessage?.key) {
+          if (lastMessage?.key?.id) {
             try {
               await this.socket.readMessages([lastMessage.key]);
             } catch {
@@ -1579,13 +1592,14 @@ export class WhatsAppAgentService {
           }
 
           // 3. Dispatch message
+          const quotedOption = lastMessage?.key?.id ? { quoted: lastMessage } : undefined;
           try {
-            await this.socket.sendMessage(remoteJid, { text: replyText }, { quoted: lastMessage });
-            logger.info(`Sent Printiva reply to +${senderPhone} (quoted)`);
+            await this.socket.sendMessage(remoteJid, { text: replyText }, quotedOption);
+            logger.info(`Sent Printiva reply to +${senderPhone}${quotedOption ? " (quoted)" : " (direct)"}`);
           } catch (sendErr) {
             logger.warn(`Quoted reply failed, trying direct reply to ${remoteJid}:`, { error: sendErr });
             await this.socket.sendMessage(remoteJid, { text: replyText });
-            logger.info(`Sent Printiva reply to +${senderPhone} (direct)`);
+            logger.info(`Sent Printiva reply to +${senderPhone} (direct fallback)`);
           }
 
           // 4. Adaptive pacing delay between different recipients
@@ -1600,6 +1614,7 @@ export class WhatsAppAgentService {
             error: socketErr,
           });
           this.pendingRepliesQueue.push(item);
+          this.scheduleRetryQueue();
         }
       }
     } finally {
@@ -1608,7 +1623,8 @@ export class WhatsAppAgentService {
   }
 
   /**
-   * Schedules the next run of processRetryQueue based on earliest nextRetryAt.
+   * Schedules the next run of processRetryQueue based on earliest nextRetryAt
+   * or pending outbound replies that need draining.
    */
   private scheduleRetryQueue(): void {
     if (this.retryTimer) {
@@ -1616,9 +1632,14 @@ export class WhatsAppAgentService {
       this.retryTimer = null;
     }
 
-    if (this.retryBatches.size === 0) return;
+    if (this.retryBatches.size === 0 && this.pendingRepliesQueue.length === 0) return;
 
     let earliest = Infinity;
+    if (this.pendingRepliesQueue.length > 0) {
+      // If there are pending replies queued, recheck and drain briskly
+      earliest = Date.now() + 2000;
+    }
+
     for (const batch of this.retryBatches.values()) {
       if (batch.nextRetryAt && batch.nextRetryAt < earliest) {
         earliest = batch.nextRetryAt;

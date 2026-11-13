@@ -11,7 +11,7 @@ vi.mock("./printer-discovery", () => ({
   discoverWindowsPrinters: mocks.discover,
   isPhysicalPrinter: (printer: { name: string }) => printer.name !== "Microsoft Print to PDF",
 }));
-vi.mock("./logger", () => ({ logger: { info: vi.fn(), error: vi.fn() } }));
+vi.mock("./logger", () => ({ logger: { info: vi.fn(), error: vi.fn(), warn: vi.fn(), debug: vi.fn() } }));
 import {
   cleanSpoolDirectory,
   getPreslicedSpoolPath,
@@ -19,6 +19,8 @@ import {
   prepareAndPrintDocument,
   presliceJobDocument,
   proactiveWarmupPrinter,
+  submitToPrinterSerialized,
+  wakeWindowsPrinterOptimistic,
 } from "./print-executor";
 
 describe("PDF print submission", () => {
@@ -623,6 +625,67 @@ describe("PDF print submission", () => {
 
     it("cleans old spool files without error", () => {
       expect(() => cleanSpoolDirectory(0)).not.toThrow();
+    });
+
+    it("serializes submissions to the same printer in strict FIFO order", async () => {
+      const order: number[] = [];
+      const task1 = submitToPrinterSerialized("HP LaserJet", async () => {
+        await new Promise((r) => setTimeout(r, 40));
+        order.push(1);
+        return 1;
+      });
+      const task2 = submitToPrinterSerialized("HP LaserJet", async () => {
+        await new Promise((r) => setTimeout(r, 10));
+        order.push(2);
+        return 2;
+      });
+      const task3 = submitToPrinterSerialized("HP LaserJet", async () => {
+        order.push(3);
+        return 3;
+      });
+
+      const [r1, r2, r3] = await Promise.all([task1, task2, task3]);
+      expect(order).toEqual([1, 2, 3]);
+      expect([r1, r2, r3]).toEqual([1, 2, 3]);
+    });
+
+    it("allows different printers to spool in parallel", async () => {
+      const completed: string[] = [];
+      const taskA = submitToPrinterSerialized("Printer A", async () => {
+        await new Promise((r) => setTimeout(r, 50));
+        completed.push("A");
+      });
+      const taskB = submitToPrinterSerialized("Printer B", async () => {
+        await new Promise((r) => setTimeout(r, 10));
+        completed.push("B");
+      });
+
+      await Promise.all([taskA, taskB]);
+      expect(completed).toEqual(["B", "A"]);
+    });
+
+    it("retries print submission and succeeds if first attempt fails", async () => {
+      let callCount = 0;
+      mocks.execute.mockImplementation((_file, _args, _options, callback) => {
+        callCount++;
+        if (callCount === 1) {
+          callback(new Error("Spooler momentarily busy"));
+        } else {
+          callback(null, "", "");
+        }
+      });
+
+      const result = await prepareAndPrintDocument(source, job, printerName);
+      expect(result.success).toBe(true);
+      expect(result.status).toBe("PRINT_SUBMITTED");
+      expect(callCount).toBe(2);
+    });
+
+    it("handles optimistic printer wake-up safely without error", () => {
+      expect(() => {
+        wakeWindowsPrinterOptimistic(printerName);
+        wakeWindowsPrinterOptimistic(printerName);
+      }).not.toThrow();
     });
   });
 });

@@ -134,6 +134,63 @@ export async function proactiveWarmupPrinter(printerName: string): Promise<boole
   return wakeWindowsPrinter(printerName, false);
 }
 
+const inFlightWakeups = new Map<string, Promise<boolean>>();
+
+/**
+ * Optimistically triggers printer wake-up in the background without blocking the print stream.
+ * Uses single-flight deduplication to prevent multiple concurrent PowerShell processes.
+ */
+export function wakeWindowsPrinterOptimistic(printerName: string): void {
+  const isWindows = process.platform === "win32" || os.platform() === "win32";
+  if (!isWindows || process.env.NODE_ENV === "test") return;
+
+  const key = printerName.toLowerCase();
+  if (inFlightWakeups.has(key)) return;
+
+  const promise = wakeWindowsPrinter(printerName, false)
+    .catch((err) => {
+      logger.warn(`Background wake notice for "${printerName}":`, {
+        err: err instanceof Error ? err.message : String(err),
+      });
+      return false;
+    })
+    .finally(() => {
+      inFlightWakeups.delete(key);
+    });
+
+  inFlightWakeups.set(key, promise);
+}
+
+const printerSpoolQueues = new Map<string, Promise<void>>();
+
+/**
+ * Serializes physical print submissions to the same printer to protect
+ * consumer GDI/PCL printer drivers from concurrent port lockups (RPC_S_SERVER_TOO_BUSY).
+ * Different physical printers can spool simultaneously in parallel.
+ */
+export async function submitToPrinterSerialized<T>(
+  printerName: string,
+  task: () => Promise<T>,
+): Promise<T> {
+  const key = printerName.toLowerCase();
+  const previous = printerSpoolQueues.get(key) || Promise.resolve();
+
+  let result!: T;
+  const current = previous
+    .then(async () => {
+      result = await task();
+    })
+    .finally(() => {
+      if (printerSpoolQueues.get(key) === current) {
+        printerSpoolQueues.delete(key);
+      }
+    });
+
+  printerSpoolQueues.set(key, current);
+  await current;
+  return result;
+}
+
 export async function getPrinterQueueCount(printerName: string): Promise<number> {
   const isWindows = process.platform === "win32" || os.platform() === "win32";
   if (!isWindows || process.env.NODE_ENV === "test") return 0;
@@ -703,13 +760,29 @@ export async function prepareAndPrintDocument(
       `Rendering PDF and submitting to Windows printer "${targetPrinterName}" with settings: ${settings.join(",")}`,
     );
     if (printer.isSleeping || printer.status === "offline") {
-      await wakeWindowsPrinter(targetPrinterName);
+      wakeWindowsPrinterOptimistic(targetPrinterName);
     }
-    await execFileAsync(
-      executable,
-      ["-print-to", targetPrinterName, "-silent", "-print-settings", settings.join(","), finalPdfPath],
-      { timeout: 120000, windowsHide: true },
-    );
+
+    await submitToPrinterSerialized(targetPrinterName, async () => {
+      try {
+        await execFileAsync(
+          executable,
+          ["-print-to", targetPrinterName, "-silent", "-print-settings", settings.join(","), finalPdfPath],
+          { timeout: 120000, windowsHide: true },
+        );
+      } catch (sumatraErr) {
+        logger.warn(
+          `Immediate print submission failed on "${targetPrinterName}". Attempting forced wake-up and retry...`,
+          { error: sumatraErr },
+        );
+        await wakeWindowsPrinter(targetPrinterName, true);
+        await execFileAsync(
+          executable,
+          ["-print-to", targetPrinterName, "-silent", "-print-settings", settings.join(","), finalPdfPath],
+          { timeout: 120000, windowsHide: true },
+        );
+      }
+    });
     logger.info(`Job #${job.id.slice(0, 8)} submitted to "${targetPrinterName}"; physical completion is unconfirmed.`);
     return {
       success: true,
@@ -977,13 +1050,34 @@ export async function prepareAndPrintBatch(
       `Rendering combined batch PDF (${totalCalculatedPages} pages across ${batchItems.length} items) and submitting to Windows printer "${targetPrinterName}" with settings: ${settings.join(",")}`,
     );
     if (printer.isSleeping || printer.status === "offline") {
-      await wakeWindowsPrinter(targetPrinterName);
+      wakeWindowsPrinterOptimistic(targetPrinterName);
     }
-    await execFileAsync(
-      executable,
-      ["-print-to", targetPrinterName, "-silent", "-print-settings", settings.join(","), tempExtractedPath],
-      { timeout: 180000, windowsHide: true },
-    );
+
+    if (!tempExtractedPath) {
+      throw new Error("Batch spool PDF was not generated.");
+    }
+    const batchSpoolPath = tempExtractedPath;
+
+    await submitToPrinterSerialized(targetPrinterName, async () => {
+      try {
+        await execFileAsync(
+          executable,
+          ["-print-to", targetPrinterName, "-silent", "-print-settings", settings.join(","), batchSpoolPath],
+          { timeout: 180000, windowsHide: true },
+        );
+      } catch (sumatraErr) {
+        logger.warn(
+          `Immediate batch print submission failed on "${targetPrinterName}". Attempting forced wake-up and retry...`,
+          { error: sumatraErr },
+        );
+        await wakeWindowsPrinter(targetPrinterName, true);
+        await execFileAsync(
+          executable,
+          ["-print-to", targetPrinterName, "-silent", "-print-settings", settings.join(","), batchSpoolPath],
+          { timeout: 180000, windowsHide: true },
+        );
+      }
+    });
 
     logger.info(
       `Batch for Order #${firstJob.orderId?.slice(0, 8)} (${batchItems.length} docs) submitted to "${targetPrinterName}".`,

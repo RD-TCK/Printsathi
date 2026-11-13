@@ -36,10 +36,10 @@ export default function DownloadPage() {
             className="inline-flex items-center gap-2 rounded-xl bg-white px-5 py-3 font-semibold text-brand-900 shadow-sm transition hover:bg-white/90"
           >
             <Download className="size-5" />
-            Download Windows Agent (v1.8.29)
+            Download Windows Agent (v1.8.30)
           </a>
           <span className="text-xs text-white/70">
-            Version 1.8.29 &bull; 64-bit Windows 10/11
+            Version 1.8.30 &bull; 64-bit Windows 10/11
           </span>
         </div>
       </div>
