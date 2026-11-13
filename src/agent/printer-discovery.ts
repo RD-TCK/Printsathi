@@ -360,6 +360,7 @@ export function findBestPrinterForJob(
     busyPrinters?: Set<string> | string[];
     disabledPrinters?: string[];
     allowColorFallbackForMono?: boolean;
+    allowMonoFallbackForColor?: boolean;
     allowOffline?: boolean;
   },
 ): DiscoveredPrinter | null {
@@ -395,8 +396,8 @@ export function findBestPrinterForJob(
         p.name.toLowerCase() === options.requiredPrinterName!.toLowerCase(),
     );
     if (matched) {
-      // 1. Color isolation: Color jobs cannot go to Monochrome printers.
-      if (options.colorMode === "color" && !matched.capabilities?.colorSupport) return null;
+      // 1. Color isolation: Color jobs cannot go to Monochrome printers unless allowMonoFallbackForColor is true
+      if (options.colorMode === "color" && !matched.capabilities?.colorSupport && !options.allowMonoFallbackForColor) return null;
 
       // 2. Strict B&W isolation: B&W jobs cannot go to Color printers unless allowColorFallbackForMono is true
       if (
@@ -459,7 +460,12 @@ export function findBestPrinterForJob(
     // Color jobs MUST route ONLY to a physical printer that explicitly supports Color!
     // A B&W printer marked as "default" will NEVER receive color prints under any circumstances!
     const colorPrinters = compatiblePrinters.filter((p) => p.capabilities?.colorSupport === true);
-    if (colorPrinters.length === 0) return null;
+    if (colorPrinters.length === 0) {
+      if (options.allowMonoFallbackForColor) {
+        return pickBestCandidate(compatiblePrinters);
+      }
+      return null;
+    }
 
     // Use preferred printer ONLY if it is an actual color printer
     if (options.preferredName) {

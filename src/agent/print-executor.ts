@@ -588,9 +588,9 @@ export async function prepareAndPrintDocument(
         `Hardware Isolation Violation: Black & White job #${job.id.slice(0, 8)} cannot be sent to Color printer "${printer.name}" to prevent wasting color ink/toner.`,
       );
     }
-    // 2. Guard against Color job sent to monochrome printer
+    // 2. Guard against Color job sent to monochrome printer (unless mono fallback enabled)
     const isColorJob = (activeConfigs || []).some((c) => c.colorMode === "color");
-    if (isColorJob && !printer.capabilities?.colorSupport) {
+    if (isColorJob && !printer.capabilities?.colorSupport && !job.allowMonoFallback) {
       throw new Error(
         `Hardware Isolation Violation: Color job #${job.id.slice(0, 8)} cannot be sent to Monochrome printer "${printer.name}".`,
       );
@@ -759,7 +759,7 @@ export async function prepareAndPrintDocument(
       settings.push("simplex");
     }
     if (config) {
-      settings.push(config.colorMode === "color" ? "color" : "monochrome");
+      settings.push(config.colorMode === "color" && printer.capabilities?.colorSupport ? "color" : "monochrome");
       if (config.paperSize) {
         settings.push(`paper=${config.paperSize.toUpperCase()}`);
       }
@@ -932,9 +932,10 @@ export async function prepareAndPrintBatch(
     const anyColorJob = batchItems.some((item) =>
       (item.pagesConfigOverride || item.job.pagesConfig || []).some((c) => c.colorMode === "color"),
     );
-    if (anyColorJob && !printer.capabilities?.colorSupport) {
+    const allowMonoFallback = batchItems.some((item) => item.job.allowMonoFallback);
+    if (anyColorJob && !printer.capabilities?.colorSupport && !allowMonoFallback) {
       throw new Error(
-        `Hardware Isolation Violation: Color jobs cannot be sent to Monochrome printer "${printer.name}".`,
+        `Hardware Isolation Violation: Color jobs cannot be sent to Monochrome printer "${printer.name}" without monochrome fallback enabled.`,
       );
     }
 
@@ -1045,7 +1046,7 @@ export async function prepareAndPrintBatch(
       settings.push("simplex");
     }
     const firstConfig = (batchItems[0].pagesConfigOverride || batchItems[0].job.pagesConfig)?.[0];
-    if (anyColorJob) {
+    if (anyColorJob && printer.capabilities?.colorSupport) {
       settings.push("color");
     } else {
       settings.push("monochrome");

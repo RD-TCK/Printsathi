@@ -66,6 +66,8 @@ export interface ClaimedJob {
   requiredPrinterName?: string | null;
   /** When true, allows a B&W job to be spooled to a Color printer (in monochrome mode) if no dedicated mono printer exists */
   allowColorFallback?: boolean;
+  /** When true, allows a Color job to be spooled to a Monochrome printer (in grayscale mode) if no dedicated color printer exists in the shop or on Force Print */
+  allowMonoFallback?: boolean;
   /** Whether this job is the final job of the user's order batch. If false, an empty separator page is omitted until all jobs in the order have finished printing. Defaults to true. */
   isLastJobForOrder?: boolean;
   /** Sibling jobs belonging to the same order batch that can be printed together continuously without stopping the printer */

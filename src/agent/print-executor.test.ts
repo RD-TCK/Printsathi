@@ -520,6 +520,29 @@ describe("PDF print submission", () => {
       expect(result.errorMessage).toContain("cannot be sent to Monochrome printer");
       expect(mocks.execute).not.toHaveBeenCalled();
     });
+
+    it("allows Color job to spool to Monochrome printer in grayscale mode when allowMonoFallback is enabled", async () => {
+      const monoPrinterName = "HP LaserJet M1005 (Mono)";
+      mocks.discover.mockResolvedValue([
+        {
+          name: monoPrinterName,
+          status: "online",
+          capabilities: { colorSupport: false, duplexSupport: false, paperSizes: ["A4"] },
+        },
+      ]);
+
+      const colorJob = {
+        id: "job-color-fallback",
+        totalPages: 1,
+        allowMonoFallback: true,
+        pagesConfig: [{ startPage: 1, endPage: 1, colorMode: "color", paperSize: "a4" }],
+      } as ClaimedJob;
+
+      const result = await prepareAndPrintDocument(source, colorJob, monoPrinterName);
+      expect(result.success).toBe(true);
+      expect(result.status).toBe("PRINT_SUBMITTED");
+      expect(mocks.execute).toHaveBeenCalled();
+    });
   });
 
   describe("continuous batch printing for multi-image orders", () => {

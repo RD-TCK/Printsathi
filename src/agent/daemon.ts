@@ -47,6 +47,7 @@ export class AgentDaemon {
   private lastSentPrintersSignature: string | null = null;
   private processedJobIds: Set<string> = new Set();
   private pendingCompletionJobIds: Set<string> = new Set();
+  private forcedOrderIds: Set<string> = new Set();
 
   private heartbeatTimer: NodeJS.Timeout | null = null;
   private pollTimeout: NodeJS.Timeout | null = null;
@@ -719,8 +720,16 @@ export class AgentDaemon {
         (b.pagesConfig || []).some((c) => c.colorMode === "color"),
       );
 
+      const isForcePrinted = this.forcedOrderIds.has(job.orderId);
+      // If no color printer exists in the shop at all, or on Force Print, allow fallback to monochrome
+      const allowMonoFallbackForColor = !hasColorPrinterInShop || job.allowMonoFallback === true || isForcePrinted;
+
       const plan = groups.map((ranges) => {
-        const reqColor = anyJobInBatchRequiresColor || ranges[0].colorMode === "color";
+        const thisRangeRequiresColor = ranges[0].colorMode === "color";
+        // If a color printer is in the shop, try routing color requests (and unified batches) to color.
+        // If no color printer exists in the shop, route to available mono printer.
+        const reqColor = hasColorPrinterInShop && (anyJobInBatchRequiresColor || thisRangeRequiresColor);
+
         const selectedPrinterObj = this.discoveredPrinters.find(
           (p) => p.name.toLowerCase() === (this.config.selectedPrinter || "").toLowerCase(),
         );
@@ -730,7 +739,7 @@ export class AgentDaemon {
             ? undefined
             : this.config.selectedPrinter || job.defaultPrinter;
 
-        const printer = findBestPrinterForJob(this.discoveredPrinters, {
+        let printer = findBestPrinterForJob(this.discoveredPrinters, {
           colorMode: reqColor ? "color" : "black_and_white",
           paperSize: ranges[0].paperSize,
           preferredName,
@@ -738,8 +747,41 @@ export class AgentDaemon {
           requiresDuplex: isDoubleSided && hasHardwareDuplexInShop && !isDuplexEvenStep,
           busyPrinters,
           allowColorFallbackForMono: true,
+          allowMonoFallbackForColor,
           allowOffline: false,
         });
+
+        // Resilience Fallback 1: If batch requested color but none was found, and this specific range is black_and_white,
+        // retry finding a printer for black_and_white so B&W pages NEVER get held!
+        if (!printer && reqColor && !thisRangeRequiresColor) {
+          printer = findBestPrinterForJob(this.discoveredPrinters, {
+            colorMode: "black_and_white",
+            paperSize: ranges[0].paperSize,
+            preferredName: this.config.selectedPrinter || job.defaultPrinter,
+            requiredPrinterName: isDuplexEvenStep ? reservedPrinterForJob : null,
+            requiresDuplex: isDoubleSided && hasHardwareDuplexInShop && !isDuplexEvenStep,
+            busyPrinters,
+            allowColorFallbackForMono: true,
+            allowOffline: false,
+          });
+        }
+
+        // Resilience Fallback 2: If the range requested color, but no color printer was available,
+        // and allowMonoFallbackForColor is enabled, retry finding a black_and_white printer!
+        if (!printer && thisRangeRequiresColor && allowMonoFallbackForColor) {
+          printer = findBestPrinterForJob(this.discoveredPrinters, {
+            colorMode: "black_and_white",
+            paperSize: ranges[0].paperSize,
+            preferredName: this.config.selectedPrinter || job.defaultPrinter,
+            requiredPrinterName: isDuplexEvenStep ? reservedPrinterForJob : null,
+            requiresDuplex: isDoubleSided && hasHardwareDuplexInShop && !isDuplexEvenStep,
+            busyPrinters,
+            allowColorFallbackForMono: true,
+            allowMonoFallbackForColor: true,
+            allowOffline: false,
+          });
+        }
+
         return { ranges, printer };
       });
 
@@ -770,6 +812,9 @@ export class AgentDaemon {
 
       // Allow B&W jobs to print on color printer when needed
       job.allowColorFallback = true;
+      if (allowMonoFallbackForColor || !hasColorPrinterInShop) {
+        job.allowMonoFallback = true;
+      }
 
       // Resolve final duplex execution step based on selected printer hardware capability
       const firstPrinter = plan[0]?.printer;
@@ -797,8 +842,21 @@ export class AgentDaemon {
       }
 
       // If we have multiple sibling jobs for the same order and a target printer,
-      // combine all documents into a single continuous print batch!
-      if (batchJobs.length > 1 && plan[0]?.printer?.name && job.duplexStep !== "odd") {
+      // combine all documents into a single continuous print batch if the target printer can handle them all!
+      const canBatchAllJobsOnTarget =
+        batchJobs.length > 1 &&
+        Boolean(plan[0]?.printer?.name) &&
+        job.duplexStep !== "odd" &&
+        batchJobs.every((bJob) => {
+          const isColor = (bJob.pagesConfig || []).some((c) => c.colorMode === "color");
+          const targetSupportsColor = Boolean(plan[0]?.printer?.capabilities?.colorSupport);
+          if (isColor && !targetSupportsColor && !allowMonoFallbackForColor) {
+            return false;
+          }
+          return true;
+        });
+
+      if (canBatchAllJobsOnTarget && plan[0]?.printer?.name) {
         const targetPrinterName = plan[0].printer.name;
         const resolvedItems: Array<{ sourcePath: string; job: ClaimedJob; isLocalCacheHit: boolean }> = [];
         let batchSubmissionStarted = false;
@@ -811,6 +869,9 @@ export class AgentDaemon {
 
           for (const bJob of batchJobs) {
             bJob.allowColorFallback = true;
+            if (allowMonoFallbackForColor || !hasColorPrinterInShop) {
+              bJob.allowMonoFallback = true;
+            }
             await this.client.reportSubmit(bJob.id, targetPrinterName, bJob.duplexStep);
           }
 
@@ -859,6 +920,7 @@ export class AgentDaemon {
 
           this.stats.jobsSubmitted += batchJobs.length;
           this.stats.totalPagesSubmitted += batchResult.pagesSubmitted;
+          this.forcedOrderIds.delete(job.orderId);
           logger.info(
             `✅ Order #${job.orderId.slice(0, 8)}: Continuous batch of ${batchJobs.length} documents (${batchResult.pagesSubmitted} pages) physically printed successfully.`,
           );
@@ -998,6 +1060,7 @@ export class AgentDaemon {
 
         this.stats.jobsSubmitted += 1;
         this.stats.totalPagesSubmitted += pagesSubmitted;
+        this.forcedOrderIds.delete(job.orderId);
         logger.info(`Job #${job.id.slice(0, 8)} successfully submitted and physically printed.`);
         return true;
       } catch (printErr) {
@@ -1278,6 +1341,7 @@ export class AgentDaemon {
   async approveCounterOrder(orderId: string, duplexStep?: "odd" | "even" | "all") {
     // Clear processed keys for this order so re-approving or printing next side can claim and print fresh
     this.clearProcessedJob(orderId);
+    this.forcedOrderIds.add(orderId);
     resetPrinterSpoolQueue();
     // Unstick agent if it was marked as processing without an active job
     if (this.isProcessingJob && !this.currentJob) {

@@ -163,5 +163,31 @@ describe("Printer Routing & Exclusion Safety", () => {
     });
     expect(preferredPicked?.name).toBe(sleepingBwPrinter.name);
   });
+
+  it("falls back to monochrome printer when allowMonoFallbackForColor is enabled and no color printer exists", () => {
+    const printers = [bwPrinter];
+
+    const selected = findBestPrinterForJob(printers, {
+      colorMode: "color",
+      preferredName: bwPrinter.name,
+      allowMonoFallbackForColor: true,
+    });
+
+    expect(selected).not.toBeNull();
+    expect(selected?.name).toBe(bwPrinter.name);
+  });
+
+  it("still prefers color printer over monochrome printer when both exist and allowMonoFallbackForColor is enabled", () => {
+    const printers = [bwPrinter, colorPrinter];
+
+    const selected = findBestPrinterForJob(printers, {
+      colorMode: "color",
+      preferredName: bwPrinter.name,
+      allowMonoFallbackForColor: true,
+    });
+
+    expect(selected).not.toBeNull();
+    expect(selected?.name).toBe(colorPrinter.name);
+  });
 });
 
