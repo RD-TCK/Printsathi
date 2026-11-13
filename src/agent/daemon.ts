@@ -13,6 +13,7 @@ import {
   prepareAndPrintDocument,
   presliceJobDocument,
   proactiveWarmupPrinter,
+  resetPrinterSpoolQueue,
   waitForPhysicalPrintCompletion,
 } from "./print-executor";
 import { logger } from "./logger";
@@ -552,11 +553,17 @@ export class AgentDaemon {
           .replace(/^local:\/\//, "")
           .replace(/\.pdf$/i, "")
           .replace(/^doc_/, "");
+        const originalExt = path.extname(job.document.originalFilename || "").toLowerCase();
         const candidateNames = [
           `doc_${job.document.id}.pdf`,
           `${job.document.id}.pdf`,
           rawId ? `doc_${rawId}.pdf` : "",
           rawId ? `${rawId}.pdf` : "",
+          originalExt && originalExt !== ".pdf" ? `doc_${job.document.id}${originalExt}` : "",
+          originalExt && originalExt !== ".pdf" ? `${job.document.id}${originalExt}` : "",
+          rawId && originalExt && originalExt !== ".pdf" ? `doc_${rawId}${originalExt}` : "",
+          rawId && originalExt && originalExt !== ".pdf" ? `${rawId}${originalExt}` : "",
+          job.document.originalFilename,
         ].filter(Boolean);
 
         for (const cand of candidateNames) {
@@ -1271,6 +1278,11 @@ export class AgentDaemon {
   async approveCounterOrder(orderId: string, duplexStep?: "odd" | "even" | "all") {
     // Clear processed keys for this order so re-approving or printing next side can claim and print fresh
     this.clearProcessedJob(orderId);
+    resetPrinterSpoolQueue();
+    // Unstick agent if it was marked as processing without an active job
+    if (this.isProcessingJob && !this.currentJob) {
+      this.isProcessingJob = false;
+    }
     // 1. Proactively ensure target printers are warm & awake
     void this.warmupTargetPrinters();
     // 2. Dispatch cloud approval request
@@ -1279,8 +1291,9 @@ export class AgentDaemon {
     void this.triggerPoll();
     // 4. Await cloud approval confirmation
     const result = await approvalPromise;
-    // 5. Trigger final poll in case previous poll ran before DB row was marked queued
-    void this.triggerPoll();
+    // 5. Force immediate poll without idle backoff
+    this.hasPendingWakeup = false;
+    this.scheduleNextPoll(0);
     return result;
   }
 

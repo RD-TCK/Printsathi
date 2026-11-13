@@ -128,6 +128,33 @@ export async function GET(request: Request) {
     }
   }
 
+  // Fallback: If local file was requested from server or missing from main storage,
+  // attempt to recover the preview image uploaded during registration
+  if (!fileBuffer && effectiveOrderId) {
+    const previewCandidates = [
+      `previews/${auth.shop.id}/${effectiveOrderId}/${document.id}.jpg`,
+      `previews/${auth.shop.id}/${effectiveOrderId}/${document.id}.png`,
+    ];
+    for (const previewPath of previewCandidates) {
+      const { data: previewData } = await adminClient.storage
+        .from("print-documents")
+        .download(previewPath);
+      if (previewData) {
+        const ab = await previewData.arrayBuffer();
+        const rawBuf = Buffer.from(ab);
+        try {
+          fileBuffer = await wrapImageToPdf(rawBuf);
+          effectiveMime = "application/pdf";
+          break;
+        } catch {
+          fileBuffer = rawBuf;
+          effectiveMime = "image/jpeg";
+          break;
+        }
+      }
+    }
+  }
+
   if (!fileBuffer) {
     return NextResponse.json(
       { error: "Original high-resolution document not found in storage. Refusing to print low-quality preview." },

@@ -85,6 +85,7 @@ export async function GET(request: Request) {
         id,
         document_id,
         status,
+        failure_reason,
         total_pages,
         total_amount,
         duplex_step,
@@ -218,6 +219,7 @@ export async function GET(request: Request) {
         id: j.id,
         documentId: j.document_id,
         status: j.status,
+        failureReason: j.failure_reason || null,
         totalPages: j.total_pages,
         duplexStep: j.duplex_step || "none",
         pages: (Array.isArray(j.print_job_pages) ? j.print_job_pages : []).map(

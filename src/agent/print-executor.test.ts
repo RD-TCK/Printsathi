@@ -649,6 +649,24 @@ describe("PDF print submission", () => {
       expect([r1, r2, r3]).toEqual([1, 2, 3]);
     });
 
+    it("does not let a failed serialized print task block or poison subsequent tasks", async () => {
+      const executed: string[] = [];
+      const failingTask = submitToPrinterSerialized("Canon G2000", async () => {
+        executed.push("failed");
+        throw new Error("Spooler error");
+      });
+
+      const subsequentTask = submitToPrinterSerialized("Canon G2000", async () => {
+        executed.push("recovered");
+        return "success";
+      });
+
+      await expect(failingTask).rejects.toThrow("Spooler error");
+      const result = await subsequentTask;
+      expect(result).toBe("success");
+      expect(executed).toEqual(["failed", "recovered"]);
+    });
+
     it("allows different printers to spool in parallel", async () => {
       const completed: string[] = [];
       const taskA = submitToPrinterSerialized("Printer A", async () => {

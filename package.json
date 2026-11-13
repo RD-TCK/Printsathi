@@ -1,6 +1,6 @@
 {
   "name": "printiva",
-  "version": "1.8.30",
+  "version": "1.8.31",
   "private": true,
   "main": "dist/agent/desktop.js",
   "scripts": {

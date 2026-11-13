@@ -460,4 +460,73 @@ describe("agent dashboard status", () => {
     expect(listHtml).not.toContain("Print &amp; Approve");
     expect(listHtml).not.toContain("Front Side Printed");
   });
+
+  it("renders Print Held and Force Print when a job in the order failed", async () => {
+    const server = new AgentWebServer();
+    const html = (server as unknown as { getDashboardHtml(): string }).getDashboardHtml();
+    const script = html.match(/<script>([\s\S]*?)<\/script>/)?.[1];
+    expect(script).toBeTruthy();
+
+    const elements = new Map<string, Record<string, unknown>>();
+    const queueData = {
+      queue: [
+        {
+          id: "order-held-1",
+          publicId: "held123",
+          tokenNumber: 1,
+          status: "paid",
+          sideMode: "single_sided",
+          totalAmount: 2,
+          totalPages: 2,
+          blackAndWhitePages: 2,
+          colorPages: 0,
+          remainingSeconds: 3500,
+          isExpired: false,
+          documents: [{ filename: "photo_1.jpg" }, { filename: "photo_2.jpg" }],
+          jobs: [
+            { id: "job-h1", status: "failed", failureReason: "No compatible printer connected", totalPages: 2 },
+          ],
+        },
+      ],
+    };
+
+    const context = vm.createContext({
+      document: {
+        getElementById: (id: string) => {
+          if (!elements.has(id)) elements.set(id, {});
+          return elements.get(id);
+        },
+      },
+      fetch: async (url: string) => {
+        if (url === "/api/counter-queue") {
+          return { ok: true, json: async () => structuredClone(queueData) };
+        }
+        if (url === "/api/status") {
+          return {
+            ok: true,
+            json: async () => ({
+              isPaired: true,
+              isConnected: true,
+              printers: [],
+              stats: { jobsProcessed: 0, jobsSubmitted: 0, jobsFailed: 0, totalPagesSubmitted: 0 },
+              recentLogs: [],
+            }),
+          };
+        }
+        return { ok: true, json: async () => ({}) };
+      },
+      setInterval: () => 0,
+      window: {},
+    });
+
+    new vm.Script(script!).runInContext(context);
+    await vm.runInContext("refreshCounterQueue()", context);
+    const listHtml = elements.get("counterQueueList")?.innerHTML as string;
+
+    expect(listHtml).toContain("Token #1");
+    expect(listHtml).toContain("Print Held");
+    expect(listHtml).toContain("Force Print");
+    expect(listHtml).toContain("No compatible printer connected");
+    expect(listHtml).not.toContain("⏳ Processing...");
+  });
 });

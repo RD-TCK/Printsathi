@@ -1298,6 +1298,12 @@ export class AgentWebServer {
       duplexStep = duplexStep || 'all';
       queueErrorNotice = null;
 
+      // Provide immediate visual feedback on the clicked button
+      if (btnEl) {
+        btnEl.disabled = true;
+        btnEl.innerHTML = '🖨️ Dispatching...';
+      }
+
       // Optimistic instant UI update: immediately show "Printing Pages..." with 0ms delay!
       const item = cachedCounterQueue.find(i => i.id === orderId);
       const originalStatus = item ? item.status : null;
@@ -1310,14 +1316,11 @@ export class AgentWebServer {
           if (!Array.isArray(item.jobs) || item.jobs.length === 0) {
             item.jobs = [{ id: 'pending', status: 'print_submitted', totalPages: item.totalPages }];
           } else {
-            item.jobs.forEach(function(j) { j.status = 'print_submitted'; });
+            item.jobs.forEach(function(j) { j.status = 'print_submitted'; j.failureReason = null; });
           }
         }
         renderAgentQueueWithFilter();
         updateQueueBadge();
-      } else if (btnEl) {
-        btnEl.disabled = true;
-        btnEl.innerHTML = '🖨️ Printing Now...';
       }
 
       try {
@@ -1500,8 +1503,10 @@ export class AgentWebServer {
         var isPartiallyPrinted = item.status === "partially_printed";
         var isOddDone = isDouble && (item.status === "partially_printed" || item.duplexStep === "odd_printed" || item.duplexStep === "even");
         var isExpired = !isCancelled && !isCompleted && !isPartiallyPrinted && !isOddDone && (item.isExpired || item.status === "expired" || (typeof item.remainingSeconds === "number" && item.remainingSeconds <= 0) || (item.expiresAt && new Date(item.expiresAt).getTime() <= Date.now()));
-        var isPrinting = !isCancelled && !isExpired && !isCompleted && (item.status === "paid" || item.status === "printing" || item.status === "partially_printed") && Array.isArray(item.jobs) && item.jobs.some(function(j) { return j.status === 'print_submitted'; });
-        var isProcessing = !isCancelled && !isExpired && !isCompleted && !isPrinting && (item.status === "paid" || item.status === "printing" || (Array.isArray(item.jobs) && item.jobs.some(function(j) { return j.status === 'queued' || j.status === 'claimed'; })));
+        var hasFailedJobs = !isCancelled && !isExpired && !isCompleted && (item.status === "failed" || (Array.isArray(item.jobs) && item.jobs.length > 0 && item.jobs.some(function(j) { return j.status === 'failed'; })));
+        var failureMessage = hasFailedJobs ? ((Array.isArray(item.jobs) ? item.jobs.find(function(j) { return j.status === 'failed' && j.failureReason; }) : null) || {}).failureReason : null;
+        var isPrinting = !isCancelled && !isExpired && !isCompleted && !hasFailedJobs && (item.status === "paid" || item.status === "printing" || item.status === "partially_printed") && Array.isArray(item.jobs) && item.jobs.some(function(j) { return j.status === 'print_submitted'; });
+        var isProcessing = !isCancelled && !isExpired && !isCompleted && !isPrinting && !hasFailedJobs && (item.status === "paid" || item.status === "printing" || (Array.isArray(item.jobs) && item.jobs.some(function(j) { return j.status === 'queued' || j.status === 'claimed'; })));
         var totalSecs = (isCompleted || isCancelled) ? 0 : Math.max(0, item.remainingSeconds || 0);
         var minutesLeft = Math.floor(totalSecs / 60);
         var secondsLeft = totalSecs % 60;
@@ -1514,6 +1519,8 @@ export class AgentWebServer {
           ? "Cancelled"
           : isCompleted
           ? "Printed"
+          : hasFailedJobs
+          ? (failureMessage ? ("Hold / Failed: " + escapeHtml(failureMessage)) : "Print Held / Needs Force Print")
           : isPrinting
           ? "Printing Pages..."
           : isProcessing
@@ -1532,6 +1539,8 @@ export class AgentWebServer {
           ? "#dc2626"
           : isCompleted
           ? "#059669"
+          : hasFailedJobs
+          ? "#dc2626"
           : isPrinting
           ? "#d97706"
           : isProcessing
@@ -1548,6 +1557,8 @@ export class AgentWebServer {
           ? "#fee2e2"
           : isCompleted
           ? "#a7f3d0"
+          : hasFailedJobs
+          ? "#fca5a5"
           : isPrinting
           ? "#fde68a"
           : isProcessing
@@ -1564,6 +1575,8 @@ export class AgentWebServer {
           ? "#fef2f2"
           : isCompleted
           ? "#ecfdf5"
+          : hasFailedJobs
+          ? "#fef2f2"
           : isPrinting
           ? "#fffbeb"
           : isProcessing
@@ -1580,6 +1593,8 @@ export class AgentWebServer {
           ? "#991b1b"
           : isCompleted
           ? "#065f46"
+          : hasFailedJobs
+          ? "#991b1b"
           : isPrinting
           ? "#b45309"
           : isProcessing
@@ -1605,6 +1620,19 @@ export class AgentWebServer {
             "'", item.id, "'",
             ')">Yes, Cancel</button>',
             '<button type="button" class="btn-secondary" style="font-size:12px; padding:6px 10px; cursor:pointer;" onclick="abortCancelCounterOrder()">Keep</button>'
+          ].join("");
+        } else if (hasFailedJobs) {
+          actionHtml = [
+            '<span style="font-size:11px; font-weight:700; color:#dc2626; background:#fef2f2; border:1px solid #fca5a5; padding:5px 8px; border-radius:7px; display:inline-flex; align-items:center; gap:4px; white-space:nowrap;">⚠️ Print Held</span>',
+            '<button type="button" class="btn-primary" style="width:auto; padding:5px 12px; font-size:11.5px; font-weight:700; background:#059669; border-color:#059669; cursor:pointer;" onclick="approveCounterOrder(',
+            "'", item.id, "', 'all', this",
+            ')">🖨️ Force Print</button>',
+            '<button type="button" class="btn-secondary" style="font-size:11px; padding:5px 8px; cursor:pointer;" onclick="completeCounterOrder(',
+            "'", item.id, "', this",
+            ')" title="Mark as completed">Mark Printed</button>',
+            '<button type="button" class="btn-secondary" style="color:#dc2626; border-color:#fca5a5; font-size:11px; padding:5px 8px; cursor:pointer;" onclick="promptCancelCounterOrder(',
+            "'", item.id, "'",
+            ')" title="Stop and cancel this order">Cancel</button>'
           ].join("");
         } else if (isProcessing) {
           actionHtml = [

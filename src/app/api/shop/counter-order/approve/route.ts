@@ -142,21 +142,35 @@ export async function POST(request: Request) {
       .eq("order_id", order.id)
       .maybeSingle();
 
-    if (!existingPayment || existingPayment.status !== "verified") {
+    if (!existingPayment) {
       const providerPaymentId = `counter_${order.id.slice(0, 8)}_${Date.now()}`;
-      await adminClient.from("payments").upsert(
-        {
-          order_id: order.id,
-          provider: "counter",
-          payment_method: "counter_cash",
+      const { error: payErr } = await adminClient.from("payments").insert({
+        order_id: order.id,
+        provider: "counter",
+        payment_method: "counter_cash",
+        status: "verified",
+        provider_payment_id: providerPaymentId,
+        amount: order.total_amount,
+        currency: "INR",
+        verified_at: new Date().toISOString(),
+      });
+      if (payErr) {
+        console.error("Failed to insert counter payment:", payErr);
+        return NextResponse.json({ error: "Failed to record payment verification." }, { status: 500 });
+      }
+    } else if (existingPayment.status !== "verified") {
+      const { error: payErr } = await adminClient
+        .from("payments")
+        .update({
           status: "verified",
-          provider_payment_id: providerPaymentId,
-          amount: order.total_amount,
-          currency: "INR",
           verified_at: new Date().toISOString(),
-        },
-        { onConflict: "order_id" },
-      );
+          amount: order.total_amount,
+        })
+        .eq("id", existingPayment.id);
+      if (payErr) {
+        console.error("Failed to update counter payment:", payErr);
+        return NextResponse.json({ error: "Failed to update payment verification." }, { status: 500 });
+      }
     }
     await releasePaidOrder(adminClient, order.id);
   }

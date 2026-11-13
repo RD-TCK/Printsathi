@@ -177,6 +177,7 @@ export async function submitToPrinterSerialized<T>(
 
   let result!: T;
   const current = previous
+    .catch(() => {}) // Prevent previous task failures from permanently poisoning the spool queue
     .then(async () => {
       result = await task();
     })
@@ -189,6 +190,14 @@ export async function submitToPrinterSerialized<T>(
   printerSpoolQueues.set(key, current);
   await current;
   return result;
+}
+
+export function resetPrinterSpoolQueue(printerName?: string): void {
+  if (printerName) {
+    printerSpoolQueues.delete(printerName.toLowerCase());
+  } else {
+    printerSpoolQueues.clear();
+  }
 }
 
 export async function getPrinterQueueCount(printerName: string): Promise<number> {
