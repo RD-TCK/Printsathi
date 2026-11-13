@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { ArrowRight, Menu, X } from "lucide-react";
+import { ArrowRight, Download, Menu, X } from "lucide-react";
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Logo } from "@/components/ui/logo";
@@ -28,7 +28,7 @@ export function SiteHeader() {
             { label: "Features", href: "/features" },
             { label: "How it works", href: "/how-it-works" },
             { label: "Pricing", href: "/pricing" },
-            { label: "Windows Agent", href: "/download" },
+            { label: "Download Agent", href: "/download" },
           ].map((item) => (
             <Link
               key={item.label}
@@ -43,6 +43,14 @@ export function SiteHeader() {
 
         {/* Desktop CTA */}
         <div className="hidden items-center gap-3 md:flex">
+          <Link
+            className="inline-flex items-center gap-1.5 rounded-lg border border-brand-200 bg-brand-50/70 px-3 py-1.5 text-[13px] font-semibold text-brand-800 transition hover:bg-brand-100 hover:text-brand-950"
+            href="/download"
+            prefetch={true}
+          >
+            <Download className="size-3.5 text-brand-600" />
+            Download
+          </Link>
           <Link
             className="px-3 py-2 text-[13px] font-medium text-muted transition-colors hover:text-brand-950"
             href="/login"
@@ -76,7 +84,7 @@ export function SiteHeader() {
               ["Features", "/features"],
               ["How it works", "/how-it-works"],
               ["Pricing", "/pricing"],
-              ["Windows Agent", "/download"],
+              ["Download Windows Agent", "/download"],
               ["Sign in", "/login"],
             ].map(([label, href]) => (
               <Link

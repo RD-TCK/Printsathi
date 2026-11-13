@@ -5,6 +5,7 @@ import { usePathname } from "next/navigation";
 import {
   BarChart3,
   CircleUserRound,
+  Download,
   FileText,
   Gauge,
   Menu,
@@ -26,6 +27,7 @@ const navigation = [
   ["Dashboard", "/shop/dashboard", Gauge],
   ["Jobs", "/shop/jobs", FileText],
   ["Printer", "/shop/printer", Printer],
+  ["Download Agent", "/download", Download],
   ["Pricing", "/shop/pricing", PackageOpen],
   ["QR code", "/shop/qr", QrCode],
   ["Analytics", "/shop/analytics", BarChart3],
@@ -136,6 +138,14 @@ export function ShopPortalShell({
           </div>
 
           <div className="flex items-center gap-3 sm:gap-5">
+            <Link
+              href="/download"
+              className="hidden sm:inline-flex items-center gap-1.5 rounded-lg border border-brand-200 bg-brand-50/70 px-2.5 py-1 text-xs font-semibold text-brand-800 transition hover:bg-brand-100 hover:text-brand-950"
+              title="Download Desktop Agent v1.8.31"
+            >
+              <Download className="size-3.5 text-brand-600" />
+              Download Agent (v1.8.31)
+            </Link>
             <AcceptingOrdersSwitch initialAccepting={initialAcceptingOrders} />
             <div className="h-4 w-px bg-line" />
             <Link

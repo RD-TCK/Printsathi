@@ -397,6 +397,7 @@ export class AgentWebServer {
     const status = agentDaemon.getStatus();
     const serverUrl = status.serverUrl || "https://printiva.co.in";
     const shopPortalUrl = `${serverUrl}/shop/dashboard`;
+    const downloadUrl = `${serverUrl}/download`;
 
     return `<!DOCTYPE html>
 <html lang="en">
@@ -468,7 +469,7 @@ export class AgentWebServer {
     }
     .tagline { font-size: 13px; color: #a7f3d0; font-weight: 400; }
     
-    .header-actions { display: flex; align-items: center; gap: 14px; }
+    .header-actions { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
     
     .btn-dashboard {
       display: inline-flex;
@@ -723,6 +724,9 @@ export class AgentWebServer {
         <div id="statusBadge" class="badge badge-offline">
           <span class="status-dot"></span> Checking Status...
         </div>
+        <a id="headerDownloadLink" class="btn-dashboard" href="${downloadUrl}" target="_blank" rel="noopener" style="background:#f0fdf4; color:#047857; border:1px solid #a7f3d0;" title="Download newest Windows agent installer">
+          <span>📥</span> Download Agent
+        </a>
         <a id="headerPortalLink" class="btn-dashboard" href="${shopPortalUrl}" target="_blank" rel="noopener">
           <span>📊</span> Open Shop Dashboard
         </a>

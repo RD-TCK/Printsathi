@@ -49,10 +49,13 @@ export function MarketingFooter() {
             printing.
           </p>
           <div className="mt-6 flex items-center gap-3">
-            <span className="inline-flex items-center gap-1.5 rounded-full border border-emerald-500/20 bg-emerald-950/80 px-3 py-1 text-xs font-medium text-emerald-400/80">
+            <Link
+              href="/download"
+              className="inline-flex items-center gap-1.5 rounded-full border border-emerald-500/30 bg-emerald-950/80 px-3 py-1 text-xs font-medium text-emerald-400/90 transition hover:bg-emerald-900/60 hover:text-emerald-300"
+            >
               <span className="size-1.5 rounded-full bg-emerald-400 animate-pulse" />
-              Agent v1.8.31 Live
-            </span>
+              Download Agent v1.8.31 Live &rarr;
+            </Link>
           </div>
         </div>
 

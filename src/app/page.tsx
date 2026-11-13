@@ -66,6 +66,14 @@ export default function Home() {
                   </Button>
 
                   <Link
+                    href="/download"
+                    className="group inline-flex items-center gap-2 rounded-xl border border-brand-200 bg-brand-50/70 px-5 py-3 text-sm font-semibold text-brand-900 shadow-xs transition-all hover:bg-brand-100 hover:border-brand-300 active:scale-[0.98]"
+                  >
+                    <Download className="size-4 text-brand-600" />
+                    Download Agent v1.8.31
+                  </Link>
+
+                  <Link
                     href="/how-it-works"
                     className="group inline-flex items-center gap-2 rounded-xl border border-line bg-white px-5 py-3 text-sm font-medium text-brand-900 shadow-xs transition-all hover:border-brand-300 hover:shadow-md active:scale-[0.98]"
                   >
