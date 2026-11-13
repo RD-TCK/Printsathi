@@ -54,7 +54,7 @@ export function MarketingFooter() {
               className="inline-flex items-center gap-1.5 rounded-full border border-emerald-500/30 bg-emerald-950/80 px-3 py-1 text-xs font-medium text-emerald-400/90 transition hover:bg-emerald-900/60 hover:text-emerald-300"
             >
               <span className="size-1.5 rounded-full bg-emerald-400 animate-pulse" />
-              Download Agent v1.8.32 Live &rarr;
+              Download Agent v1.8.33 Live &rarr;
             </Link>
           </div>
         </div>

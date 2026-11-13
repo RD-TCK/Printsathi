@@ -358,7 +358,7 @@ export class AgentApiClient {
   async approveCounterOrder(
     orderId: string,
     duplexStep?: "odd" | "even" | "all",
-  ): Promise<{ success: boolean; message: string; order?: unknown; jobs?: unknown[] }> {
+  ): Promise<{ success: boolean; message: string; order?: unknown; claimedJob?: ClaimedJob }> {
     if (!this.token) {
       throw new Error("Agent is not authenticated.");
     }

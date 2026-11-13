@@ -8,6 +8,7 @@ const mocks = vi.hoisted(() => ({
   failure: vi.fn(),
   print: vi.fn(),
   printBatch: vi.fn(),
+  approve: vi.fn(),
   waitForPhysicalPrintCompletion: vi.fn().mockResolvedValue({ completed: true }),
   cacheFileExists: false,
 }));
@@ -27,6 +28,7 @@ vi.mock("./client", () => ({
     reportSubmit = mocks.submit;
     reportComplete = mocks.complete;
     reportFailure = mocks.failure;
+    approveCounterOrder = mocks.approve;
   },
 }));
 vi.mock("./printer-discovery", () => ({
@@ -39,6 +41,8 @@ vi.mock("./print-executor", () => ({
   prepareAndPrintDocument: mocks.print,
   prepareAndPrintBatch: mocks.printBatch,
   waitForPhysicalPrintCompletion: mocks.waitForPhysicalPrintCompletion,
+  resetPrinterSpoolQueue: vi.fn(),
+  proactiveWarmupPrinter: vi.fn(),
 }));
 vi.mock("node:fs", () => ({
   default: {
@@ -232,6 +236,34 @@ describe("automatic dispatch safety", () => {
     await processJob();
     expect(mocks.waitForPhysicalPrintCompletion).not.toHaveBeenCalled();
     expect(mocks.complete).toHaveBeenCalledWith("job-intermediate");
+  });
+
+  it("dispatches instantly via atomic claimedJob returned on approveCounterOrder (zero-latency fast path)", async () => {
+    const daemon = new AgentDaemon();
+    mocks.approve.mockResolvedValue({
+      success: true,
+      claimedJob: {
+        id: "job-fast-1",
+        orderId: "order-fast",
+        defaultPrinter: null,
+        document: { id: "doc-fast-1", originalFilename: "instant.pdf", pageCount: 1 },
+        pagesConfig: [{ startPage: 1, endPage: 1, colorMode: "black_and_white", paperSize: "a4" }],
+      },
+    });
+
+    await daemon.approveCounterOrder("order-fast", "all");
+
+    // Fast-path: immediately submitted & printed without polling or calling claimNextJob!
+    expect(mocks.claim).not.toHaveBeenCalled();
+    expect(mocks.submit).toHaveBeenCalledWith("job-fast-1", "Test physical printer", undefined);
+    expect(mocks.print).toHaveBeenCalledWith(
+      expect.any(String),
+      expect.objectContaining({ id: "job-fast-1" }),
+      "Test physical printer",
+      expect.any(Array),
+      expect.any(Object),
+    );
+    expect(mocks.complete).toHaveBeenCalledWith("job-fast-1");
   });
 });
 

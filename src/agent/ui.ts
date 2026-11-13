@@ -1979,7 +1979,7 @@ export class AgentWebServer {
           return !isCompleted && (i.status === 'paid' || (Array.isArray(i.jobs) && i.jobs.some(function(j) { return j.status === 'queued' || j.status === 'claimed' || j.status === 'print_submitted'; })));
         });
         if (typeof setTimeout === 'function') {
-          setTimeout(tickCounterQueue, hasActiveJob ? 1500 : 6000);
+          setTimeout(tickCounterQueue, hasActiveJob ? 1200 : 2000);
         }
       }
     }

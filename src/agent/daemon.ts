@@ -434,6 +434,24 @@ export class AgentDaemon {
             }
           }
         )
+        .on(
+          'postgres_changes',
+          { event: 'INSERT', schema: 'public', table: 'documents', filter: `shop_id=eq.${this.config.shopId}` },
+          () => {
+            logger.info("⚡ Realtime event: new document uploaded by customer. Pre-caching early in background...");
+            void this.precachePendingCounterDocuments();
+            void this.warmupTargetPrinters();
+          }
+        )
+        .on(
+          'postgres_changes',
+          { event: 'INSERT', schema: 'public', table: 'orders', filter: `shop_id=eq.${this.config.shopId}` },
+          () => {
+            logger.info("⚡ Realtime event: new customer order initiated. Pre-caching early in background...");
+            void this.precachePendingCounterDocuments();
+            void this.warmupTargetPrinters();
+          }
+        )
         .subscribe((status) => {
           if (status === 'SUBSCRIBED') {
             this.isRealtimeConnected = true;
@@ -611,7 +629,6 @@ export class AgentDaemon {
   }
 
   private async pollAndProcessNextJob(): Promise<boolean> {
-    this.isProcessingJob = true;
     try {
       if (this.discoveredPrinters.length === 0) {
         await this.refreshPrinters();
@@ -628,6 +645,26 @@ export class AgentDaemon {
       if (!job) {
         return false;
       }
+      return await this.executeClaimedJob(job);
+    } catch (error) {
+      if (error instanceof Error && error.message === "AGENT_UNAUTHORIZED_OR_REVOKED") {
+        this.unpair();
+      } else {
+        logger.error("Error during job claim cycle:", {
+          error: error instanceof Error ? error.message : String(error),
+        });
+      }
+      return false;
+    }
+  }
+
+  public async executeClaimedJob(job: ClaimedJob): Promise<boolean> {
+    this.isProcessingJob = true;
+    try {
+      if (this.discoveredPrinters.length === 0) {
+        await this.refreshPrinters();
+      }
+      await this.flushPendingCompletions();
 
       const jobKey = `${job.id}:${job.duplexStep || "standard"}`;
       const batchJobs: ClaimedJob[] = [job, ...(job.siblingJobs || [])];
@@ -867,13 +904,16 @@ export class AgentDaemon {
             resolvedItems.push({ sourcePath: resolved.filePath, job: bJob, isLocalCacheHit: resolved.isLocalCacheHit });
           }
 
-          for (const bJob of batchJobs) {
-            bJob.allowColorFallback = true;
-            if (allowMonoFallbackForColor || !hasColorPrinterInShop) {
-              bJob.allowMonoFallback = true;
-            }
-            await this.client.reportSubmit(bJob.id, targetPrinterName, bJob.duplexStep);
-          }
+          // Parallelize reportSubmit across all batch items in a single network round-trip!
+          await Promise.all(
+            batchJobs.map((bJob) => {
+              bJob.allowColorFallback = true;
+              if (allowMonoFallbackForColor || !hasColorPrinterInShop) {
+                bJob.allowMonoFallback = true;
+              }
+              return this.client.reportSubmit(bJob.id, targetPrinterName, bJob.duplexStep);
+            }),
+          );
 
           batchSubmissionStarted = true;
           const shouldIncludeSeparator = this.config.enableSeparatorPage !== false;
@@ -1349,13 +1389,19 @@ export class AgentDaemon {
     }
     // 1. Proactively ensure target printers are warm & awake
     void this.warmupTargetPrinters();
-    // 2. Dispatch cloud approval request
+    // 2. Dispatch cloud approval request (which atomically claims the job on server)
     const approvalPromise = this.client.approveCounterOrder(orderId, duplexStep);
-    // 3. Immediately trigger poll cycle so claim overlaps network round-trip time
-    void this.triggerPoll();
-    // 4. Await cloud approval confirmation
+    // 3. Await cloud approval confirmation
     const result = await approvalPromise;
-    // 5. Force immediate poll without idle backoff
+    // 4. Fast-path: If the server returned the claimed job directly, execute it immediately!
+    if (result && (result as any).claimedJob) {
+      logger.info(
+        `⚡ Instant Fast-Path: Order #${orderId.slice(0, 8)} claimed atomically during approval. Initiating 0ms local dispatch...`,
+      );
+      await this.executeClaimedJob((result as any).claimedJob as ClaimedJob);
+      return result;
+    }
+    // 5. Fallback safety net: Force immediate poll without idle backoff
     this.hasPendingWakeup = false;
     this.scheduleNextPoll(0);
     return result;

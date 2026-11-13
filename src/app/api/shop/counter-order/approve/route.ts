@@ -178,6 +178,141 @@ export async function POST(request: Request) {
   const targetOrderStatus = isOddStep ? "partially_printed" : "paid";
   const targetDuplexStep = isOddStep ? "odd" : isEvenStep ? "even" : "none";
 
+  // Fast-Path Optimization: If the approval request was made by an authenticated desktop agent,
+  // atomically claim the order's jobs and return them immediately in the JSON response!
+  // This completely eliminates the subsequent /api/agent/claim round trip and reduces latency to 0ms.
+  let claimedJobPayload = null;
+  if (agentAuth) {
+    try {
+      const leaseSeconds = 45;
+      const expiresAt = new Date(Date.now() + leaseSeconds * 1000).toISOString();
+
+      let jobsQuery = adminClient
+        .from("print_jobs")
+        .select("id, document_id, shop_id, total_pages, total_amount, currency, print_attempts, max_attempts, duplex_step")
+        .eq("order_id", order.id)
+        .eq("shop_id", shopId)
+        .neq("status", "completed");
+
+      if (isEvenStep) {
+        jobsQuery = jobsQuery.eq("duplex_step", "even");
+      }
+
+      const { data: orderJobs } = await jobsQuery;
+
+      if (orderJobs && orderJobs.length > 0) {
+        const jobIds = orderJobs.map((j) => j.id);
+        const docIds = Array.from(new Set(orderJobs.map((j) => j.document_id)));
+
+        await adminClient
+          .from("print_jobs")
+          .update({
+            status: "claimed",
+            claimed_by_agent_id: agentAuth.agent.id,
+            claimed_at: new Date().toISOString(),
+            claim_expires_at: expiresAt,
+            print_attempts: 1,
+            failure_reason: null,
+            updated_at: new Date().toISOString(),
+          })
+          .in("id", jobIds);
+
+        const [{ data: docs }, { data: allPages }, { data: defaultPrinter }] = await Promise.all([
+          adminClient
+            .from("documents")
+            .select("id, storage_path, original_filename, mime_type, size_bytes, page_count")
+            .in("id", docIds),
+          adminClient
+            .from("print_job_pages")
+            .select("print_job_id, start_page, end_page, color_mode, paper_size, side_mode, copies")
+            .in("print_job_id", jobIds)
+            .order("start_page", { ascending: true }),
+          adminClient
+            .from("printers")
+            .select("name")
+            .eq("shop_id", shopId)
+            .eq("is_default", true)
+            .maybeSingle(),
+        ]);
+
+        const docsMap = new Map((docs || []).map((d) => [d.id, d]));
+        const pagesMap = new Map<string, any[]>();
+        for (const p of allPages || []) {
+          const list = pagesMap.get(p.print_job_id) || [];
+          list.push(p);
+          pagesMap.set(p.print_job_id, list);
+        }
+
+        const formattedJobs = orderJobs.map((job, idx) => {
+          const doc = docsMap.get(job.document_id) || {
+            id: job.document_id,
+            storage_path: "",
+            original_filename: "document.pdf",
+            mime_type: "application/pdf",
+            size_bytes: 0,
+            page_count: job.total_pages || 1,
+          };
+          const rawPages = pagesMap.get(job.id) || [];
+          const pagesConfig =
+            rawPages.length > 0
+              ? rawPages.map((p) => ({
+                  startPage: Math.max(1, p.start_page),
+                  endPage: Math.max(Math.max(1, p.start_page), p.end_page),
+                  colorMode: (p.color_mode || "black_and_white") as "color" | "black_and_white",
+                  paperSize: (p.paper_size || "a4") as "a4" | "a3",
+                  sideMode: (p.side_mode || "single_sided") as "single_sided" | "double_sided",
+                  copies: Math.max(1, p.copies ?? 1),
+                }))
+              : [
+                  {
+                    startPage: 1,
+                    endPage: Math.max(1, doc.page_count || job.total_pages || 1),
+                    colorMode: "black_and_white" as const,
+                    paperSize: "a4" as const,
+                    sideMode: "single_sided" as const,
+                    copies: 1,
+                  },
+                ];
+
+          return {
+            id: job.id,
+            orderId: order.id,
+            documentId: job.document_id,
+            shopId: job.shop_id,
+            totalPages: job.total_pages,
+            totalAmount: Number(job.total_amount),
+            currency: job.currency,
+            printAttempts: (job.print_attempts || 0) + 1,
+            maxAttempts: job.max_attempts || 3,
+            claimedAt: new Date().toISOString(),
+            claimExpiresAt: expiresAt,
+            defaultPrinter: defaultPrinter?.name || null,
+            duplexStep: job.duplex_step || targetDuplexStep,
+            document: {
+              id: doc.id,
+              storagePath: doc.storage_path,
+              originalFilename: doc.original_filename,
+              mimeType: doc.mime_type,
+              sizeBytes: Number(doc.size_bytes),
+              pageCount: doc.page_count,
+            },
+            pagesConfig,
+            isLastJobForOrder: idx === orderJobs.length - 1,
+          };
+        });
+
+        if (formattedJobs.length > 0) {
+          const primaryJob = formattedJobs[0];
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          (primaryJob as any).siblingJobs = formattedJobs.slice(1);
+          claimedJobPayload = primaryJob;
+        }
+      }
+    } catch (claimErr) {
+      console.warn("Fast-path inline job claiming encountered error; agent will fall back to polling:", claimErr);
+    }
+  }
+
   const stepMessage = isOddStep
     ? `Token #${displayToken}: Odd pages (Front Side) queued! Flip sheets and reload in tray for back side once printed.`
     : isEvenStep
@@ -194,5 +329,6 @@ export async function POST(request: Request) {
       status: targetOrderStatus,
       duplexStep: targetDuplexStep,
     },
+    claimedJob: claimedJobPayload,
   });
 }
