@@ -641,6 +641,52 @@ describe("PDF print submission", () => {
       expect(submittedPath).toBe(preslicedResult);
     });
 
+    it("bypasses full-job presliced document when pagesConfigOverride is provided", async () => {
+      const multiDoc = await PDFDocument.create();
+      for (let i = 0; i < 5; i++) multiDoc.addPage();
+      const multiSource = path.join(directory, "multi_override.pdf");
+      fs.writeFileSync(multiSource, await multiDoc.save());
+
+      const sliceJob = {
+        id: "job-slice-override",
+        orderId: "order-slice-override",
+        totalPages: 5,
+        pagesConfig: [
+          {
+            startPage: 1,
+            endPage: 5,
+            copies: 1,
+            colorMode: "black_and_white",
+            paperSize: "a4",
+          },
+        ],
+      } as ClaimedJob;
+
+      // Generate presliced spool document for full job
+      const preslicedResult = await presliceJobDocument(multiSource, sliceJob.id, sliceJob.pagesConfig);
+      expect(preslicedResult).toBeTruthy();
+
+      let submittedPath = "";
+      mocks.execute.mockImplementation((_file, args, _options, callback) => {
+        submittedPath = args.at(-1);
+        callback(null, "", "");
+      });
+
+      // Call prepareAndPrintDocument with pagesConfigOverride for page 3 only
+      const printResult = await prepareAndPrintDocument(
+        multiSource,
+        sliceJob,
+        printerName,
+        [{ startPage: 3, endPage: 3, copies: 1, colorMode: "black_and_white", paperSize: "a4" }],
+        { includeSeparatorPage: false },
+      );
+
+      expect(printResult.success).toBe(true);
+      expect(printResult.pagesSubmitted).toBe(1);
+      // Confirmed: pre-sliced path for full 5 pages was NOT used; custom slice of 1 page was used
+      expect(submittedPath).not.toBe(preslicedResult);
+    });
+
     it("wakes up target printer proactively", async () => {
       const woke = await proactiveWarmupPrinter(printerName);
       expect(woke).toBe(true);

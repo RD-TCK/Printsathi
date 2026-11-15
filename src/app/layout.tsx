@@ -26,7 +26,7 @@ const serif = Instrument_Serif({
   style: ["normal", "italic"],
 });
 
-const defaultTitle = `${SITE_NAME} — Digital Printing Service & Print Shop Automation`;
+const defaultTitle = `${SITE_NAME} — #1 Print Automation Software & Photocopy Management System`;
 
 export const metadata: Metadata = {
   metadataBase: new URL(getAppUrl()),

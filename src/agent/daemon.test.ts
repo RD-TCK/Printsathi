@@ -9,6 +9,7 @@ const mocks = vi.hoisted(() => ({
   print: vi.fn(),
   printBatch: vi.fn(),
   approve: vi.fn(),
+  findBestPrinter: vi.fn(),
   waitForPhysicalPrintCompletion: vi.fn().mockResolvedValue({ completed: true }),
   cacheFileExists: false,
 }));
@@ -32,9 +33,11 @@ vi.mock("./client", () => ({
   },
 }));
 vi.mock("./printer-discovery", () => ({
-  discoverWindowsPrinters: async () => [{ name: "Test physical printer", status: "online" }],
-  findDefaultPrinter: () => ({ name: "Test physical printer" }),
-  findBestPrinterForJob: () => ({ name: "Test physical printer" }),
+  discoverWindowsPrinters: async () => [
+    { name: "Test physical printer", status: "online", capabilities: { colorSupport: false, duplexSupport: false } },
+  ],
+  findDefaultPrinter: () => ({ name: "Test physical printer", capabilities: { colorSupport: false, duplexSupport: false } }),
+  findBestPrinterForJob: (...args: any[]) => mocks.findBestPrinter(...args),
   isPhysicalPrinter: () => true,
 }));
 vi.mock("./print-executor", () => ({
@@ -82,6 +85,12 @@ describe("automatic dispatch safety", () => {
     mocks.failure.mockResolvedValue(true);
     mocks.print.mockResolvedValue({ success: true, pagesSubmitted: 2 });
     mocks.printBatch.mockResolvedValue({ success: true, pagesSubmitted: 4 });
+    mocks.findBestPrinter.mockImplementation((_printers: any, req: any) => {
+      if (req?.colorMode === "color" && !req?.allowMonoFallbackForColor) {
+        return null;
+      }
+      return { name: "Test physical printer", capabilities: { colorSupport: false, duplexSupport: false } };
+    });
   });
 
   it("persists dispatch before sending the customer's settings to the printer", async () => {
@@ -264,6 +273,150 @@ describe("automatic dispatch safety", () => {
       expect.any(Object),
     );
     expect(mocks.complete).toHaveBeenCalledWith("job-fast-1");
+  });
+
+  it("splits multi-job order: prints B&W jobs and holds Color job when shop lacks color printer", async () => {
+    mocks.claim.mockResolvedValue({
+      id: "job-bw-1",
+      orderId: "order-split",
+      defaultPrinter: null,
+      document: { id: "doc-bw-1", originalFilename: "notes.pdf", pageCount: 1 },
+      pagesConfig: [{ startPage: 1, endPage: 1, colorMode: "black_and_white", paperSize: "a4" }],
+      siblingJobs: [
+        {
+          id: "job-color-1",
+          orderId: "order-split",
+          defaultPrinter: null,
+          document: { id: "doc-color-1", originalFilename: "photo.jpg", pageCount: 1 },
+          pagesConfig: [{ startPage: 1, endPage: 1, colorMode: "color", paperSize: "a4" }],
+        },
+        {
+          id: "job-bw-2",
+          orderId: "order-split",
+          defaultPrinter: null,
+          document: { id: "doc-bw-2", originalFilename: "doc2.pdf", pageCount: 1 },
+          pagesConfig: [{ startPage: 1, endPage: 1, colorMode: "black_and_white", paperSize: "a4" }],
+        },
+      ],
+    });
+
+    await processJob();
+
+    // 1. Ready B&W jobs (job-bw-1 and job-bw-2) are batched and printed on the mono printer!
+    expect(mocks.printBatch).toHaveBeenCalledTimes(1);
+    expect(mocks.printBatch).toHaveBeenCalledWith(
+      expect.arrayContaining([
+        expect.objectContaining({ job: expect.objectContaining({ id: "job-bw-1" }) }),
+        expect.objectContaining({ job: expect.objectContaining({ id: "job-bw-2" }) }),
+      ]),
+      "Test physical printer",
+      expect.any(Object),
+    );
+
+    // 2. Both B&W jobs are submitted and marked complete
+    expect(mocks.submit).toHaveBeenCalledWith("job-bw-1", "Test physical printer", undefined);
+    expect(mocks.submit).toHaveBeenCalledWith("job-bw-2", "Test physical printer", undefined);
+    expect(mocks.complete).toHaveBeenCalledWith("job-bw-1");
+    expect(mocks.complete).toHaveBeenCalledWith("job-bw-2");
+
+    // 3. Color job was held and reported to server as held, NEVER submitted or completed in B&W!
+    expect(mocks.submit).not.toHaveBeenCalledWith("job-color-1", expect.any(String), undefined);
+    expect(mocks.complete).not.toHaveBeenCalledWith("job-color-1");
+    expect(mocks.failure).toHaveBeenCalledWith(
+      "job-color-1",
+      expect.stringContaining("No free compatible Color printer is available"),
+      true,
+    );
+  });
+
+  it("prints held color job on monochrome printer when Force Print is approved", async () => {
+    const daemon = new AgentDaemon();
+    mocks.approve.mockResolvedValue({
+      success: true,
+      claimedJob: {
+        id: "job-color-1",
+        orderId: "order-split",
+        defaultPrinter: null,
+        document: { id: "doc-color-1", originalFilename: "photo.jpg", pageCount: 1 },
+        pagesConfig: [{ startPage: 1, endPage: 1, colorMode: "color", paperSize: "a4" }],
+      },
+    });
+
+    // Shopkeeper clicks Force Print
+    await daemon.approveCounterOrder("order-split", "all");
+
+    // On Force Print, mono fallback is allowed, so color job prints on the mono printer
+    expect(mocks.submit).toHaveBeenCalledWith("job-color-1", "Test physical printer", undefined);
+    expect(mocks.print).toHaveBeenCalledWith(
+      expect.any(String),
+      expect.objectContaining({ id: "job-color-1", allowMonoFallback: true }),
+      "Test physical printer",
+      expect.any(Array),
+      expect.any(Object),
+    );
+    expect(mocks.complete).toHaveBeenCalledWith("job-color-1");
+  });
+
+  it("splits single-job multi-page document: prints B&W pages and holds Color page on mono shop", async () => {
+    mocks.claim.mockResolvedValue({
+      id: "job-mixed-doc",
+      orderId: "order-mixed",
+      defaultPrinter: null,
+      document: { id: "doc-mixed", originalFilename: "mixed.pdf", pageCount: 2 },
+      pagesConfig: [
+        { startPage: 1, endPage: 1, colorMode: "color", paperSize: "a4" },
+        { startPage: 2, endPage: 2, colorMode: "black_and_white", paperSize: "a4" },
+      ],
+    });
+
+    await processJob();
+
+    // 1. Page 2 (B&W) prints on the mono printer!
+    expect(mocks.print).toHaveBeenCalledTimes(1);
+    expect(mocks.print).toHaveBeenCalledWith(
+      expect.any(String),
+      expect.objectContaining({ id: "job-mixed-doc" }),
+      "Test physical printer",
+      [{ startPage: 2, endPage: 2, colorMode: "black_and_white", paperSize: "a4" }],
+      expect.any(Object),
+    );
+
+    // 2. Job is submitted to printer
+    expect(mocks.submit).toHaveBeenCalledWith("job-mixed-doc", "Test physical printer", undefined);
+
+    // 3. Color page is held and reported to server as held
+    expect(mocks.complete).not.toHaveBeenCalledWith("job-mixed-doc");
+    expect(mocks.failure).toHaveBeenCalledWith(
+      "job-mixed-doc",
+      expect.stringContaining("Black & White page(s) printed. Color page(s) held"),
+      true,
+    );
+  });
+
+  it("prints all pages of mixed document on mono printer when Force Print is approved", async () => {
+    const daemon = new AgentDaemon();
+    mocks.approve.mockResolvedValue({
+      success: true,
+      claimedJob: {
+        id: "job-mixed-doc",
+        orderId: "order-mixed",
+        defaultPrinter: null,
+        document: { id: "doc-mixed", originalFilename: "mixed.pdf", pageCount: 2 },
+        pagesConfig: [
+          { startPage: 1, endPage: 1, colorMode: "color", paperSize: "a4" },
+          { startPage: 2, endPage: 2, colorMode: "black_and_white", paperSize: "a4" },
+        ],
+      },
+    });
+
+    // Shopkeeper clicks Force Print
+    await daemon.approveCounterOrder("order-mixed", "all");
+
+    // Both groups are printed on the mono printer
+    expect(mocks.print).toHaveBeenCalledTimes(2);
+    expect(mocks.submit).toHaveBeenCalledWith("job-mixed-doc", "Test physical printer", undefined);
+    expect(mocks.complete).toHaveBeenCalledWith("job-mixed-doc");
+    expect(mocks.failure).not.toHaveBeenCalled();
   });
 });
 

@@ -667,7 +667,7 @@ export async function prepareAndPrintDocument(
     preslicedCandidate = getPreslicedSpoolPath(job.id, job.duplexStep);
     preslicedValid = false;
 
-    if (!isSimpleFullPrint && fs.existsSync(preslicedCandidate) && fs.statSync(preslicedCandidate).size > 0) {
+    if (!pagesConfigOverride && !isSimpleFullPrint && fs.existsSync(preslicedCandidate) && fs.statSync(preslicedCandidate).size > 0) {
       try {
         const preslicedDoc = await PDFDocument.load(fs.readFileSync(preslicedCandidate), { ignoreEncryption: true });
         if (preslicedDoc.getPageCount() > 0) {

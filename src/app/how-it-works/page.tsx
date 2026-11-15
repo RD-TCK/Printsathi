@@ -4,11 +4,17 @@ import { JsonLd } from "@/components/json-ld";
 import { breadcrumbJsonLd, howToJsonLd, pageMetadata } from "@/lib/seo";
 
 export const metadata = pageMetadata({
-  title: "How Printiva Works — Scan the QR, Upload, Pay, Print",
+  title: "How Print Automation Works — QR Ordering & Automatic Photocopy Software",
   description:
-    "How to print documents with Printiva in four steps: scan the shop's QR code, upload and preview your files, pay by UPI or card, and the shop's printer prints automatically.",
+    "Learn how Printiva print automation software streamlines photocopy & print shops in 4 steps: customer scans QR, uploads files, pays via UPI/Cash, and your printer spools automatically.",
   path: "/how-it-works",
-  keywords: ["how to print documents online", "QR code printing steps", "print from phone at a print shop"],
+  keywords: [
+    "how print automation software works",
+    "photocopy software workflow",
+    "automatic printing process",
+    "QR code document printing",
+    "xerox shop automation steps",
+  ],
 });
 
 export default function HowItWorksPage() {

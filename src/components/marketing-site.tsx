@@ -54,7 +54,7 @@ export function MarketingFooter() {
               className="inline-flex items-center gap-1.5 rounded-full border border-emerald-500/30 bg-emerald-950/80 px-3 py-1 text-xs font-medium text-emerald-400/90 transition hover:bg-emerald-900/60 hover:text-emerald-300"
             >
               <span className="size-1.5 rounded-full bg-emerald-400 animate-pulse" />
-              Download Agent v1.8.33 Live &rarr;
+              Download Agent v1.8.34 Live &rarr;
             </Link>
           </div>
         </div>
@@ -307,12 +307,24 @@ export function FaqList({ items = faqItems }: { items?: ReadonlyArray<FaqItem> }
 // Exported so pages can emit FAQPage structured data that matches the visible answers.
 export const faqItems: FaqItem[] = [
     [
-      "What is Printiva?",
-      "Printiva is a modern printing OS for local shops. It combines mobile QR ordering, automated payments, and a silent Windows agent that routes jobs to your physical printers.",
+      "What is Printiva print automation software?",
+      "Printiva is India's leading print automation software and photocopy management system for xerox shops, cyber cafes, and commercial printers. It automates customer document upload via mobile QR code, auto-prices pages, verifies online UPI or counter payments, and prints directly on your physical Windows printer without manual clicks.",
+    ],
+    [
+      "Can I use Printiva as photocopy software in my xerox shop?",
+      "Yes. Printiva is purpose-built as photocopy software for xerox centers. Customers scan your counter QR code, configure color (B&W or Color), paper size (A4/A3), copies, and single or double-sided printing, eliminating manual page-counting and WhatsApp file chaos completely.",
+    ],
+    [
+      "Which printers are compatible with Printiva printing software?",
+      "Printiva works seamlessly with any standard monochrome or color laser/inkjet printer from HP, Canon, Epson, Brother, Ricoh, or Konica Minolta connected to a 64-bit Windows 10 or 11 PC via USB, Wi-Fi, Ethernet, or WSD network protocols.",
     ],
     [
       "How does automatic printing work?",
-      "Customers scan your counter QR, upload documents, and pay online. Once payment confirms, the Desktop Agent picks up the job and commands the Windows Print Spooler instantly.",
+      "Customers scan your counter QR, upload documents, and pay online or at the counter. Once confirmed, the Windows Desktop Agent picks up the job and commands the Windows Print Spooler to feed paper in ~300ms–500ms.",
+    ],
+    [
+      "How does Printiva solve the WhatsApp printing problem?",
+      "Traditional print shops waste 60% of their time downloading files from WhatsApp, clogging phone memory, checking fake payment screenshots, and opening print dialogs manually. Printiva replaces WhatsApp with a clean browser QR workflow with zero app installation needed.",
     ],
     [
       "Do I need a separate machine?",
@@ -320,11 +332,11 @@ export const faqItems: FaqItem[] = [
     ],
     [
       "How are payments handled?",
-      "Payments go through Razorpay directly to your account. Each transaction is validated cryptographically before any print payload is sent.",
+      "Payments go through Razorpay directly to your account. Each transaction is validated cryptographically before any print payload is sent. Offline counter cash payments with token queue management are also fully supported.",
     ],
     [
       "What file formats work?",
-      "PDF is fully supported with native rendering and page extraction. Word documents, images, and presentations are converted into print-ready streams.",
+      "PDF is fully supported with native rendering and page extraction. Word documents (DOCX), images (JPEG, PNG, WEBP), and presentations are converted into print-ready streams.",
     ],
     [
       "What does it cost after the trial?",

@@ -9,10 +9,19 @@ import { faqItems } from "@/components/marketing-site";
 import { faqJsonLd, pageMetadata, softwareJsonLd } from "@/lib/seo";
 
 export const metadata = pageMetadata({
-  title: "Printiva — Digital Printing Service & Print Shop Automation | Scan. Upload. Pay. Print.",
+  title: "Printiva — #1 Print Automation Software & Photocopy Management System",
   description:
-    "Printiva is a digital printing service platform for local print shops. Customers scan a QR code, upload documents, and pay online — the shop's Windows printer prints automatically. ₹100 for a 7-day trial.",
+    "India's leading print automation software & photocopy management system. Automate printing in xerox shops & cyber cafes: customers scan QR, upload files, and pay; your Windows printer prints automatically. Start 7-day trial for ₹100.",
   path: "/",
+  keywords: [
+    "print automation software",
+    "printing software",
+    "photocopy software",
+    "photocopy shop software",
+    "xerox shop software",
+    "print shop management software",
+    "cyber cafe printing software",
+  ],
   absoluteTitle: true,
 });
 
@@ -70,7 +79,7 @@ export default function Home() {
                     className="group inline-flex items-center gap-2 rounded-xl border border-brand-200 bg-brand-50/70 px-5 py-3 text-sm font-semibold text-brand-900 shadow-xs transition-all hover:bg-brand-100 hover:border-brand-300 active:scale-[0.98]"
                   >
                     <Download className="size-4 text-brand-600" />
-                    Download Agent v1.8.33
+                    Download Agent v1.8.34
                   </Link>
 
                   <Link
@@ -241,6 +250,68 @@ export default function Home() {
           </div>
           <div className="mt-16">
             <FeatureGrid limit={6} />
+          </div>
+        </section>
+
+        {/* ━━━ SEO PILLAR: PRINT AUTOMATION & PHOTOCOPY SOFTWARE ━━━ */}
+        <section className="bg-slate-50/70 border-t border-line py-20 lg:py-28 px-6 lg:px-8">
+          <div className="mx-auto max-w-7xl">
+            <div className="mx-auto max-w-3xl text-center">
+              <p className="text-xs font-semibold uppercase tracking-[0.2em] text-brand-600">Built for Indian Xerox &amp; Print Counters</p>
+              <h2 className="mt-3 text-3xl font-bold tracking-tight text-brand-950 sm:text-4xl lg:text-5xl">
+                The Complete <span className="font-display gradient-text">Print Automation Software</span> &amp; Photocopy Suite
+              </h2>
+              <p className="mt-4 text-base leading-7 text-muted sm:text-lg">
+                Whether you run a high-volume university xerox shop, cyber cafe, or commercial printing center, Printiva automates every step from customer document intake to physical paper ejection.
+              </p>
+            </div>
+
+            <div className="mt-14 grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
+              <div className="rounded-2xl border border-line bg-white p-7 shadow-xs">
+                <div className="flex size-11 items-center justify-center rounded-xl bg-brand-50 text-brand-700 mb-5">
+                  <Zap className="size-5" />
+                </div>
+                <h3 className="text-xl font-bold text-brand-950">Print Automation Software</h3>
+                <p className="mt-2.5 text-sm leading-relaxed text-muted">
+                  Eliminate manual printer dialogs and repetitive file openings. The Windows desktop agent communicates natively with the print spooler to feed pages in under 500ms automatically.
+                </p>
+                <div className="mt-4 pt-4 border-t border-slate-100">
+                  <Link href="/features" className="text-xs font-bold text-brand-700 hover:text-brand-900 inline-flex items-center gap-1">
+                    Explore print automation <ArrowRight className="size-3.5" />
+                  </Link>
+                </div>
+              </div>
+
+              <div className="rounded-2xl border border-line bg-white p-7 shadow-xs">
+                <div className="flex size-11 items-center justify-center rounded-xl bg-emerald-50 text-emerald-700 mb-5">
+                  <FileStack className="size-5" />
+                </div>
+                <h3 className="text-xl font-bold text-brand-950">Photocopy &amp; Xerox Software</h3>
+                <p className="mt-2.5 text-sm leading-relaxed text-muted">
+                  Stop managing customer files over WhatsApp. Customers scan your counter QR, choose A4/A3, B&amp;W or colour, and double-sided duplex with live per-page pricing calculated instantly.
+                </p>
+                <div className="mt-4 pt-4 border-t border-slate-100">
+                  <Link href="/digital-printing-service" className="text-xs font-bold text-brand-700 hover:text-brand-900 inline-flex items-center gap-1">
+                    Digital printing service <ArrowRight className="size-3.5" />
+                  </Link>
+                </div>
+              </div>
+
+              <div className="rounded-2xl border border-line bg-white p-7 shadow-xs">
+                <div className="flex size-11 items-center justify-center rounded-xl bg-teal-50 text-teal-700 mb-5">
+                  <Printer className="size-5" />
+                </div>
+                <h3 className="text-xl font-bold text-brand-950">Universal Printer Compatibility</h3>
+                <p className="mt-2.5 text-sm leading-relaxed text-muted">
+                  Works seamlessly with HP LaserJet, Canon imageCLASS, Epson EcoTank, Brother, Ricoh, and Konica Minolta printers connected via USB, Wi-Fi, Ethernet, or WSD network.
+                </p>
+                <div className="mt-4 pt-4 border-t border-slate-100">
+                  <Link href="/download" className="text-xs font-bold text-brand-700 hover:text-brand-900 inline-flex items-center gap-1">
+                    Download Windows Agent <ArrowRight className="size-3.5" />
+                  </Link>
+                </div>
+              </div>
+            </div>
           </div>
         </section>
 

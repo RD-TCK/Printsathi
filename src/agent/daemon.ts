@@ -758,19 +758,207 @@ export class AgentDaemon {
       );
 
       const isForcePrinted = this.forcedOrderIds.has(job.orderId);
-      // If no color printer exists in the shop at all, or on Force Print, allow fallback to monochrome
-      const allowMonoFallbackForColor = !hasColorPrinterInShop || job.allowMonoFallback === true || isForcePrinted;
+      // Strictly require Color printer for Color jobs unless explicitly forced or permitted
+      const allowMonoFallbackForColor = job.allowMonoFallback === true || isForcePrinted;
 
+      // 1. If we have multiple sibling jobs for the same order, route each job independently by hardware capability!
+      if (batchJobs.length > 1) {
+        const routedJobs: Array<{
+          job: ClaimedJob;
+          printer: DiscoveredPrinter | null;
+          requiresColor: boolean;
+        }> = [];
+
+        for (const bJob of batchJobs) {
+          const bJobConfigs = bJob.pagesConfig?.length
+            ? bJob.pagesConfig
+            : [
+                {
+                  startPage: 1,
+                  endPage: bJob.document.pageCount || 1,
+                  colorMode: "black_and_white" as const,
+                  paperSize: "a4" as const,
+                },
+              ];
+
+          const isColor = bJobConfigs.some((c) => c.colorMode === "color");
+          const bJobDoubleSided = bJobConfigs.some((c) => c.sideMode === "double_sided");
+          const reqColor = isColor && !allowMonoFallbackForColor;
+
+          const selectedPrinterObj = this.discoveredPrinters.find(
+            (p) => p.name.toLowerCase() === (this.config.selectedPrinter || "").toLowerCase(),
+          );
+          const preferredName =
+            reqColor && selectedPrinterObj && !selectedPrinterObj.capabilities?.colorSupport
+              ? undefined
+              : this.config.selectedPrinter || bJob.defaultPrinter;
+
+          const printer = findBestPrinterForJob(this.discoveredPrinters, {
+            colorMode: reqColor ? "color" : "black_and_white",
+            paperSize: bJobConfigs[0]?.paperSize || "a4",
+            preferredName,
+            requiredPrinterName: isDuplexEvenStep ? reservedPrinterForJob : null,
+            requiresDuplex: bJobDoubleSided && hasHardwareDuplexInShop && !isDuplexEvenStep,
+            busyPrinters,
+            allowColorFallbackForMono: true,
+            allowMonoFallbackForColor,
+            allowOffline: false,
+          });
+
+          bJob.allowColorFallback = true;
+          if (allowMonoFallbackForColor) {
+            bJob.allowMonoFallback = true;
+          }
+
+          routedJobs.push({
+            job: bJob,
+            printer: printer || null,
+            requiresColor: isColor,
+          });
+        }
+
+        const readyJobs = routedJobs.filter((r) => r.printer !== null);
+        const heldJobs = routedJobs.filter((r) => r.printer === null);
+
+        // Report held status for any jobs that lack compatible hardware (e.g. Color page with no Color printer)
+        for (const held of heldJobs) {
+          const hJob = held.job;
+          this.processedJobIds.delete(`${hJob.id}:${hJob.duplexStep || "standard"}`);
+          const reason = held.requiresColor
+            ? "No free compatible Color printer is available. Connect a Color printer or click Force Print to print in Black & White."
+            : "No free physical printer is available for Black & White printing. Request stays on hold.";
+          logger.warn(`Job #${hJob.id.slice(0, 8)} held: ${reason}`);
+          await this.client.reportFailure(hJob.id, reason, true);
+          this.stats.jobsFailed += 1;
+        }
+
+        if (readyJobs.length === 0) {
+          this.currentJob = null;
+          return false;
+        }
+
+        // Group ready jobs by assigned printer
+        const printerGroups = new Map<string, Array<{ job: ClaimedJob; printer: DiscoveredPrinter }>>();
+        for (const item of readyJobs) {
+          const pName = item.printer!.name;
+          const list = printerGroups.get(pName) || [];
+          list.push({ job: item.job, printer: item.printer! });
+          printerGroups.set(pName, list);
+        }
+
+        let anySubmitted = false;
+
+        for (const [targetPrinterName, items] of printerGroups.entries()) {
+          const targetPrinter = items[0].printer;
+          const printerJobs = items.map((i) => i.job);
+
+          // Mark printer busy
+          this.activePrintingPrinters.add(targetPrinterName.toLowerCase());
+          const resolvedItems: Array<{ sourcePath: string; job: ClaimedJob; isLocalCacheHit: boolean }> = [];
+          let batchSubmissionStarted = false;
+
+          try {
+            for (const pJob of printerJobs) {
+              const resolved = await this.resolveJobDocumentPath(pJob);
+              resolvedItems.push({ sourcePath: resolved.filePath, job: pJob, isLocalCacheHit: resolved.isLocalCacheHit });
+            }
+
+            // Parallelize reportSubmit across all items for this printer
+            await Promise.all(
+              printerJobs.map((pJob) => {
+                return this.client.reportSubmit(pJob.id, targetPrinterName, pJob.duplexStep);
+              }),
+            );
+
+            batchSubmissionStarted = true;
+            anySubmitted = true;
+            const shouldIncludeSeparator = this.config.enableSeparatorPage !== false;
+
+            const batchResult = await prepareAndPrintBatch(
+              resolvedItems.map((item) => ({ sourcePath: item.sourcePath, job: item.job })),
+              targetPrinterName,
+              {
+                includeSeparatorPage: shouldIncludeSeparator,
+                discoveredPrinter: targetPrinter,
+              },
+            );
+
+            if (!batchResult.success) {
+              throw new Error(batchResult.errorMessage || "Print submission failed.");
+            }
+
+            if (process.platform === "win32" || os.platform() === "win32") {
+              logger.info(
+                `Continuous print (${printerJobs.length} docs) spooled to "${targetPrinterName}". Monitoring queue in background...`,
+              );
+              void (async () => {
+                try {
+                  await waitForPhysicalPrintCompletion(targetPrinterName, 60000);
+                } catch (bgErr) {
+                  logger.warn(`Spooler queue background wait notice:`, {
+                    error: bgErr instanceof Error ? bgErr.message : String(bgErr),
+                  });
+                }
+              })();
+            }
+
+            for (const pJob of printerJobs) {
+              try {
+                await this.client.reportComplete(pJob.id);
+                this.pendingCompletionJobIds.delete(pJob.id);
+                logger.info(`Job #${pJob.id.slice(0, 8)} reported as physically COMPLETED to server.`);
+              } catch (compErr) {
+                this.pendingCompletionJobIds.add(pJob.id);
+                logger.warn(`Could not report job #${pJob.id.slice(0, 8)} completed (queued for auto-retry):`, {
+                  error: compErr instanceof Error ? compErr.message : String(compErr),
+                });
+              }
+            }
+
+            this.stats.jobsSubmitted += printerJobs.length;
+            this.stats.totalPagesSubmitted += batchResult.pagesSubmitted;
+            if (heldJobs.length === 0) {
+              this.forcedOrderIds.delete(job.orderId);
+            }
+            logger.info(
+              `✅ Order #${job.orderId.slice(0, 8)}: ${printerJobs.length} document(s) (${batchResult.pagesSubmitted} pages) physically spooled to "${targetPrinterName}".`,
+            );
+          } catch (batchErr) {
+            const errorMsg = batchErr instanceof Error ? batchErr.message : "Print execution error";
+            logger.error(`Print failed for Order #${job.orderId.slice(0, 8)} on "${targetPrinterName}": ${errorMsg}`);
+            for (const pJob of printerJobs) {
+              if (!batchSubmissionStarted) {
+                this.processedJobIds.delete(`${pJob.id}:${pJob.duplexStep || "standard"}`);
+              }
+              await this.client.reportFailure(pJob.id, errorMsg.slice(0, 500), !batchSubmissionStarted);
+            }
+            this.stats.jobsFailed += printerJobs.length;
+          } finally {
+            this.activePrintingPrinters.delete(targetPrinterName.toLowerCase());
+            for (const item of resolvedItems) {
+              if (!item.isLocalCacheHit && fs.existsSync(item.sourcePath)) {
+                const toClean = item.sourcePath;
+                setTimeout(() => {
+                  try {
+                    if (fs.existsSync(toClean)) fs.unlinkSync(toClean);
+                  } catch {}
+                }, 60000);
+              }
+            }
+          }
+        }
+
+        return anySubmitted;
+      }
+
+      // Single-document / single-job execution: Plan page-ranges
       const plan = groups.map((ranges) => {
         const thisRangeRequiresColor = ranges[0].colorMode === "color";
-        // If a color printer is in the shop, try routing color requests (and unified batches) to color.
-        // If no color printer exists in the shop, route to available mono printer.
-        const reqColor = hasColorPrinterInShop && (anyJobInBatchRequiresColor || thisRangeRequiresColor);
+        const reqColor = thisRangeRequiresColor && !allowMonoFallbackForColor;
 
         const selectedPrinterObj = this.discoveredPrinters.find(
           (p) => p.name.toLowerCase() === (this.config.selectedPrinter || "").toLowerCase(),
         );
-        // If the job requires color, NEVER prefer a monochrome default printer! Auto-route to a Color printer.
         const preferredName =
           reqColor && selectedPrinterObj && !selectedPrinterObj.capabilities?.colorSupport
             ? undefined
@@ -788,47 +976,14 @@ export class AgentDaemon {
           allowOffline: false,
         });
 
-        // Resilience Fallback 1: If batch requested color but none was found, and this specific range is black_and_white,
-        // retry finding a printer for black_and_white so B&W pages NEVER get held!
-        if (!printer && reqColor && !thisRangeRequiresColor) {
-          printer = findBestPrinterForJob(this.discoveredPrinters, {
-            colorMode: "black_and_white",
-            paperSize: ranges[0].paperSize,
-            preferredName: this.config.selectedPrinter || job.defaultPrinter,
-            requiredPrinterName: isDuplexEvenStep ? reservedPrinterForJob : null,
-            requiresDuplex: isDoubleSided && hasHardwareDuplexInShop && !isDuplexEvenStep,
-            busyPrinters,
-            allowColorFallbackForMono: true,
-            allowOffline: false,
-          });
-        }
-
-        // Resilience Fallback 2: If the range requested color, but no color printer was available,
-        // and allowMonoFallbackForColor is enabled, retry finding a black_and_white printer!
-        if (!printer && thisRangeRequiresColor && allowMonoFallbackForColor) {
-          printer = findBestPrinterForJob(this.discoveredPrinters, {
-            colorMode: "black_and_white",
-            paperSize: ranges[0].paperSize,
-            preferredName: this.config.selectedPrinter || job.defaultPrinter,
-            requiredPrinterName: isDuplexEvenStep ? reservedPrinterForJob : null,
-            requiresDuplex: isDoubleSided && hasHardwareDuplexInShop && !isDuplexEvenStep,
-            busyPrinters,
-            allowColorFallbackForMono: true,
-            allowMonoFallbackForColor: true,
-            allowOffline: false,
-          });
-        }
-
         return { ranges, printer };
       });
 
-      if (plan.some((part) => !part.printer)) {
-        this.processedJobIds.delete(jobKey);
+      const printableParts = plan.filter((part) => part.printer !== null);
+      const heldParts = plan.filter((part) => part.printer === null);
 
-        const requiredMode = groups[0]?.[0]?.colorMode || "requested";
-        const hasHardwareDuplexInShop = this.discoveredPrinters.some(
-          (p) => isPhysicalPrinter(p) && p.capabilities?.duplexSupport === true,
-        );
+      if (printableParts.length === 0) {
+        this.processedJobIds.delete(jobKey);
 
         const reason = isDuplexEvenStep
           ? `Reserved printer "${reservedPrinterForJob}" is currently offline or busy. Order will remain on hold for this printer.`
@@ -836,9 +991,9 @@ export class AgentDaemon {
             ? `No compatible printer connected for double-sided request. Request stays on hold.`
             : isDoubleSided && hasHardwareDuplexInShop
               ? `Hardware Duplex printer is currently busy printing. Double-sided request is held to print automatically on the duplex printer.`
-              : requiredMode === "black_and_white"
-                ? `No free physical printer is available for Black & White printing. Request stays on hold.`
-                : `No free compatible Color printer is available. Request stays on hold.`;
+              : heldParts.some((p) => p.ranges[0]?.colorMode === "color")
+                ? `No free compatible Color printer is available. Connect a Color printer or click Force Print to print in Black & White.`
+                : `No free physical printer is available for Black & White printing. Request stays on hold.`;
 
         logger.warn(`Job #${job.id.slice(0, 8)} held: ${reason}`);
         await this.client.reportFailure(job.id, reason, true);
@@ -849,21 +1004,19 @@ export class AgentDaemon {
 
       // Allow B&W jobs to print on color printer when needed
       job.allowColorFallback = true;
-      if (allowMonoFallbackForColor || !hasColorPrinterInShop) {
+      if (allowMonoFallbackForColor) {
         job.allowMonoFallback = true;
       }
 
       // Resolve final duplex execution step based on selected printer hardware capability
-      const firstPrinter = plan[0]?.printer;
+      const firstPrinter = printableParts[0]?.printer;
       const printerSupportsHardwareDuplex = Boolean(firstPrinter?.capabilities?.duplexSupport);
       if (isDoubleSided) {
         if (isDuplexEvenStep) {
           job.duplexStep = "even";
         } else if (printerSupportsHardwareDuplex) {
-          // Printer has hardware duplex unit: print both sides in a single pass
           job.duplexStep = "all";
         } else {
-          // Simplex printer fallback: manual duplex Step 1 (odd pages first)
           job.duplexStep = "odd";
           logger.info(
             `Simplex printer "${firstPrinter?.name}" detected for double-sided Job #${job.id.slice(0, 8)}; routing to manual duplex (Step 1: odd pages).`,
@@ -872,126 +1025,9 @@ export class AgentDaemon {
       }
 
       // Mark the selected printer(s) as actively printing
-      for (const part of plan) {
+      for (const part of printableParts) {
         if (part.printer) {
           this.activePrintingPrinters.add(part.printer.name.toLowerCase());
-        }
-      }
-
-      // If we have multiple sibling jobs for the same order and a target printer,
-      // combine all documents into a single continuous print batch if the target printer can handle them all!
-      const canBatchAllJobsOnTarget =
-        batchJobs.length > 1 &&
-        Boolean(plan[0]?.printer?.name) &&
-        job.duplexStep !== "odd" &&
-        batchJobs.every((bJob) => {
-          const isColor = (bJob.pagesConfig || []).some((c) => c.colorMode === "color");
-          const targetSupportsColor = Boolean(plan[0]?.printer?.capabilities?.colorSupport);
-          if (isColor && !targetSupportsColor && !allowMonoFallbackForColor) {
-            return false;
-          }
-          return true;
-        });
-
-      if (canBatchAllJobsOnTarget && plan[0]?.printer?.name) {
-        const targetPrinterName = plan[0].printer.name;
-        const resolvedItems: Array<{ sourcePath: string; job: ClaimedJob; isLocalCacheHit: boolean }> = [];
-        let batchSubmissionStarted = false;
-
-        try {
-          for (const bJob of batchJobs) {
-            const resolved = await this.resolveJobDocumentPath(bJob);
-            resolvedItems.push({ sourcePath: resolved.filePath, job: bJob, isLocalCacheHit: resolved.isLocalCacheHit });
-          }
-
-          // Parallelize reportSubmit across all batch items in a single network round-trip!
-          await Promise.all(
-            batchJobs.map((bJob) => {
-              bJob.allowColorFallback = true;
-              if (allowMonoFallbackForColor || !hasColorPrinterInShop) {
-                bJob.allowMonoFallback = true;
-              }
-              return this.client.reportSubmit(bJob.id, targetPrinterName, bJob.duplexStep);
-            }),
-          );
-
-          batchSubmissionStarted = true;
-          const shouldIncludeSeparator = this.config.enableSeparatorPage !== false;
-          const batchResult = await prepareAndPrintBatch(
-            resolvedItems.map((item) => ({ sourcePath: item.sourcePath, job: item.job })),
-            targetPrinterName,
-            {
-              includeSeparatorPage: shouldIncludeSeparator,
-              discoveredPrinter: plan[0]?.printer,
-            },
-          );
-
-          if (!batchResult.success) {
-            throw new Error(batchResult.errorMessage || "Batch print submission failed.");
-          }
-
-          if (process.platform === "win32" || os.platform() === "win32") {
-            logger.info(
-              `Continuous batch (${batchJobs.length} docs) spooled to "${targetPrinterName}". Monitoring queue in background...`,
-            );
-            void (async () => {
-              try {
-                await waitForPhysicalPrintCompletion(targetPrinterName, 60000);
-              } catch (bgErr) {
-                logger.warn(`Spooler queue background wait notice:`, {
-                  error: bgErr instanceof Error ? bgErr.message : String(bgErr),
-                });
-              }
-            })();
-          }
-
-          for (const bJob of batchJobs) {
-            try {
-              await this.client.reportComplete(bJob.id);
-              this.pendingCompletionJobIds.delete(bJob.id);
-              logger.info(`Batch Job #${bJob.id.slice(0, 8)} reported as physically COMPLETED to server.`);
-            } catch (compErr) {
-              this.pendingCompletionJobIds.add(bJob.id);
-              logger.warn(`Could not report batch job #${bJob.id.slice(0, 8)} completed (queued for auto-retry):`, {
-                error: compErr instanceof Error ? compErr.message : String(compErr),
-              });
-            }
-          }
-
-          this.stats.jobsSubmitted += batchJobs.length;
-          this.stats.totalPagesSubmitted += batchResult.pagesSubmitted;
-          this.forcedOrderIds.delete(job.orderId);
-          logger.info(
-            `✅ Order #${job.orderId.slice(0, 8)}: Continuous batch of ${batchJobs.length} documents (${batchResult.pagesSubmitted} pages) physically printed successfully.`,
-          );
-          return true;
-        } catch (batchErr) {
-          const errorMsg = batchErr instanceof Error ? batchErr.message : "Batch print execution error";
-          logger.error(`Continuous batch print failed for Order #${job.orderId.slice(0, 8)}: ${errorMsg}`);
-          for (const bJob of batchJobs) {
-            if (!batchSubmissionStarted) {
-              this.processedJobIds.delete(`${bJob.id}:${bJob.duplexStep || "standard"}`);
-            }
-            await this.client.reportFailure(bJob.id, errorMsg.slice(0, 500), !batchSubmissionStarted);
-          }
-          this.stats.jobsFailed += batchJobs.length;
-          return false;
-        } finally {
-          for (const part of plan) {
-            if (part.printer) {
-              this.activePrintingPrinters.delete(part.printer.name.toLowerCase());
-            }
-          }
-          for (const item of resolvedItems) {
-            if (!item.isLocalCacheHit && fs.existsSync(item.sourcePath)) {
-              const toClean = item.sourcePath;
-              setTimeout(() => {
-                try {
-                  if (fs.existsSync(toClean)) fs.unlinkSync(toClean);
-                } catch { }
-              }, 60000);
-            }
-          }
         }
       }
 
@@ -1004,21 +1040,22 @@ export class AgentDaemon {
         printFilePath = resolved.filePath;
         isLocalCacheHit = resolved.isLocalCacheHit;
 
-        const firstPrinterName = plan[0]?.printer?.name;
+        const firstPrinterName = printableParts[0]?.printer?.name;
         submissionStarted = true;
         await this.client.reportSubmit(job.id, firstPrinterName, job.duplexStep);
 
         let pagesSubmitted = 0;
-        for (let i = 0; i < plan.length; i++) {
-          const part = plan[i];
+        for (let i = 0; i < printableParts.length; i++) {
+          const part = printableParts[i];
           const printerName = part.printer!.name;
-          const isLastPartForThisPrinter = !plan.slice(i + 1).some(
+          const isLastPartForThisPrinter = !printableParts.slice(i + 1).some(
             (p) => p.printer?.name.toLowerCase() === printerName.toLowerCase(),
           );
           const shouldIncludeSeparator =
             this.config.enableSeparatorPage !== false &&
             job.isLastJobForOrder !== false &&
-            isLastPartForThisPrinter;
+            isLastPartForThisPrinter &&
+            heldParts.length === 0;
           logger.info(
             `Submitting to printer "${printerName}" for Job #${job.id.slice(0, 8)} (${job.duplexStep || "full"}, separator: ${shouldIncludeSeparator})...`,
           );
@@ -1064,7 +1101,7 @@ export class AgentDaemon {
         }
 
         // Monitor physical printer in background so daemon and UI unblock immediately!
-        const lastPrinterName = plan[plan.length - 1]?.printer?.name || firstPrinterName;
+        const lastPrinterName = printableParts[printableParts.length - 1]?.printer?.name || firstPrinterName;
         if (lastPrinterName && (process.platform === "win32" || os.platform() === "win32")) {
           if (job.isLastJobForOrder !== false) {
             logger.info(`Dispatched to "${lastPrinterName}". Monitoring physical printing in background...`);
@@ -1084,23 +1121,33 @@ export class AgentDaemon {
           }
         }
 
-        // Now report job physically completed to server (unless manual duplex odd step)!
+        // Now report job physically completed to server (unless manual duplex odd step or held parts remain)!
         if (job.duplexStep !== "odd") {
-          try {
-            await this.client.reportComplete(job.id);
-            this.pendingCompletionJobIds.delete(job.id);
-            logger.info(`Job #${job.id.slice(0, 8)} reported as physically COMPLETED to server.`);
-          } catch (compErr) {
-            this.pendingCompletionJobIds.add(job.id);
-            logger.warn(`Could not report job #${job.id.slice(0, 8)} completed to server (queued for auto-retry):`, {
-              error: compErr instanceof Error ? compErr.message : String(compErr),
-            });
+          if (heldParts.length === 0) {
+            try {
+              await this.client.reportComplete(job.id);
+              this.pendingCompletionJobIds.delete(job.id);
+              logger.info(`Job #${job.id.slice(0, 8)} reported as physically COMPLETED to server.`);
+            } catch (compErr) {
+              this.pendingCompletionJobIds.add(job.id);
+              logger.warn(`Could not report job #${job.id.slice(0, 8)} completed to server (queued for auto-retry):`, {
+                error: compErr instanceof Error ? compErr.message : String(compErr),
+              });
+            }
+            this.forcedOrderIds.delete(job.orderId);
+          } else {
+            // Held parts remain (e.g. Color page on mono shop)
+            this.processedJobIds.delete(jobKey);
+            const heldReason = heldParts.some((p) => p.ranges[0]?.colorMode === "color")
+              ? "Black & White page(s) printed. Color page(s) held: No compatible Color printer is available. Connect a Color printer or click Force Print to print in Black & White."
+              : "Some page(s) printed, but others held: No compatible printer available.";
+            logger.warn(`Job #${job.id.slice(0, 8)} partially printed: ${heldReason}`);
+            await this.client.reportFailure(job.id, heldReason, true);
           }
         }
 
         this.stats.jobsSubmitted += 1;
         this.stats.totalPagesSubmitted += pagesSubmitted;
-        this.forcedOrderIds.delete(job.orderId);
         logger.info(`Job #${job.id.slice(0, 8)} successfully submitted and physically printed.`);
         return true;
       } catch (printErr) {
@@ -1115,7 +1162,7 @@ export class AgentDaemon {
         return false;
       } finally {
         // Unmark active printing status
-        for (const part of plan) {
+        for (const part of printableParts) {
           if (part.printer) {
             this.activePrintingPrinters.delete(part.printer.name.toLowerCase());
           }

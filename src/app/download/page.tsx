@@ -4,11 +4,17 @@ import { JsonLd } from "@/components/json-ld";
 import { breadcrumbJsonLd, pageMetadata } from "@/lib/seo";
 
 export const metadata = pageMetadata({
-  title: "Download the Printiva Windows Agent — Automatic Printing for Your Shop",
+  title: "Download Print Automation Software for Windows — Printiva Desktop Agent",
   description:
-    "Download the Printiva desktop agent for Windows 10 and 11. Pair it with your shop and paid customer documents print automatically on your USB, Wi-Fi, or network printer.",
+    "Download Printiva print automation software for Windows 10 and 11 (64-bit). Connect your USB, Wi-Fi, or network printer to automatically print paid customer documents in seconds.",
   path: "/download",
-  keywords: ["Printiva agent download", "automatic printing software for Windows", "print shop desktop agent"],
+  keywords: [
+    "download print automation software",
+    "printing software for Windows 10",
+    "photocopy software download",
+    "automatic print agent Windows",
+    "xerox shop software PC download",
+  ],
 });
 
 export default function DownloadPage() {
@@ -36,10 +42,10 @@ export default function DownloadPage() {
             className="inline-flex items-center gap-2 rounded-xl bg-white px-5 py-3 font-semibold text-brand-900 shadow-sm transition hover:bg-white/90"
           >
             <Download className="size-5" />
-            Download Windows Agent (v1.8.33)
+            Download Windows Agent (v1.8.34)
           </a>
           <span className="text-xs text-white/70">
-            Version 1.8.33 &bull; 64-bit Windows 10/11
+            Version 1.8.34 &bull; 64-bit Windows 10/11
           </span>
         </div>
       </div>

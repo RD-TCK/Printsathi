@@ -4,11 +4,18 @@ import { JsonLd } from "@/components/json-ld";
 import { breadcrumbJsonLd, pageMetadata } from "@/lib/seo";
 
 export const metadata = pageMetadata({
-  title: "Print Shop Software Features — QR Ordering, Auto Pricing & Printing",
+  title: "Printing Software Features — Print Automation & Photocopy Management",
   description:
-    "Printiva features for print shops: QR code ordering, multi-document uploads, page-range and colour controls, Razorpay-verified payments, and a Windows agent that prints automatically.",
+    "Explore Printiva's print automation software features: QR code document upload, automatic page counting, multi-printer queue routing, split color/mono spooling, and native Windows printing.",
   path: "/features",
-  keywords: ["print shop software features", "QR ordering for print shops", "automatic print routing"],
+  keywords: [
+    "print automation software features",
+    "photocopy software capabilities",
+    "printing software for Windows",
+    "automatic print spooler software",
+    "xerox shop management features",
+    "cyber cafe printing tools",
+  ],
 });
 
 export default function FeaturesPage() {

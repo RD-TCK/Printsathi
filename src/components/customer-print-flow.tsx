@@ -3666,46 +3666,20 @@ const TURBO_PRINT_FACTS = [
 
 
 
-const BLINKIT_MILESTONES = [
-  {
-    id: "encrypt",
-    title: "Securing & Encrypting Document Files",
-    description: "Verifying SHA-256 integrity & transient storage lock",
-    badge: "SECURITY",
-  },
-  {
-    id: "analyze",
-    title: "Calibrating Page Ranges & Color Tiers",
-    description: "Mapping A4 dimensions, duplex mapping & ink breakdown",
-    badge: "CALIBRATION",
-  },
-  {
-    id: "connect",
-    title: "Connecting to Counter Dispatch Station",
-    description: "Syncing with live hardware counter terminal",
-    badge: "TERMINAL",
-  },
-  {
-    id: "precache",
-    title: "Pre-Caching Pages on Hardware SSD",
-    description: "Warming up local printer spooler for instant output upon pickup",
-    badge: "HARDWARE",
-  },
-  {
-    id: "token",
-    title: "Assigning Priority Counter Token",
-    description: "Reserving your verified spot in the shop queue",
-    badge: "TOKEN",
-  },
+const MINIMAL_STEPS = [
+  { label: "Validating", text: "Verifying document parameters..." },
+  { label: "Calibrating", text: "Calibrating print layouts & paper settings..." },
+  { label: "Connecting", text: "Connecting to counter terminal..." },
+  { label: "Allocating", text: "Allocating priority queue token..." },
+  { label: "Ready", text: "Token allocated. Ready for pickup." },
 ];
 
-function BlinkitOrderProcessingStage({
+function ModernMinimalTokenProcessingStage({
   shop,
   documents,
   estimate,
   activeStepIndex,
   progressPercent,
-  factIndex,
   submissionError,
   onRetry,
   onBackToConfigure,
@@ -3715,172 +3689,70 @@ function BlinkitOrderProcessingStage({
   estimate: Estimate | null;
   activeStepIndex: number;
   progressPercent: number;
-  factIndex: number;
+  factIndex?: number;
   submissionError: string | null;
   onRetry: () => void;
   onBackToConfigure?: () => void;
 }) {
-  const currentFact = TURBO_PRINT_FACTS[factIndex] || TURBO_PRINT_FACTS[0];
+  const currentStep = MINIMAL_STEPS[Math.min(activeStepIndex, MINIMAL_STEPS.length - 1)] || MINIMAL_STEPS[0];
   const totalPagesCount = estimate?.totalPages ?? documents.reduce((sum, d) => sum + (d.pageCount || 1), 0);
-  const totalAmountStr = estimate ? `₹${estimate.total.toFixed(2)}` : "...";
+  const totalAmountStr = estimate ? `₹${estimate.total.toFixed(2)}` : "—";
 
   return (
-    <Card className="overflow-hidden border-emerald-200/90 bg-white p-4 sm:p-8 shadow-2xl rounded-3xl animate-in fade-in zoom-in-95 duration-200 relative">
-      {/* Top Header Pill */}
-      <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-100 pb-3">
-        <div className="inline-flex items-center gap-1.5 rounded-full bg-emerald-50 border border-emerald-200 px-3 py-1 text-[11px] sm:text-xs font-black text-emerald-800 tracking-wider uppercase">
-          <span className="size-2 rounded-full bg-emerald-500 animate-pulse" />
-          <span>FAST COUNTER DISPATCH</span>
-        </div>
-        <div className="flex items-center gap-2 text-xs font-bold text-slate-500">
-          <span>{documents.length} {documents.length === 1 ? "file" : "files"}</span>
-          <span>•</span>
-          <span>{totalPagesCount} pages</span>
-          <span>•</span>
-          <span className="text-emerald-800 font-mono font-extrabold">{totalAmountStr}</span>
-        </div>
+    <Card className="overflow-hidden border border-line/90 bg-white p-6 sm:p-9 shadow-xs rounded-3xl animate-in fade-in duration-200 relative text-center">
+      {/* Centered Breathing Icon Container */}
+      <div className="mx-auto flex size-14 items-center justify-center rounded-2xl border border-brand-200/80 bg-brand-50/70 text-brand-700 shadow-2xs">
+        <Printer className="size-6 stroke-[1.75] text-brand-700 animate-pulse" />
       </div>
 
-      {/* Main Headline */}
-      <div className="text-center mt-4">
-        <h2 className="text-xl sm:text-2xl font-black text-slate-900 tracking-tight flex items-center justify-center gap-2">
-          <Sparkles className="size-5 text-emerald-600 shrink-0 animate-spin" />
-          <span>Reserving Your Counter Print Token...</span>
+      {/* Headline & Subhead */}
+      <div className="mt-4">
+        <h2 className="text-xl sm:text-2xl font-bold text-ink tracking-tight">
+          Reserving Your Counter Token...
         </h2>
-        <p className="mt-1 text-xs sm:text-sm text-slate-600 max-w-md mx-auto">
-          Syncing with <b>{shop.name}</b>’s counter printer for zero-delay pickup.
+        <p className="mt-1 text-xs sm:text-sm text-muted max-w-sm mx-auto">
+          Connecting with <b className="text-ink font-semibold">{shop.name}</b> for instant counter pickup.
         </p>
       </div>
 
-      {/* Animated Progress Bar */}
-      <div className="mt-5 space-y-1.5">
-        <div className="flex justify-between items-center text-xs font-bold text-slate-700">
-          <span className="text-emerald-700 font-semibold">Live Processing Progress</span>
-          <span className="font-mono text-emerald-800 font-black">{Math.min(100, Math.round(progressPercent))}%</span>
-        </div>
-        <div className="h-2.5 w-full overflow-hidden rounded-full bg-slate-100 border border-slate-200/80 p-0.5">
+      {/* Progress Bar & Stage Status */}
+      <div className="max-w-sm mx-auto mt-6 space-y-2">
+        <div className="h-2 w-full overflow-hidden rounded-full bg-brand-50 border border-brand-100 p-0.5 shadow-2xs">
           <div
-            className="h-full rounded-full bg-gradient-to-r from-emerald-500 via-teal-400 to-emerald-600 transition-all duration-500 ease-out shadow-xs"
-            style={{ width: `${Math.min(100, Math.max(8, progressPercent))}%` }}
+            className="h-full rounded-full bg-gradient-to-r from-brand-600 to-brand-700 transition-all duration-500 ease-out shadow-xs"
+            style={{ width: `${Math.min(100, Math.max(6, progressPercent))}%` }}
           />
         </div>
-      </div>
-
-      {/* Centerpiece: Animated PrinterLoader with status badges */}
-      <div className="my-5 rounded-2xl bg-gradient-to-b from-emerald-50/70 via-slate-50/50 to-emerald-50/30 border border-emerald-100 p-4 flex flex-col items-center justify-center relative overflow-hidden">
-        <div className="scale-90 sm:scale-100">
-          <PrinterLoader label="" />
-        </div>
-        {/* Micro feature badges */}
-        <div className="mt-1 flex flex-wrap items-center justify-center gap-1.5 sm:gap-2">
-          <span className="inline-flex items-center gap-1 rounded-full bg-white/95 border border-slate-200/80 px-2.5 py-0.5 text-[10px] sm:text-[11px] font-bold text-slate-700 shadow-2xs">
-            <ShieldCheck className="size-3 text-emerald-600" /> 256-bit Encrypted
-          </span>
-          <span className="inline-flex items-center gap-1 rounded-full bg-white/95 border border-slate-200/80 px-2.5 py-0.5 text-[10px] sm:text-[11px] font-bold text-slate-700 shadow-2xs">
-            <Zap className="size-3 text-amber-500" /> 0s Hardware Spooling
-          </span>
-          <span className="inline-flex items-center gap-1 rounded-full bg-white/95 border border-slate-200/80 px-2.5 py-0.5 text-[10px] sm:text-[11px] font-bold text-slate-700 shadow-2xs">
-            <Store className="size-3 text-blue-600" /> {shop.name} Terminal
-          </span>
+        <div className="flex justify-between items-center text-xs font-mono">
+          <span className="text-brand-900 font-medium">{currentStep.text}</span>
+          <span className="font-bold text-brand-800">{Math.min(100, Math.round(progressPercent))}%</span>
         </div>
       </div>
 
-      {/* Milestone Sequential Timeline (Blinkit-style) */}
-      <div className="space-y-2 text-left">
-        {BLINKIT_MILESTONES.map((step, idx) => {
-          const isDone = activeStepIndex > idx || progressPercent >= 100;
-          const isCurrent = activeStepIndex === idx && progressPercent < 100;
-          return (
-            <div
-              key={step.id}
-              className={cn(
-                "flex items-start gap-3 rounded-xl p-2.5 sm:p-3 transition-all duration-300 border",
-                isDone
-                  ? "bg-emerald-50/70 border-emerald-200 text-emerald-950"
-                  : isCurrent
-                  ? "bg-white border-emerald-400 shadow-sm ring-1 ring-emerald-300 text-slate-900"
-                  : "bg-slate-50/40 border-slate-100 text-slate-400 opacity-60"
-              )}
-            >
-              <div className="mt-0.5 shrink-0">
-                {isDone ? (
-                  <div className="flex size-5.5 items-center justify-center rounded-full bg-emerald-600 text-white shadow-2xs">
-                    <Check className="size-3.5 stroke-[3]" />
-                  </div>
-                ) : isCurrent ? (
-                  <div className="flex size-5.5 items-center justify-center rounded-full bg-emerald-100 text-emerald-700">
-                    <LoaderCircle className="size-3.5 animate-spin" />
-                  </div>
-                ) : (
-                  <div className="flex size-5.5 items-center justify-center rounded-full bg-slate-200 text-[10px] font-bold text-slate-600">
-                    {idx + 1}
-                  </div>
-                )}
-              </div>
-              <div className="min-w-0 flex-1">
-                <div className="flex items-center justify-between gap-2">
-                  <p className={cn("text-xs sm:text-sm font-bold leading-tight", isDone ? "text-emerald-900" : isCurrent ? "text-slate-900" : "text-slate-500")}>
-                    {step.title}
-                  </p>
-                  {isDone && (
-                    <span className="text-[10px] font-extrabold text-emerald-700 uppercase tracking-wider shrink-0">
-                      Done ✓
-                    </span>
-                  )}
-                  {isCurrent && (
-                    <span className="text-[10px] font-extrabold text-emerald-600 animate-pulse uppercase tracking-wider shrink-0">
-                      Processing...
-                    </span>
-                  )}
-                </div>
-                <p className={cn("text-[11px] sm:text-xs leading-tight mt-0.5", isDone ? "text-emerald-800/80" : "text-slate-500")}>
-                  {step.description}
-                </p>
-              </div>
-            </div>
-          );
-        })}
-      </div>
-
-      {/* Rotating Printing Trivia Card */}
-      <div className="mt-4 rounded-2xl border border-slate-200 bg-slate-50/90 p-3.5 text-left shadow-2xs relative min-h-[76px] flex flex-col justify-center">
-        <div className="flex items-center gap-2 mb-1">
-          <span className="text-base">{currentFact.icon}</span>
-          <span className="text-[10px] font-black uppercase tracking-wider text-emerald-800">
-            {currentFact.tag}
-          </span>
-          <div className="ml-auto flex items-center gap-1">
-            {TURBO_PRINT_FACTS.slice(0, 5).map((_, i) => (
-              <span
-                key={i}
-                className={cn(
-                  "size-1.5 rounded-full transition-all duration-300",
-                  factIndex % 5 === i ? "bg-emerald-600 w-3" : "bg-slate-300"
-                )}
-              />
-            ))}
-          </div>
-        </div>
-        <p className="text-xs text-slate-700 leading-relaxed font-medium transition-opacity duration-300">
-          {currentFact.text}
-        </p>
+      {/* Clean Metadata Receipt Footer */}
+      <div className="pt-4 mt-6 border-t border-line/70 text-xs font-mono text-muted flex items-center justify-center gap-2 sm:gap-3">
+        <span>{documents.length} {documents.length === 1 ? "file" : "files"}</span>
+        <span>•</span>
+        <span>{totalPagesCount} pages</span>
+        <span>•</span>
+        <span className="font-semibold text-brand-950">{totalAmountStr}</span>
       </div>
 
       {/* Error Notice with Retry / Back buttons if submission failed */}
       {submissionError && (
-        <div className="mt-4 rounded-2xl border border-rose-300 bg-rose-50 p-4 text-left space-y-3">
-          <div className="flex items-start gap-2.5 text-rose-900 font-bold text-xs sm:text-sm">
+        <div className="mt-5 rounded-2xl border border-rose-200 bg-rose-50/80 p-4 text-left text-xs space-y-3">
+          <div className="flex items-start gap-2.5 text-rose-900">
             <AlertCircle className="size-4.5 shrink-0 text-rose-600 mt-0.5" />
             <div>
-              <p className="font-extrabold text-rose-950">Generation Notice</p>
-              <p className="font-medium text-rose-800 text-xs mt-0.5">{submissionError}</p>
+              <p className="font-bold text-rose-950">Token Generation Paused</p>
+              <p className="text-rose-800 mt-0.5 font-medium">{submissionError}</p>
             </div>
           </div>
-          <div className="flex items-center gap-2 pt-1 border-t border-rose-200/80">
+          <div className="flex items-center gap-2 pt-2 border-t border-rose-200/70">
             <button
               type="button"
               onClick={onRetry}
-              className="inline-flex items-center gap-1.5 rounded-xl bg-rose-600 px-3.5 py-1.5 text-xs font-bold text-white shadow-2xs hover:bg-rose-700 active:scale-95 transition cursor-pointer"
+              className="inline-flex items-center gap-1.5 rounded-xl bg-brand-700 px-3.5 py-1.5 text-xs font-semibold text-white shadow-2xs hover:bg-brand-800 transition cursor-pointer"
             >
               <RefreshCw className="size-3.5" />
               <span>Retry Token Generation</span>
@@ -3889,7 +3761,7 @@ function BlinkitOrderProcessingStage({
               <button
                 type="button"
                 onClick={onBackToConfigure}
-                className="inline-flex items-center gap-1.5 rounded-xl border border-slate-300 bg-white px-3.5 py-1.5 text-xs font-bold text-slate-700 hover:bg-slate-50 active:scale-95 transition cursor-pointer"
+                className="inline-flex items-center gap-1.5 rounded-xl border border-line bg-white px-3.5 py-1.5 text-xs font-semibold text-ink hover:bg-brand-50/60 transition cursor-pointer"
               >
                 <ArrowLeft className="size-3.5" />
                 <span>Back to Settings</span>
@@ -3901,6 +3773,9 @@ function BlinkitOrderProcessingStage({
     </Card>
   );
 }
+
+// Alias for backwards compatibility
+const BlinkitOrderProcessingStage = ModernMinimalTokenProcessingStage;
 
 function CounterTokenStep({
   tokenDetails,

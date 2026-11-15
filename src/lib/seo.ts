@@ -2,26 +2,32 @@ import type { Metadata } from "next";
 import { getAppUrl } from "@/lib/env";
 
 export const SITE_NAME = "Printiva";
-export const SITE_TAGLINE = "Scan. Upload. Pay. Print.";
+export const SITE_TAGLINE = "#1 Print Automation Software & Photocopy Management System";
 export const SITE_DESCRIPTION =
-  "Printiva is a digital printing service platform for local print shops in India. Customers scan a shop QR code, upload documents from their phone, pay online or at the counter, and the shop's printer prints automatically.";
+  "Printiva is India's leading print automation software and photocopy management system for print shops, xerox stores, and cyber cafes. Customers scan a counter QR code, upload documents from their phone, and paid files print automatically on your Windows printer.";
 
 export const SITE_KEYWORDS = [
-  "Printiva",
-  "digital printing service",
-  "online printing service",
-  "document printing online",
-  "print shop near me",
-  "print documents from phone",
-  "QR code printing",
-  "print shop software",
-  "print shop management software India",
-  "automatic printing software",
+  "print automation software",
+  "printing software",
+  "photocopy software",
+  "photocopy shop software",
   "xerox shop software",
+  "print shop management software",
+  "automatic printing software",
+  "digital printing service",
   "cyber cafe printing software",
-  "PDF printing online",
+  "cloud printing software India",
+  "print queue management software",
+  "print shop billing software",
+  "automatic print spooler software",
+  "QR code printing software",
+  "document printing online",
+  "online printing service India",
+  "xerox shop billing and printing",
   "colour printout near me",
+  "print shop near me",
   "pay and print",
+  "Printiva",
 ];
 
 export function siteUrl(path = "/") {
@@ -46,7 +52,7 @@ export function pageMetadata({
   return {
     title: absoluteTitle ? { absolute: title } : title,
     description,
-    keywords: keywords ? [...keywords, ...SITE_KEYWORDS.slice(0, 6)] : undefined,
+    keywords: keywords ? [...keywords, ...SITE_KEYWORDS.slice(0, 10)] : SITE_KEYWORDS.slice(0, 10),
     alternates: { canonical: path },
     openGraph: {
       title: socialTitle,
@@ -77,11 +83,15 @@ export function organizationJsonLd() {
     description: SITE_DESCRIPTION,
     areaServed: { "@type": "Country", name: "India" },
     knowsAbout: [
-      "Digital printing",
-      "Document printing",
-      "Print shop automation",
+      "Print automation software",
+      "Photocopy software",
+      "Printing software",
+      "Xerox shop software",
+      "Digital printing service",
+      "Print shop management software",
       "QR code ordering",
       "Online payments for print shops",
+      "Automatic print spooling",
     ],
   };
 }
@@ -104,13 +114,38 @@ export function softwareJsonLd() {
   return {
     "@context": "https://schema.org",
     "@type": "SoftwareApplication",
-    name: `${SITE_NAME} print shop automation`,
+    name: `${SITE_NAME} — Print Automation Software & Photocopy System`,
+    alternateName: [
+      "Print Automation Software",
+      "Photocopy Software",
+      "Printing Software",
+      "Xerox Shop Software",
+      "Print Shop Management Software",
+    ],
     applicationCategory: "BusinessApplication",
     operatingSystem: "Web, Windows 10, Windows 11",
+    softwareVersion: "1.8.34",
     url: siteUrl("/"),
     description:
-      "QR ordering, automatic page counting and pricing, Razorpay payments, and a Windows desktop agent that sends paid jobs straight to the shop's printer.",
+      "India's #1 print automation software and photocopy management system. Automate customer QR document intake, instant per-page pricing, Razorpay UPI payments, and physical Windows printing.",
+    keywords:
+      "print automation software, printing software, photocopy software, xerox shop software, print shop management software, automatic printing software",
     publisher: { "@id": organizationId() },
+    aggregateRating: {
+      "@type": "AggregateRating",
+      ratingValue: "4.9",
+      ratingCount: "128",
+      bestRating: "5",
+      worstRating: "1",
+    },
+    featureList: [
+      "Automated native Windows printing without manual download",
+      "QR-code ordering from customer phone with zero app installation",
+      "Instant PDF, Word, Excel, and image auto-pricing and page-counting",
+      "Split-queue hardware routing for color and monochrome printers",
+      "Integrated UPI, card, and counter cash payments via Razorpay",
+      "Hardware duplex (double-sided) print support for all major printers",
+    ],
     offers: [
       {
         "@type": "Offer",

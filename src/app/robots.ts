@@ -39,14 +39,16 @@ const aiCrawlers = [
   "CCBot",
   "DuckAssistBot",
   "meta-externalagent",
+  "Bingbot",
+  "msnbot",
 ];
 
 export default function robots(): MetadataRoute.Robots {
   const baseUrl = getAppUrl();
   return {
     rules: [
-      { userAgent: "*", allow: "/", disallow: privatePaths },
-      { userAgent: aiCrawlers, allow: "/", disallow: privatePaths },
+      { userAgent: "*", allow: ["/", "/llms.txt", "/llms-full.txt"], disallow: privatePaths },
+      { userAgent: aiCrawlers, allow: ["/", "/llms.txt", "/llms-full.txt"], disallow: privatePaths },
     ],
     sitemap: `${baseUrl}/sitemap.xml`,
     host: baseUrl,

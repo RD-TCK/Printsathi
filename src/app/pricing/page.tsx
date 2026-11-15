@@ -8,11 +8,18 @@ import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 
 export const metadata = pageMetadata({
-  title: "Pricing — ₹100 for a 7-Day Trial, then ₹699/month",
+  title: "Print Automation Software Pricing — ₹100 Trial for Xerox & Print Shops",
   description:
-    "Printiva pricing for print shops: ₹100 for a 7-day trial, then ₹699 per month or ₹7,499 per year. Includes QR ordering, automatic printing, and Razorpay checkout.",
+    "Transparent pricing for Printiva print automation & photocopy software. ₹100 for a 7-day trial, then ₹699/month or ₹7,499/year. Unlimited QR orders, auto-printing, and Razorpay checkout.",
   path: "/pricing",
-  keywords: ["print shop software price", "Printiva pricing", "print shop subscription India"],
+  keywords: [
+    "print automation software price",
+    "photocopy software pricing",
+    "xerox shop software cost",
+    "print shop management software India",
+    "printing software subscription",
+    "Printiva pricing",
+  ],
 });
 
 export default function PricingPage() {
