@@ -31,6 +31,16 @@ export class AgentApiClient {
     return headers;
   }
 
+  private async fetchWithTimeout(url: string, init: RequestInit, timeoutMs: number = 15000): Promise<Response> {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), timeoutMs);
+    try {
+      return await fetch(url, { ...init, signal: controller.signal });
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+
   async pairWithCode(params: {
     pairingCode: string;
     agentName?: string;
@@ -46,7 +56,7 @@ export class AgentApiClient {
     const url = `${this.serverUrl}/api/agent/pair`;
     logger.info(`Sending pairing request to ${url}...`);
 
-    const response = await fetch(url, {
+    const response = await this.fetchWithTimeout(url, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(params),
@@ -77,7 +87,7 @@ export class AgentApiClient {
     const url = `${this.serverUrl}/api/agent/login`;
     logger.info(`Sending direct login request to ${url}...`);
 
-    const response = await fetch(url, {
+    const response = await this.fetchWithTimeout(url, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(params),
@@ -103,7 +113,7 @@ export class AgentApiClient {
     }
 
     const url = `${this.serverUrl}/api/agent/heartbeat`;
-    const response = await fetch(url, {
+    const response = await this.fetchWithTimeout(url, {
       method: "POST",
       headers: this.getHeaders(),
       body: JSON.stringify(params),
@@ -126,7 +136,7 @@ export class AgentApiClient {
     }
 
     const url = `${this.serverUrl}/api/agent/claim`;
-    const response = await fetch(url, {
+    const response = await this.fetchWithTimeout(url, {
       method: "POST",
       headers: this.getHeaders(),
       body: JSON.stringify({ leaseSeconds }),
@@ -213,7 +223,7 @@ export class AgentApiClient {
 
     for (let attempt = 1; attempt <= retries; attempt++) {
       try {
-        const response = await fetch(url, {
+        const response = await this.fetchWithTimeout(url, {
           method: "POST",
           headers: this.getHeaders(),
           body: JSON.stringify({
@@ -250,7 +260,7 @@ export class AgentApiClient {
 
     for (let attempt = 1; attempt <= retries; attempt++) {
       try {
-        const response = await fetch(url, {
+        const response = await this.fetchWithTimeout(url, {
           method: "POST",
           headers: this.getHeaders(),
           body: JSON.stringify({ jobId }),
@@ -260,9 +270,18 @@ export class AgentApiClient {
         if (response.ok && data.success) {
           return true;
         }
-        throw new Error(data.error || `Job completion report failed with status ${response.status}`);
+        const statusErr = new Error(data.error || `Job completion report failed with status ${response.status}`);
+        (statusErr as Error & { status?: number }).status = response.status;
+        if (response.status >= 400 && response.status < 500 && response.status !== 408 && response.status !== 429) {
+          throw statusErr;
+        }
+        throw statusErr;
       } catch (err) {
         lastError = err instanceof Error ? err : new Error(String(err));
+        const errStatus = (lastError as Error & { status?: number }).status;
+        if (errStatus && errStatus >= 400 && errStatus < 500 && errStatus !== 408 && errStatus !== 429) {
+          break;
+        }
         if (attempt < retries) {
           await new Promise((resolve) => setTimeout(resolve, 1000 * attempt));
         }
@@ -278,7 +297,7 @@ export class AgentApiClient {
     }
 
     const url = `${this.serverUrl}/api/agent/realtime-config`;
-    const response = await fetch(url, {
+    const response = await this.fetchWithTimeout(url, {
       method: "GET",
       headers: this.getHeaders(),
     });
@@ -303,7 +322,7 @@ export class AgentApiClient {
     }
 
     const url = `${this.serverUrl}/api/agent/fail`;
-    const response = await fetch(url, {
+    const response = await this.fetchWithTimeout(url, {
       method: "POST",
       headers: this.getHeaders(),
       body: JSON.stringify({ jobId, reason, isRetryable }),
@@ -342,7 +361,7 @@ export class AgentApiClient {
 
     try {
       const url = `${this.serverUrl}/api/shop/counter-queue`;
-      const response = await fetch(url, {
+      const response = await this.fetchWithTimeout(url, {
         method: "GET",
         headers: this.getHeaders(),
       });
@@ -364,11 +383,15 @@ export class AgentApiClient {
     }
 
     const url = `${this.serverUrl}/api/shop/counter-order/approve`;
-    const response = await fetch(url, {
-      method: "POST",
-      headers: this.getHeaders(),
-      body: JSON.stringify({ orderId, duplexStep: duplexStep || "all" }),
-    });
+    const response = await this.fetchWithTimeout(
+      url,
+      {
+        method: "POST",
+        headers: this.getHeaders(),
+        body: JSON.stringify({ orderId, duplexStep: duplexStep || "all" }),
+      },
+      30000,
+    );
 
     const data = await response.json().catch(() => ({}));
     if (response.ok && data.success) {
@@ -384,7 +407,7 @@ export class AgentApiClient {
     }
 
     const url = `${this.serverUrl}/api/shop/counter-order/cancel`;
-    const response = await fetch(url, {
+    const response = await this.fetchWithTimeout(url, {
       method: "POST",
       headers: this.getHeaders(),
       body: JSON.stringify({ orderId }),
@@ -404,7 +427,7 @@ export class AgentApiClient {
     }
 
     const url = `${this.serverUrl}/api/shop/complete-job`;
-    const response = await fetch(url, {
+    const response = await this.fetchWithTimeout(url, {
       method: "POST",
       headers: this.getHeaders(),
       body: JSON.stringify({ orderId, status: "completed" }),
@@ -422,11 +445,15 @@ export class AgentApiClient {
     if (!this.token) return;
     try {
       const url = `${this.serverUrl}/api/agent/precache-complete`;
-      await fetch(url, {
-        method: "POST",
-        headers: this.getHeaders(),
-        body: JSON.stringify({ documentId, orderId }),
-      });
+      await this.fetchWithTimeout(
+        url,
+        {
+          method: "POST",
+          headers: this.getHeaders(),
+          body: JSON.stringify({ documentId, orderId }),
+        },
+        8000,
+      );
     } catch {
       // Non-fatal background report
     }

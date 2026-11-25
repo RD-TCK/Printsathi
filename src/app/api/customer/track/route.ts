@@ -11,9 +11,9 @@ export const dynamic = "force-dynamic";
  */
 export async function GET(request: Request) {
   const { searchParams } = new URL(request.url);
-  const id = searchParams.get("id")?.trim();
+  const id = searchParams.get("id")?.trim().replace(/^#+/, "");
 
-  if (!id || !/^[a-zA-Z0-9-]{6,80}$/.test(id)) {
+  if (!id || !/^[a-zA-Z0-9-]{4,80}$/.test(id)) {
     return NextResponse.json({ error: "Missing order id." }, { status: 400 });
   }
 
@@ -22,7 +22,8 @@ export async function GET(request: Request) {
   const client = adminClient ?? (await createSupabaseServerClient());
   if (!client) return NextResponse.json({ error: "Service unavailable." }, { status: 503 });
 
-  const { data: order } = await client
+  const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id);
+  let query = client
     .from("orders")
     .select(
       `
@@ -45,9 +46,9 @@ export async function GET(request: Request) {
         documents ( original_filename )
       )
     `,
-    )
-    .eq(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id) ? "id" : "public_id", id)
-    .maybeSingle();
+    );
+  query = isUuid ? query.eq("id", id) : query.ilike("public_id", id);
+  const { data: order } = await query.maybeSingle();
 
   if (!order) {
     return NextResponse.json({ found: false });
@@ -56,11 +57,18 @@ export async function GET(request: Request) {
   const payment = Array.isArray(order.payments) ? order.payments[0] : order.payments;
   const shop = Array.isArray(order.shops) ? order.shops[0] : order.shops;
   const jobs = Array.isArray(order.print_jobs) ? order.print_jobs : [];
+  const expiresAtDate = order.expires_at ? new Date(order.expires_at) : null;
+  const isPaidOrDone = ["paid", "completed", "partially_printed", "printing"].includes(order.status);
+  const isExpired =
+    !isPaidOrDone &&
+    order.status !== "cancelled" &&
+    (order.status === "expired" || (expiresAtDate ? expiresAtDate.getTime() <= Date.now() : false));
 
   // Return only safe public fields — no customer PII, no shop owner details
   return NextResponse.json({
     publicId: order.public_id || order.id.slice(0, 8).toUpperCase(),
-    status: order.status,
+    status: isExpired ? "expired" : order.status,
+    isExpired,
     shopName: (shop as { name?: string } | null)?.name || "Printiva Shop",
     totalAmount: Number(order.total_amount),
     totalPages: order.total_pages,

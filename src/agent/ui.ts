@@ -55,7 +55,6 @@ export class AgentWebServer {
       /^https?:\/\/(127\.0\.0\.1|localhost)(:\d+)?$/.test(origin) ||
       /^https:\/\/([a-z0-9-]+\.)?printiva\.(in|co\.in)$/.test(origin) ||
       /^https:\/\/([a-z0-9-]+\.)?printsathi\.(com|in|co\.in)$/.test(origin) ||
-      /\.vercel\.app$/.test(origin) ||
       (process.env.NEXT_PUBLIC_APP_URL && origin === process.env.NEXT_PUBLIC_APP_URL.replace(/\/+$/, ""));
     if (!isAllowedOrigin) {
       res.writeHead(403);
@@ -80,15 +79,15 @@ export class AgentWebServer {
       return;
     }
 
-    if (url.pathname === "/api/trigger-poll" && (req.method === "POST" || req.method === "GET")) {
+    if (url.pathname === "/api/trigger-poll" && req.method === "POST") {
       void agentDaemon.triggerPoll();
       res.writeHead(200, { "Content-Type": "application/json" });
       res.end(JSON.stringify({ success: true, message: "Poll triggered" }));
       return;
     }
 
-    if (url.pathname === "/api/precache-order" && (req.method === "POST" || req.method === "GET")) {
-      const body = req.method === "POST" ? await this.readJsonBody(req) : null;
+    if (url.pathname === "/api/precache-order" && req.method === "POST") {
+      const body = await this.readJsonBody(req);
       const orderId = body?.orderId ? String(body.orderId) : undefined;
       void agentDaemon.precacheOrder(orderId);
       res.writeHead(200, { "Content-Type": "application/json" });
@@ -378,15 +377,33 @@ export class AgentWebServer {
   }
 
   private readJsonBody(req: http.IncomingMessage): Promise<Record<string, unknown> | null> {
+    const MAX_BODY_BYTES = 1024 * 1024; // 1 MB cap
     return new Promise((resolve) => {
       let data = "";
-      req.on("data", (chunk) => {
+      let totalBytes = 0;
+      let aborted = false;
+      req.on("data", (chunk: Buffer | string) => {
+        if (aborted) return;
+        totalBytes += Buffer.isBuffer(chunk) ? chunk.byteLength : Buffer.byteLength(chunk);
+        if (totalBytes > MAX_BODY_BYTES) {
+          aborted = true;
+          req.destroy();
+          resolve(null);
+          return;
+        }
         data += chunk;
       });
       req.on("end", () => {
+        if (aborted) return;
         try {
           resolve(JSON.parse(data));
         } catch {
+          resolve(null);
+        }
+      });
+      req.on("error", () => {
+        if (!aborted) {
+          aborted = true;
           resolve(null);
         }
       });
@@ -395,7 +412,8 @@ export class AgentWebServer {
 
   private getDashboardHtml(): string {
     const status = agentDaemon.getStatus();
-    const serverUrl = status.serverUrl || "https://printiva.co.in";
+    const rawServerUrl = status.serverUrl || "https://printiva.co.in";
+    const serverUrl = /^https?:\/\/[^/]+/i.test(rawServerUrl) ? rawServerUrl : "https://printiva.co.in";
     const shopPortalUrl = `${serverUrl}/shop/dashboard`;
     const downloadUrl = `${serverUrl}/download`;
 
@@ -828,6 +846,27 @@ export class AgentWebServer {
     function escapeHtml(value) {
       return String(value == null ? '' : value).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
     }
+    function safeHref(url, fallback) {
+      var str = String(url == null ? '' : url).trim();
+      var lower = str.toLowerCase();
+      if (lower.startsWith('http://') || lower.startsWith('https://')) return escapeHtml(str);
+      return fallback ? escapeHtml(fallback) : '#';
+    }
+    function safeDataImageUrl(url) {
+      var str = String(url == null ? '' : url).trim();
+      var lower = str.toLowerCase();
+      if (
+        lower.startsWith('data:image/png;base64,') ||
+        lower.startsWith('data:image/jpeg;base64,') ||
+        lower.startsWith('data:image/webp;base64,')
+      ) {
+        return escapeHtml(str);
+      }
+      return '';
+    }
+    function safeDomId(value) {
+      return String(value == null ? '' : value).replace(/[^a-zA-Z0-9_-]/g, '');
+    }
     let lastRenderedPairedState = null;
 
     async function fetchStatus() {
@@ -972,7 +1011,8 @@ export class AgentWebServer {
         return;
       }
 
-      const activeServerUrl = status.serverUrl || 'https://printiva.co.in';
+      var rawUrl = String(status.serverUrl || '').trim();
+      const activeServerUrl = (rawUrl.toLowerCase().startsWith('http://') || rawUrl.toLowerCase().startsWith('https://')) ? rawUrl : 'https://printiva.co.in';
       const portalLink = document.getElementById('headerPortalLink');
       if (portalLink) portalLink.href = \`\${activeServerUrl}/shop/dashboard\`;
 
@@ -1081,14 +1121,25 @@ export class AgentWebServer {
               ⚡ <b>Smart Auto-Spool:</b> Jobs are routed automatically to matching paper &amp; color hardware. Click <b>Use as Default</b> to route single-sided jobs to your preferred printer.
             </div>\`;
 
+        const colorOverridesMap = {};
+        if (status.printerColorOverrides) {
+          Object.keys(status.printerColorOverrides).forEach(k => {
+            colorOverridesMap[k.trim().toLowerCase()] = Boolean(status.printerColorOverrides[k]);
+          });
+        }
+
         pList.innerHTML = headerNotice + status.printers.map(p => {
-          const isColor = Boolean(p.capabilities && p.capabilities.colorSupport);
+          const nameLower = (p.name || '').trim().toLowerCase();
+          const isColor = colorOverridesMap[nameLower] !== undefined
+            ? colorOverridesMap[nameLower]
+            : Boolean(p.capabilities && p.capabilities.colorSupport);
           const isOnline = ['online', 'printing'].includes(p.status);
           const isSleeping = Boolean(p.isSleeping);
-          const isDisabled = (status.disabledPrinters || []).some(x => x.toLowerCase() === p.name.toLowerCase());
+          const isDisabled = (status.disabledPrinters || []).some(x => x.trim().toLowerCase() === nameLower);
           const isActive = !isDisabled && isOnline && (status.selectedPrinter
-            ? status.selectedPrinter.toLowerCase() === p.name.toLowerCase()
+            ? status.selectedPrinter.trim().toLowerCase() === nameLower
             : p.isDefault || onlineCount === 1);
+          const safePrinterArg = escapeHtml(JSON.stringify(p.name));
           return \`
           <div class="printer-card" style="\${isDisabled ? 'opacity:0.75; border-color:#fca5a5; background:#fff5f5;' : isActive ? 'border-color:#10b981; background:#f0fdf4;' : isSleeping ? 'border-color:#bfdbfe; background:#f8fafc;' : 'border-color:#e2e8f0; background:#f8fafc;'}">
             <!-- Top Row: Name, Pill Tags, and Status Badge -->
@@ -1117,14 +1168,14 @@ export class AgentWebServer {
 
             <!-- Bottom Row: Action Buttons -->
             <div style="display:flex; align-items:center; gap:6px; flex-wrap:wrap; padding-top:6px; border-top:1px dashed #e2e8f0; width:100%; box-sizing:border-box;">
-              \${isSleeping && !isDisabled ? \`<button type="button" class="btn-secondary" style="font-size:10.5px; padding:4px 8px; cursor:pointer; color:#1d4ed8; border-color:#bfdbfe; white-space:nowrap;" onclick="wakePrinter('\${escapeHtml(p.name)}', this)" title="Send immediate wake command to printer">⚡ Wake Up</button>\` : ''}
-              <button type="button" class="btn-secondary" style="font-size:10.5px; padding:4px 8px; cursor:pointer; white-space:nowrap;" onclick="toggleColorPrinter('\${escapeHtml(p.name)}', \${!isColor})" title="Manually set whether this printer prints Color or B&W">
+              \${isSleeping && !isDisabled ? \`<button type="button" class="btn-secondary" style="font-size:10.5px; padding:4px 8px; cursor:pointer; color:#1d4ed8; border-color:#bfdbfe; white-space:nowrap;" onclick="wakePrinter(\${safePrinterArg}, this)" title="Send immediate wake command to printer">⚡ Wake Up</button>\` : ''}
+              <button type="button" class="btn-secondary" style="font-size:10.5px; padding:4px 8px; cursor:pointer; white-space:nowrap;" onclick="toggleColorPrinter(\${safePrinterArg}, \${!isColor})" title="Manually set whether this printer prints Color or B&W">
                 \${isColor ? 'Switch to B&W' : 'Switch to Color'}
               </button>
-              <button type="button" class="btn-secondary" style="font-size:10.5px; padding:4px 8px; cursor:pointer; color:\${isDisabled ? '#065f46' : '#b91c1c'}; border-color:\${isDisabled ? '#a7f3d0' : '#fca5a5'}; white-space:nowrap;" onclick="toggleDisablePrinter('\${escapeHtml(p.name)}')" title="\${isDisabled ? 'Enable printer for jobs' : 'Exclude printer from all print jobs'}">
+              <button type="button" class="btn-secondary" style="font-size:10.5px; padding:4px 8px; cursor:pointer; color:\${isDisabled ? '#065f46' : '#b91c1c'}; border-color:\${isDisabled ? '#a7f3d0' : '#fca5a5'}; white-space:nowrap;" onclick="toggleDisablePrinter(\${safePrinterArg})" title="\${isDisabled ? 'Enable printer for jobs' : 'Exclude printer from all print jobs'}">
                 \${isDisabled ? '✅ Enable Printer' : '⛔ Do Not Use'}
               </button>
-              \${!isDisabled && !isActive && isOnline ? \`<button type="button" class="btn-secondary" style="font-size:10.5px; padding:4px 8px; cursor:pointer; white-space:nowrap;" onclick="selectDefaultPrinter('\${escapeHtml(p.name)}')">⭐ Use as Default</button>\` : ''}
+              \${!isDisabled && !isActive && isOnline ? \`<button type="button" class="btn-secondary" style="font-size:10.5px; padding:4px 8px; cursor:pointer; white-space:nowrap;" onclick="selectDefaultPrinter(\${safePrinterArg})">⭐ Use as Default</button>\` : ''}
             </div>
           </div>
         \`;
@@ -1280,6 +1331,8 @@ export class AgentWebServer {
     let cachedCounterQueue = [];
     let confirmingCancelOrderId = null;
     let cancellingOrderIds = new Set();
+    let approvingOrderIds = new Set();
+    let queueMutationSeq = 0;
     let queueErrorNotice = null;
 
     function updateQueueBadge() {
@@ -1295,11 +1348,14 @@ export class AgentWebServer {
     }
 
     async function approveCounterOrder(orderId, duplexStep, btnEl) {
+      if (approvingOrderIds.has(orderId)) return;
       if (typeof duplexStep === 'object' && duplexStep !== null && !btnEl) {
         btnEl = duplexStep;
         duplexStep = 'all';
       }
       duplexStep = duplexStep || 'all';
+      approvingOrderIds.add(orderId);
+      queueMutationSeq++;
       queueErrorNotice = null;
 
       // Provide immediate visual feedback on the clicked button
@@ -1335,9 +1391,11 @@ export class AgentWebServer {
         });
         const data = await res.json().catch(() => ({}));
         if (res.ok && (data.success || !data.error)) {
+          approvingOrderIds.delete(orderId);
           await refreshCounterQueue();
           await refreshStatus(false);
         } else {
+          approvingOrderIds.delete(orderId);
           if (item && originalStatus) {
             item.status = originalStatus;
           }
@@ -1349,6 +1407,7 @@ export class AgentWebServer {
           }
         }
       } catch (e) {
+        approvingOrderIds.delete(orderId);
         if (item && originalStatus) {
           item.status = originalStatus;
         }
@@ -1389,6 +1448,7 @@ export class AgentWebServer {
     async function executeCancelOrder(orderId) {
       confirmingCancelOrderId = null;
       cancellingOrderIds.add(orderId);
+      queueMutationSeq++;
       queueErrorNotice = null;
       renderAgentQueueWithFilter();
 
@@ -1430,6 +1490,7 @@ export class AgentWebServer {
         btnEl.disabled = true;
         btnEl.innerHTML = '⏳ Marking...';
       }
+      queueMutationSeq++;
       queueErrorNotice = null;
       try {
         const res = await fetch('/api/complete-counter-order', {
@@ -1611,6 +1672,7 @@ export class AgentWebServer {
           ? "#64748b"
           : "#b45309";
 
+        var safeOrderId = safeDomId(item.id);
         var isConfirmingCancel = confirmingCancelOrderId === item.id;
         var isCancelling = cancellingOrderIds.has(item.id);
 
@@ -1621,7 +1683,7 @@ export class AgentWebServer {
           actionHtml = [
             '<span style="font-size:12px; font-weight:700; color:#dc2626; display:flex; align-items:center; margin-right:4px;">Cancel order?</span>',
             '<button type="button" class="btn-secondary" style="background:#dc2626; color:#ffffff; border-color:#dc2626; font-size:12px; font-weight:700; padding:6px 12px; cursor:pointer;" onclick="executeCancelOrder(',
-            "'", item.id, "'",
+            "'", safeOrderId, "'",
             ')">Yes, Cancel</button>',
             '<button type="button" class="btn-secondary" style="font-size:12px; padding:6px 10px; cursor:pointer;" onclick="abortCancelCounterOrder()">Keep</button>'
           ].join("");
@@ -1629,65 +1691,65 @@ export class AgentWebServer {
           actionHtml = [
             '<span style="font-size:11px; font-weight:700; color:#dc2626; background:#fef2f2; border:1px solid #fca5a5; padding:5px 8px; border-radius:7px; display:inline-flex; align-items:center; gap:4px; white-space:nowrap;">⚠️ Print Held</span>',
             '<button type="button" class="btn-primary" style="width:auto; padding:5px 12px; font-size:11.5px; font-weight:700; background:#059669; border-color:#059669; cursor:pointer;" onclick="approveCounterOrder(',
-            "'", item.id, "', 'all', this",
+            "'", safeOrderId, "', 'all', this",
             ')">🖨️ Force Print</button>',
             '<button type="button" class="btn-secondary" style="font-size:11px; padding:5px 8px; cursor:pointer;" onclick="completeCounterOrder(',
-            "'", item.id, "', this",
+            "'", safeOrderId, "', this",
             ')" title="Mark as completed">Mark Printed</button>',
             '<button type="button" class="btn-secondary" style="color:#dc2626; border-color:#fca5a5; font-size:11px; padding:5px 8px; cursor:pointer;" onclick="promptCancelCounterOrder(',
-            "'", item.id, "'",
+            "'", safeOrderId, "'",
             ')" title="Stop and cancel this order">Cancel</button>'
           ].join("");
         } else if (isProcessing) {
           actionHtml = [
             '<span style="font-size:11.5px; font-weight:700; color:#2563eb; background:#eff6ff; border:1px solid #bfdbfe; padding:5px 9px; border-radius:7px; display:inline-flex; align-items:center; gap:5px; white-space:nowrap;">⏳ Processing...</span>',
             '<button type="button" class="btn-primary" style="width:auto; padding:5px 10px; font-size:11px;" onclick="approveCounterOrder(',
-            "'", item.id, "', 'all', this",
+            "'", safeOrderId, "', 'all', this",
             ')">🖨️ Force Print</button>',
             '<button type="button" class="btn-secondary" style="font-size:11px; padding:5px 8px; cursor:pointer;" onclick="completeCounterOrder(',
-            "'", item.id, "', this",
+            "'", safeOrderId, "', this",
             ')" title="Mark as completed">Mark Printed</button>',
             '<button type="button" class="btn-secondary" style="color:#dc2626; border-color:#fca5a5; font-size:11px; padding:5px 8px; cursor:pointer;" onclick="promptCancelCounterOrder(',
-            "'", item.id, "'",
+            "'", safeOrderId, "'",
             ')" title="Stop and cancel this order">Cancel</button>'
           ].join("");
         } else if (isPrinting) {
           actionHtml = [
             '<span style="font-size:11.5px; font-weight:700; color:#b45309; background:#fffbeb; border:1px solid #fde68a; padding:5px 9px; border-radius:7px; display:inline-flex; align-items:center; gap:5px; white-space:nowrap;">🖨️ Printing Pages...</span>',
             '<button type="button" class="btn-primary" style="width:auto; padding:5px 10px; font-size:11px; font-weight:700; background:#059669; border-color:#059669; cursor:pointer;" onclick="completeCounterOrder(',
-            "'", item.id, "', this",
+            "'", safeOrderId, "', this",
             ')">Mark Printed</button>',
             '<button type="button" class="btn-secondary" style="color:#dc2626; border-color:#fca5a5; font-size:11px; padding:5px 8px; cursor:pointer;" onclick="promptCancelCounterOrder(',
-            "'", item.id, "'",
+            "'", safeOrderId, "'",
             ')" title="Stop and cancel this print job">Cancel</button>'
           ].join("");
         } else if (isCompleted) {
           actionHtml = [
             '<span style="font-size:12px; font-weight:700; color:#059669; background:#ecfdf5; border:1px solid #a7f3d0; padding:6px 10px; border-radius:8px;">✅ Printed</span>',
             '<button type="button" class="btn-secondary" style="font-size:11px; padding:5px 10px; cursor:pointer;" onclick="approveCounterOrder(',
-            "'", item.id, "', 'all', this",
+            "'", safeOrderId, "', 'all', this",
             ')" title="Send to printer again if paper jammed or misprinted">🖨️ Re-Print</button>',
             '<button type="button" class="btn-secondary" style="font-size:10.5px; padding:4px 8px; color:#64748b; cursor:pointer;" onclick="dismissQueueItem(',
-            "'", item.id, "'",
+            "'", safeOrderId, "'",
             ')" title="Remove from queue view">Dismiss</button>'
           ].join("");
         } else if (isDouble && !isCancelled && !isExpired) {
           if (isOddDone) {
             actionHtml = [
               '<button type="button" class="btn-primary" style="width:auto; padding:7px 14px; font-size:12px; background:linear-gradient(to bottom, #f59e0b, #d97706); box-shadow:0 0 10px rgba(245, 158, 11, 0.4);" onclick="approveCounterOrder(',
-              "'", item.id, "', 'even', this",
+              "'", safeOrderId, "', 'even', this",
               ')">🔄 Print Next Side (Even)</button>',
               '<button type="button" class="btn-secondary" style="font-size:11px; padding:6px 10px; cursor:pointer;" onclick="approveCounterOrder(',
-              "'", item.id, "', 'all', this",
+              "'", safeOrderId, "', 'all', this",
               ')" title="Re-dispatch all pages">🖨️ Re-Print</button>'
             ].join("");
           } else {
             actionHtml = [
               '<button type="button" class="btn-primary" style="width:auto; padding:7px 14px; font-size:12px; background:linear-gradient(to bottom, #10b981, #059669);" onclick="approveCounterOrder(',
-              "'", item.id, "', 'odd', this",
+              "'", safeOrderId, "', 'odd', this",
               ')">🖨️ Print Front (Odd)</button>',
               '<button type="button" class="btn-secondary" style="color:#dc2626; border-color:#fca5a5; cursor:pointer;" onclick="promptCancelCounterOrder(',
-              "'", item.id, "'",
+              "'", safeOrderId, "'",
               ')">Cancel</button>'
             ].join("");
           }
@@ -1695,30 +1757,30 @@ export class AgentWebServer {
           actionHtml = [
             '<span style="font-size:12px; font-weight:700; color:#b45309; background:#fffbeb; border:1px solid #fde68a; padding:6px 10px; border-radius:8px;">⚠️ Partially Printed</span>',
             '<button type="button" class="btn-secondary" style="font-size:11px; padding:6px 10px; cursor:pointer;" onclick="approveCounterOrder(',
-            "'", item.id, "', 'all', this",
+            "'", safeOrderId, "', 'all', this",
             ')" title="Re-dispatch all pages">🖨️ Re-Print</button>'
           ].join("");
         } else if (!isCancelled && !isExpired) {
           actionHtml = [
             '<button type="button" class="btn-primary" style="width:auto; padding:7px 14px; font-size:12px;" onclick="approveCounterOrder(',
-            "'", item.id, "', 'all', this",
+            "'", safeOrderId, "', 'all', this",
             ')">🖨️ Print &amp; Approve</button>',
             '<button type="button" class="btn-secondary" style="color:#dc2626; border-color:#fca5a5; cursor:pointer;" onclick="promptCancelCounterOrder(',
-            "'", item.id, "'",
+            "'", safeOrderId, "'",
             ')">Cancel</button>'
           ].join("");
         } else if (isCancelled) {
           actionHtml = [
             '<span style="font-size:12px; font-weight:700; color:#dc2626; padding:6px 10px;">❌ Cancelled</span>',
             '<button type="button" class="btn-secondary" style="font-size:10.5px; padding:4px 8px; color:#64748b; cursor:pointer;" onclick="dismissQueueItem(',
-            "'", item.id, "'",
+            "'", safeOrderId, "'",
             ')" title="Remove from queue view">Dismiss</button>'
           ].join("");
         } else if (isExpired) {
           actionHtml = [
             '<span style="font-size:12px; font-weight:700; color:#dc2626; padding:6px 10px;">⏰ Expired</span>',
             '<button type="button" class="btn-secondary" style="font-size:10.5px; padding:4px 8px; color:#64748b; cursor:pointer;" onclick="dismissQueueItem(',
-            "'", item.id, "'",
+            "'", safeOrderId, "'",
             ')" title="Remove from queue view">Dismiss</button>'
           ].join("");
         } else {
@@ -1754,7 +1816,9 @@ export class AgentWebServer {
     async function refreshCounterQueue() {
       const qCard = document.getElementById('counterQueueCard');
       if (!qCard) return;
+      const myMutSeq = queueMutationSeq;
       const data = await fetchCounterQueue();
+      if (myMutSeq !== queueMutationSeq || approvingOrderIds.size > 0) return;
       const list = document.getElementById('counterQueueList');
       if (!list) return;
 
@@ -1796,7 +1860,7 @@ export class AgentWebServer {
               '<div style="max-height:160px; overflow-y:auto; display:flex; flex-direction:column; gap:6px;">' +
               events.map(function(e) {
                 var actionHtml = e.configUrl
-                  ? '<a href="' + escapeHtml(e.configUrl) + '" target="_blank" style="display:inline-flex; align-items:center; font-size:10.5px; color:#065f46; background:#d1fae5; border:1px solid #a7f3d0; border-radius:6px; padding:3px 8px; font-weight:700; text-decoration:none; white-space:nowrap; flex-shrink:0;">Open Config ↗</a>'
+                  ? '<a href="' + safeHref(e.configUrl) + '" target="_blank" rel="noopener noreferrer" style="display:inline-flex; align-items:center; font-size:10.5px; color:#065f46; background:#d1fae5; border:1px solid #a7f3d0; border-radius:6px; padding:3px 8px; font-weight:700; text-decoration:none; white-space:nowrap; flex-shrink:0;">Open Config ↗</a>'
                   : (e.status === 'retrying'
                     ? '<span style="color:#d97706; font-size:10.5px; font-weight:600; display:inline-flex; align-items:center; gap:3px; white-space:nowrap; flex-shrink:0;">🔄 Retrying</span>'
                     : '<span style="color:#ef4444; font-size:10.5px; font-weight:600; white-space:nowrap; flex-shrink:0;">Failed</span>');
@@ -1837,7 +1901,7 @@ export class AgentWebServer {
               '<div style="max-height:160px; overflow-y:auto; display:flex; flex-direction:column; gap:6px;">' +
               events.map(function(e) {
                 var actionHtml = e.configUrl
-                  ? '<a href="' + escapeHtml(e.configUrl) + '" target="_blank" style="display:inline-flex; align-items:center; font-size:10.5px; color:#065f46; background:#d1fae5; border:1px solid #a7f3d0; border-radius:6px; padding:3px 8px; font-weight:700; text-decoration:none; white-space:nowrap; flex-shrink:0;">Open Config ↗</a>'
+                  ? '<a href="' + safeHref(e.configUrl) + '" target="_blank" rel="noopener noreferrer" style="display:inline-flex; align-items:center; font-size:10.5px; color:#065f46; background:#d1fae5; border:1px solid #a7f3d0; border-radius:6px; padding:3px 8px; font-weight:700; text-decoration:none; white-space:nowrap; flex-shrink:0;">Open Config ↗</a>'
                   : (e.status === 'retrying'
                     ? '<span style="color:#d97706; font-size:10.5px; font-weight:600; display:inline-flex; align-items:center; gap:3px; white-space:nowrap; flex-shrink:0;">🔄 Retrying</span>'
                     : '<span style="color:#ef4444; font-size:10.5px; font-weight:600; white-space:nowrap; flex-shrink:0;">Failed</span>');
@@ -1880,7 +1944,7 @@ export class AgentWebServer {
 
           body.innerHTML = [
             '<div style="display:flex; flex-direction:column; align-items:center; text-align:center; padding:12px 0;">',
-              '<img src="' + data.qrCodeDataUrl + '" style="width:200px; height:200px; border-radius:12px; border:1px solid #cbd5e1; box-shadow:0 4px 6px -1px rgba(0,0,0,0.1); margin-bottom:12px;" alt="WhatsApp QR Code" />',
+              '<img src="' + safeDataImageUrl(data.qrCodeDataUrl) + '" style="width:200px; height:200px; border-radius:12px; border:1px solid #cbd5e1; box-shadow:0 4px 6px -1px rgba(0,0,0,0.1); margin-bottom:12px;" alt="WhatsApp QR Code" />',
               '<p style="font-size:13px; font-weight:700; color:#0f172a; margin-bottom:4px;">Scan with your WhatsApp</p>',
               '<p style="font-size:12px; color:#64748b; max-width:320px; line-height:1.4;">',
                 '1. Open WhatsApp on your phone<br/>',

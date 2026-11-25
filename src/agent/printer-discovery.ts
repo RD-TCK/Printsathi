@@ -43,7 +43,10 @@ export async function discoverWindowsPrinters(forceRefresh = false): Promise<Dis
   try {
     const config = loadConfig();
     const disabledSet = new Set((config.disabledPrinters || []).map((s) => s.trim().toLowerCase()));
-    const colorOverrides = config.printerColorOverrides || {};
+    const colorOverrides: Record<string, boolean> = {};
+    for (const [key, val] of Object.entries(config.printerColorOverrides || {})) {
+      colorOverrides[key.trim().toLowerCase()] = Boolean(val);
+    }
 
     const printerScript = `
 [Console]::OutputEncoding = [System.Text.UTF8Encoding]::new()
@@ -58,7 +61,15 @@ $pnp = Get-PnpDevice -Class Printer -ErrorAction SilentlyContinue
 
 $results = foreach ($p in $printers) {
   $pName = $p.Name
-  $matchedPnp = $pnp | Where-Object { $_.FriendlyName -eq $pName -or ($p.PortName -and $_.InstanceId -like "*$($p.PortName)*") } | Select-Object -First 1
+  $baseName = ($pName -replace '\s*\(Copy\s+\d+\)$', '').Trim()
+  $matchedPnp = $pnp |
+    Where-Object {
+      $_.FriendlyName -eq $pName -or
+      ($baseName -and $_.FriendlyName -eq $baseName) -or
+      ($p.PortName -and $_.InstanceId -like "*$($p.PortName)*")
+    } |
+    Sort-Object @{ Expression = { if ($_.Present) { 0 } else { 1 } } } |
+    Select-Object -First 1
   $isPnpPresent = $null
   if ($matchedPnp) {
     $isPnpPresent = [bool]$matchedPnp.Present
@@ -491,21 +502,23 @@ export function findBestPrinterForJob(
   }
 
   // B&W ROUTING:
-  // If user selected a preferred default printer, use it ONLY if it is a B&W printer (or fallback is allowed)
+  // If user selected a preferred default printer, use it ONLY if it is a B&W printer (or if no online dedicated B&W printer exists and fallback is allowed)
+  const hasOnlineDedicatedMono = compatiblePrinters.some(
+    (p) =>
+      !p.capabilities?.colorSupport &&
+      (p.status === "online" || p.status === "printing") &&
+      (!options.requiresDuplex || p.capabilities?.duplexSupport === true),
+  );
   if (options.preferredName) {
     const matched = compatiblePrinters.find((p) => p.name.toLowerCase() === options.preferredName!.toLowerCase());
     if (matched) {
       const satisfiesDuplex = !options.requiresDuplex || matched.capabilities?.duplexSupport === true;
-      const satisfiesMono = !matched.capabilities?.colorSupport || options.allowColorFallbackForMono === true;
+      const satisfiesMono =
+        !matched.capabilities?.colorSupport ||
+        (!hasOnlineDedicatedMono && options.allowColorFallbackForMono === true);
 
       if (satisfiesDuplex && satisfiesMono) {
-        const hasOnlineCandidate = compatiblePrinters.some(
-          (p) =>
-            (p.status === "online" || p.status === "printing") &&
-            (!options.requiresDuplex || p.capabilities?.duplexSupport === true) &&
-            !p.capabilities?.colorSupport,
-        );
-        if (matched.status !== "offline" || !hasOnlineCandidate) {
+        if (matched.status !== "offline" || !hasOnlineDedicatedMono) {
           return matched;
         }
       }

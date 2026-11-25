@@ -391,17 +391,21 @@ export function ImageCropperModal({ isOpen, imageUrl, filename, onClose, onApply
         ctx.imageSmoothingEnabled = true;
         ctx.imageSmoothingQuality = "high";
 
-        // Create an intermediate canvas of the rotated image
+        // Create a memory-bounded intermediate canvas of the rotated image (cap long side at 2800px)
+        const rotScale = Math.min(1, 2800 / Math.max(effNaturalWidth, effNaturalHeight, 1));
+        const rotW = Math.max(1, Math.round(effNaturalWidth * rotScale));
+        const rotH = Math.max(1, Math.round(effNaturalHeight * rotScale));
         const rotatedCanvas = document.createElement("canvas");
         const rCtx = rotatedCanvas.getContext("2d");
         if (!rCtx) throw new Error("Could not create rotated canvas");
 
-        rotatedCanvas.width = effNaturalWidth;
-        rotatedCanvas.height = effNaturalHeight;
+        rotatedCanvas.width = rotW;
+        rotatedCanvas.height = rotH;
 
         rCtx.save();
-        rCtx.translate(effNaturalWidth / 2, effNaturalHeight / 2);
+        rCtx.translate(rotW / 2, rotH / 2);
         rCtx.rotate((rotation * Math.PI) / 180);
+        rCtx.scale(rotScale, rotScale);
         rCtx.drawImage(
           img,
           -naturalDimensions.width / 2,
@@ -411,11 +415,11 @@ export function ImageCropperModal({ isOpen, imageUrl, filename, onClose, onApply
         );
         rCtx.restore();
 
-        // Extract selected sub-rectangle
-        const srcX = Math.round(selNormX * effNaturalWidth);
-        const srcY = Math.round(selNormY * effNaturalHeight);
-        const srcW = Math.round(selNormW * effNaturalWidth);
-        const srcH = Math.round(selNormH * effNaturalHeight);
+        // Extract selected sub-rectangle clamped safely inside rotatedCanvas
+        const srcX = Math.max(0, Math.min(rotW - 1, Math.round(selNormX * rotW)));
+        const srcY = Math.max(0, Math.min(rotH - 1, Math.round(selNormY * rotH)));
+        const srcW = Math.max(1, Math.min(rotW - srcX, Math.round(selNormW * rotW)));
+        const srcH = Math.max(1, Math.min(rotH - srcY, Math.round(selNormH * rotH)));
 
         // Fit the selected portion nicely onto the standard A4 print canvas with crisp margins
         const maxPrintW = canvasW * 0.9;
@@ -427,6 +431,8 @@ export function ImageCropperModal({ isOpen, imageUrl, filename, onClose, onApply
         const drawY = (canvasH - drawH) / 2;
 
         ctx.drawImage(rotatedCanvas, srcX, srcY, srcW, srcH, drawX, drawY, drawW, drawH);
+        rotatedCanvas.width = 0;
+        rotatedCanvas.height = 0;
       } else {
         // Mode A: PAGE PRESET / FIT
         const standardOutWidth = 2480;
@@ -663,7 +669,7 @@ export function ImageCropperModal({ isOpen, imageUrl, filename, onClose, onApply
                 height: `${portionDispH}px`,
               }}
             >
-              {/* Target Base Image */}
+              {/* Target Base Image: keep unrotated natural aspect box before CSS rotation so 90/270deg never squashes */}
               {/* eslint-disable-next-line @next/next/no-img-element */}
               <img
                 ref={portionImgRef}
@@ -673,10 +679,12 @@ export function ImageCropperModal({ isOpen, imageUrl, filename, onClose, onApply
                 draggable={false}
                 onLoad={handleImageLoad}
                 onError={handleImageError}
-                className="select-none pointer-events-none origin-center"
+                className="select-none pointer-events-none origin-center shrink-0"
                 style={{
-                  width: `${portionDispW}px`,
-                  height: `${portionDispH}px`,
+                  width: `${naturalDimensions.width * portionFitScale}px`,
+                  height: `${naturalDimensions.height * portionFitScale}px`,
+                  maxWidth: "none",
+                  maxHeight: "none",
                   transform: `rotate(${rotation}deg)`,
                 }}
               />

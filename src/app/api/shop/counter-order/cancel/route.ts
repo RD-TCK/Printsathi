@@ -50,6 +50,26 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Database service unavailable." }, { status: 503 });
   }
 
+  const { data: existingOrder, error: fetchError } = await adminClient
+    .from("orders")
+    .select("id, status")
+    .eq("id", orderId)
+    .eq("shop_id", shopId)
+    .maybeSingle();
+
+  if (fetchError) {
+    return NextResponse.json({ error: "Could not inspect order." }, { status: 500 });
+  }
+  if (!existingOrder) {
+    return NextResponse.json({ error: "Order not found." }, { status: 404 });
+  }
+  if (existingOrder.status === "completed") {
+    return NextResponse.json({ error: "Completed orders cannot be cancelled." }, { status: 409 });
+  }
+  if (existingOrder.status === "cancelled") {
+    return NextResponse.json({ success: true, message: "Order already cancelled." });
+  }
+
   // Update order status to cancelled
   const { error: orderError } = await adminClient
     .from("orders")
@@ -58,21 +78,27 @@ export async function POST(request: Request) {
       updated_at: new Date().toISOString(),
     })
     .eq("id", orderId)
-    .eq("shop_id", shopId);
+    .eq("shop_id", shopId)
+    .neq("status", "completed");
 
   if (orderError) {
     return NextResponse.json({ error: "Could not cancel order." }, { status: 500 });
   }
 
-  // Update print jobs to cancelled
-  await adminClient
+  // Update uncompleted print jobs to cancelled
+  const { error: jobsError } = await adminClient
     .from("print_jobs")
     .update({
       status: "cancelled",
       updated_at: new Date().toISOString(),
     })
     .eq("order_id", orderId)
-    .eq("shop_id", shopId);
+    .eq("shop_id", shopId)
+    .neq("status", "completed");
+
+  if (jobsError) {
+    return NextResponse.json({ error: "Order cancelled, but print job cancellation failed." }, { status: 500 });
+  }
 
   return NextResponse.json({
     success: true,

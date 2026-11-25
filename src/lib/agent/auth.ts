@@ -40,6 +40,19 @@ export interface AuthenticatedAgent {
 
 const agentAuthCache = new Map<string, { data: AuthenticatedAgent; expiresAt: number }>();
 const AGENT_AUTH_CACHE_TTL_MS = 60_000;
+const MAX_AGENT_AUTH_CACHE_SIZE = 5000;
+
+function setCachedAgentAuth(tokenHash: string, entry: { data: AuthenticatedAgent; expiresAt: number }) {
+  if (agentAuthCache.has(tokenHash)) {
+    agentAuthCache.delete(tokenHash);
+  }
+  agentAuthCache.set(tokenHash, entry);
+  while (agentAuthCache.size > MAX_AGENT_AUTH_CACHE_SIZE) {
+    const oldestKey = agentAuthCache.keys().next().value;
+    if (!oldestKey) break;
+    agentAuthCache.delete(oldestKey);
+  }
+}
 
 export function invalidateAgentAuthCache(token?: string) {
   if (token) {
@@ -95,7 +108,7 @@ export async function authenticateAgent(request: Request): Promise<Authenticated
   }
 
   const result: AuthenticatedAgent = { agent, shop };
-  agentAuthCache.set(tokenHash, { data: result, expiresAt: now + AGENT_AUTH_CACHE_TTL_MS });
+  setCachedAgentAuth(tokenHash, { data: result, expiresAt: now + AGENT_AUTH_CACHE_TTL_MS });
 
   return result;
 }

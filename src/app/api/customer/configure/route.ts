@@ -32,7 +32,7 @@ export async function POST(request: Request) {
     .maybeSingle();
   if (!shop) return NextResponse.json({ error: "Shop not found." }, { status: 404 });
   const [{ data: settings }, { data: subscription }] = await Promise.all([
-    client.from("shop_settings").select("accepting_orders, billing_mode").eq("shop_id", shop.id).maybeSingle(),
+    client.from("shop_settings").select("accepting_orders, billing_mode, allow_double_sided").eq("shop_id", shop.id).maybeSingle(),
     client.from("subscriptions").select("status, trial_end, current_period_end").eq("shop_id", shop.id).maybeSingle(),
   ]);
   const billingMode = effectiveBillingMode(settings?.billing_mode, subscription);
@@ -98,6 +98,12 @@ export async function POST(request: Request) {
   if (!rules?.length)
     return NextResponse.json({ error: "This shop has not configured printing prices yet." }, { status: 409 });
   const allRanges = parsed.data.configurations.flatMap((configuration) => configuration.ranges);
+  if (settings?.allow_double_sided === false && allRanges.some((r) => r.sideMode === "double_sided")) {
+    return NextResponse.json(
+      { error: "This shop currently does not accept double-sided printing." },
+      { status: 409 },
+    );
+  }
   const destinations = onlinePrinters;
   if (allRanges.some((r) => !destinations.some((p) => supportsPrint(p, r.colorMode, r.paperSize))))
     return NextResponse.json(
@@ -153,15 +159,31 @@ export async function POST(request: Request) {
       { error: "Checkout has already started. Create a new order to change print settings." },
       { status: 409 },
     );
-  const { data: existingJobs } = await client.from("print_jobs").select("id").eq("order_id", orderId);
+  const { data: existingJobs, error: existingJobsError } = await client.from("print_jobs").select("id").eq("order_id", orderId);
+  if (existingJobsError) return NextResponse.json({ error: "Could not inspect draft jobs." }, { status: 500 });
   if (existingJobs && existingJobs.length > 0) {
     const jobIds = existingJobs.map((j) => j.id);
-    await client.from("print_job_pages").delete().in("print_job_id", jobIds);
+    const { error: deletePagesError } = await client.from("print_job_pages").delete().in("print_job_id", jobIds);
+    if (deletePagesError) return NextResponse.json({ error: "Could not clear previous page ranges." }, { status: 500 });
   }
   const { error: deleteError } = await client.from("print_jobs").delete().eq("order_id", orderId);
   if (deleteError) return NextResponse.json({ error: "Could not replace draft jobs." }, { status: 500 });
 
+  const normalizedRules = rules.map((rule) => ({
+    ...rule,
+    price_per_page: Number(rule.price_per_page),
+    is_active: true,
+  })) as PricingRule[];
+
   const allocatedDocIds = new Set<string>();
+  const resolvedJobs: Array<{
+    document: NonNullable<typeof documents>[number];
+    ranges: (typeof parsed.data.configurations)[number]["ranges"];
+    rawCents: number;
+    printedPages: number;
+    maxCopies: number;
+  }> = [];
+
   for (const configuration of parsed.data.configurations) {
     let document = documentMap.get(configuration.documentId);
     if (!document && documents && documents.length > 0) {
@@ -176,35 +198,53 @@ export async function POST(request: Request) {
     allocatedDocIds.add(document.id);
     const rangeError = validateRanges(configuration.ranges, document.page_count);
     if (rangeError) return NextResponse.json({ error: rangeError }, { status: 400 });
-    const jobId = crypto.randomUUID();
-    const jobPrintedPages = configuration.ranges.reduce(
+    const printedPages = configuration.ranges.reduce(
       (sum, r) => sum + (r.endPage - r.startPage + 1) * Math.max(1, r.copies ?? 1),
       0,
     );
-    const { error: jobError } = await client.from("print_jobs").insert({
+    const maxCopies = Math.max(1, ...configuration.ranges.map((r) => Math.max(1, r.copies ?? 1)));
+    const rawTotal = calculatePricing(configuration.ranges, normalizedRules, billingMode).total;
+    resolvedJobs.push({
+      document,
+      ranges: configuration.ranges,
+      rawCents: Math.round((rawTotal + Number.EPSILON) * 100),
+      printedPages,
+      maxCopies,
+    });
+  }
+
+  const targetOrderCents = Math.round((pricing.total + Number.EPSILON) * 100);
+  const rawTotalCentsSum = resolvedJobs.reduce((sum, item) => sum + item.rawCents, 0);
+  let allocatedCents = 0;
+
+  const jobsToInsert: Array<Record<string, unknown>> = [];
+  const pagesToInsert: Array<Record<string, unknown>> = [];
+
+  for (let idx = 0; idx < resolvedJobs.length; idx++) {
+    const item = resolvedJobs[idx];
+    const jobCents =
+      idx === resolvedJobs.length - 1
+        ? Math.max(0, targetOrderCents - allocatedCents)
+        : rawTotalCentsSum > 0
+          ? Math.round((targetOrderCents * item.rawCents) / rawTotalCentsSum)
+          : Math.round(targetOrderCents / resolvedJobs.length);
+    allocatedCents += jobCents;
+
+    const jobId = crypto.randomUUID();
+    jobsToInsert.push({
       id: jobId,
       order_id: orderId,
       shop_id: shop.id,
       customer_id: order.customer_id,
-      document_id: document.id,
+      document_id: item.document.id,
       status: "awaiting_payment",
-      total_pages: jobPrintedPages,
-      total_amount: Number(
-        calculatePricing(
-          configuration.ranges,
-          rules.map((rule) => ({
-            ...rule,
-            price_per_page: Number(rule.price_per_page),
-            is_active: true,
-          })) as PricingRule[],
-          billingMode,
-        ).total.toFixed(2),
-      ),
+      total_pages: item.printedPages,
+      copies: item.maxCopies,
+      total_amount: Number((jobCents / 100).toFixed(2)),
       idempotency_key: crypto.randomUUID(),
     });
-    if (jobError) return NextResponse.json({ error: "Could not save print configuration." }, { status: 500 });
-    const { error: pagesError } = await client.from("print_job_pages").insert(
-      configuration.ranges.map((range) => ({
+    for (const range of item.ranges) {
+      pagesToInsert.push({
         print_job_id: jobId,
         start_page: range.startPage,
         end_page: range.endPage,
@@ -212,8 +252,16 @@ export async function POST(request: Request) {
         paper_size: range.paperSize,
         side_mode: range.sideMode ?? "single_sided",
         copies: range.copies ?? 1,
-      })),
-    );
+      });
+    }
+  }
+
+  if (jobsToInsert.length > 0) {
+    const { error: jobError } = await client.from("print_jobs").insert(jobsToInsert);
+    if (jobError) return NextResponse.json({ error: "Could not save print configuration." }, { status: 500 });
+  }
+  if (pagesToInsert.length > 0) {
+    const { error: pagesError } = await client.from("print_job_pages").insert(pagesToInsert);
     if (pagesError) return NextResponse.json({ error: "Could not save page ranges." }, { status: 500 });
   }
   const { error: orderError } = await client

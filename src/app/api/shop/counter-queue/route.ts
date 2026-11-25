@@ -61,7 +61,7 @@ export async function GET(request: Request) {
     .maybeSingle();
 
   // Fetch counter orders created today (IST) or with active 1-hr token window across midnight
-  const { data: orders, error } = await adminClient
+  const ordersQuery = adminClient
     .from("orders")
     .select(
       `
@@ -104,6 +104,10 @@ export async function GET(request: Request) {
     .order("token_number", { ascending: false, nullsFirst: false })
     .order("created_at", { ascending: false });
 
+  const { data: orders, error } = await (typeof (ordersQuery as unknown as { limit?: unknown }).limit === "function"
+    ? (ordersQuery as unknown as { limit: (n: number) => typeof ordersQuery }).limit(150)
+    : ordersQuery);
+
   if (error) {
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
@@ -118,11 +122,16 @@ export async function GET(request: Request) {
 
     const rawJobs = Array.isArray(o.print_jobs) ? o.print_jobs : [];
     const isCompleted = o.status === "completed" || (rawJobs.length > 0 && rawJobs.every((j: { status: string }) => j.status === "completed"));
-    const isPaid = ["paid", "completed", "partially_printed"].includes(o.status);
+    const isPaid = ["paid", "completed", "partially_printed", "printing"].includes(o.status);
     const isCancelled = o.status === "cancelled";
+    const hasActivePrintWork = rawJobs.some((j: { status: string }) =>
+      ["queued", "claimed", "printing", "print_submitted", "completed"].includes(j.status),
+    );
     const isExpired =
       !isPaid &&
       !isCancelled &&
+      !isCompleted &&
+      !hasActivePrintWork &&
       (o.status === "expired" || (expiresAt ? expiresAt.getTime() <= now.getTime() : false));
 
     const remainingSeconds = isCompleted || isExpired
@@ -164,26 +173,45 @@ export async function GET(request: Request) {
     }
 
     const rawDocuments = (Array.isArray(o.documents) ? o.documents : []).filter(
-      (d) => !d.original_filename?.toLowerCase().includes("combined"),
+      (d) => !/\(All \d+ pictures combined\)/i.test(d.original_filename || ""),
     );
     const rawDocsPageSum = rawDocuments.reduce((sum, d) => sum + Math.max(1, d.page_count || 1), 0);
-    const totalPages = rawDocsPageSum > 0 ? rawDocsPageSum : (o.total_pages || 0);
+    const configuredPrintedPagesSum = rawJobs.reduce((jobAcc, j) => {
+      const rawPages = Array.isArray(j.print_job_pages) ? j.print_job_pages : [];
+      if (rawPages.length > 0) {
+        return (
+          jobAcc +
+          rawPages.reduce(
+            (pageAcc: number, p: { start_page: number; end_page: number; copies?: number }) =>
+              pageAcc + (Math.max(1, p.end_page) - Math.max(1, p.start_page) + 1) * Math.max(1, p.copies ?? 1),
+            0,
+          )
+        );
+      }
+      return jobAcc + Math.max(0, j.total_pages || 0);
+    }, 0);
+    const totalPages =
+      configuredPrintedPagesSum > 0
+        ? configuredPrintedPagesSum
+        : rawDocsPageSum > 0
+          ? rawDocsPageSum
+          : (o.total_pages || 0);
     let oddPagesCount = 0;
     let evenPagesCount = 0;
 
     for (const j of rawJobs) {
       const rawPages = Array.isArray(j.print_job_pages) ? j.print_job_pages : [];
+      let printedSeq = 1;
       for (const p of rawPages as Array<{ start_page: number; end_page: number; copies?: number }>) {
         const start = Math.max(1, p.start_page);
         const end = Math.max(start, p.end_page);
         const copies = Math.max(1, p.copies ?? 1);
-        for (let i = start; i <= end; i++) {
-          if (i % 2 === 1) {
-            oddPagesCount += copies;
-          } else {
-            evenPagesCount += copies;
-          }
-        }
+        const count = end - start + 1;
+        const startsOnOdd = printedSeq % 2 === 1;
+        const oddInRange = startsOnOdd ? Math.ceil(count / 2) : Math.floor(count / 2);
+        oddPagesCount += oddInRange * copies;
+        evenPagesCount += (count - oddInRange) * copies;
+        printedSeq += count;
       }
     }
 

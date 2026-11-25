@@ -64,6 +64,13 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Order not found." }, { status: 404 });
   }
 
+  if (order.status === "cancelled") {
+    return NextResponse.json({ error: "Cancelled orders cannot be approved for printing." }, { status: 409 });
+  }
+  if (order.status === "completed") {
+    return NextResponse.json({ error: "Order has already been completed." }, { status: 409 });
+  }
+
   // Reject print approval if the counter order validity has expired
   const orderExpiresAt = order.expires_at
     ? new Date(order.expires_at)
@@ -90,6 +97,21 @@ export async function POST(request: Request) {
   const isOddStep = duplexStep === "odd";
 
   if (isEvenStep) {
+    // Require verified payment (or already paid/partially_printed state) before releasing even pages
+    const { data: verifiedPay } = await adminClient
+      .from("payments")
+      .select("id, status")
+      .eq("order_id", order.id)
+      .eq("status", "verified")
+      .maybeSingle();
+
+    if (!verifiedPay && !["paid", "partially_printed"].includes(order.status)) {
+      return NextResponse.json(
+        { error: `Token #${displayToken} has not been verified/paid yet.` },
+        { status: 409 },
+      );
+    }
+
     // Idempotency guard for "Print Next Side" (even step):
     // If the even-step jobs are already queued, printing, or completed, don't re-queue them.
     const { data: existingJobs } = await adminClient
@@ -99,7 +121,9 @@ export async function POST(request: Request) {
       .eq("shop_id", shopId);
 
     const alreadyQueuedOrDone = existingJobs?.some(
-      (j) => j.duplex_step === "even" && ["queued", "printing", "print_submitted", "completed"].includes(j.status),
+      (j) =>
+        j.duplex_step === "even" &&
+        ["queued", "claimed", "printing", "print_submitted", "completed"].includes(j.status),
     );
     if (alreadyQueuedOrDone) {
       return NextResponse.json({
@@ -109,8 +133,8 @@ export async function POST(request: Request) {
       });
     }
 
-    // Transition odd-printed or failed even jobs to even step
-    await adminClient
+    // Transition odd-printed or failed non-cancelled jobs to even step
+    const { error: evenJobsErr } = await adminClient
       .from("print_jobs")
       .update({
         status: "queued",
@@ -123,9 +147,15 @@ export async function POST(request: Request) {
       })
       .eq("order_id", order.id)
       .eq("shop_id", shopId)
+      .neq("status", "cancelled")
+      .neq("status", "completed")
       .in("duplex_step", ["odd", "odd_printed", "even"]);
 
-    await adminClient
+    if (evenJobsErr) {
+      return NextResponse.json({ error: "Failed to queue back-side print jobs." }, { status: 500 });
+    }
+
+    const { error: evenOrderErr } = await adminClient
       .from("orders")
       .update({
         status: "partially_printed",
@@ -133,6 +163,10 @@ export async function POST(request: Request) {
       })
       .eq("id", order.id)
       .eq("shop_id", shopId);
+
+    if (evenOrderErr) {
+      return NextResponse.json({ error: "Failed to update order status for back-side printing." }, { status: 500 });
+    }
   } else {
     // 1. Idempotently record verified counter payment and release order to print queue
     // Check if verified payment already exists for this order to prevent double-click unique constraint violations
@@ -154,7 +188,7 @@ export async function POST(request: Request) {
         currency: "INR",
         verified_at: new Date().toISOString(),
       });
-      if (payErr) {
+      if (payErr && payErr.code !== "23505") {
         console.error("Failed to insert counter payment:", payErr);
         return NextResponse.json({ error: "Failed to record payment verification." }, { status: 500 });
       }
@@ -166,13 +200,14 @@ export async function POST(request: Request) {
           verified_at: new Date().toISOString(),
           amount: order.total_amount,
         })
-        .eq("id", existingPayment.id);
+        .eq("id", existingPayment.id)
+        .neq("status", "verified");
       if (payErr) {
         console.error("Failed to update counter payment:", payErr);
         return NextResponse.json({ error: "Failed to update payment verification." }, { status: 500 });
       }
     }
-    await releasePaidOrder(adminClient, order.id);
+    await releasePaidOrder(adminClient, order.id, { forceRequeueFailed: true });
   }
 
   const targetOrderStatus = isOddStep ? "partially_printed" : "paid";
@@ -189,33 +224,43 @@ export async function POST(request: Request) {
 
       let jobsQuery = adminClient
         .from("print_jobs")
-        .select("id, document_id, shop_id, total_pages, total_amount, currency, print_attempts, max_attempts, duplex_step")
+        .select("id, document_id, shop_id, total_pages, total_amount, currency, print_attempts, max_attempts, duplex_step, duplex_printer_name")
         .eq("order_id", order.id)
         .eq("shop_id", shopId)
-        .neq("status", "completed");
+        .eq("status", "queued");
 
       if (isEvenStep) {
         jobsQuery = jobsQuery.eq("duplex_step", "even");
       }
 
-      const { data: orderJobs } = await jobsQuery;
+      const { data: candidateJobs } = await jobsQuery;
 
-      if (orderJobs && orderJobs.length > 0) {
-        const jobIds = orderJobs.map((j) => j.id);
-        const docIds = Array.from(new Set(orderJobs.map((j) => j.document_id)));
-
-        await adminClient
+      const claimedJobsList: NonNullable<typeof candidateJobs> = [];
+      for (const job of candidateJobs || []) {
+        const { data: claimedRow } = await adminClient
           .from("print_jobs")
           .update({
             status: "claimed",
             claimed_by_agent_id: agentAuth.agent.id,
             claimed_at: new Date().toISOString(),
             claim_expires_at: expiresAt,
-            print_attempts: 1,
+            print_attempts: (job.print_attempts || 0) + 1,
             failure_reason: null,
             updated_at: new Date().toISOString(),
           })
-          .in("id", jobIds);
+          .eq("id", job.id)
+          .eq("status", "queued")
+          .select("id")
+          .maybeSingle();
+
+        if (claimedRow) {
+          claimedJobsList.push(job);
+        }
+      }
+
+      if (claimedJobsList.length > 0) {
+        const jobIds = claimedJobsList.map((j) => j.id);
+        const docIds = Array.from(new Set(claimedJobsList.map((j) => j.document_id)));
 
         const [{ data: docs }, { data: allPages }, { data: defaultPrinter }] = await Promise.all([
           adminClient
@@ -243,7 +288,7 @@ export async function POST(request: Request) {
           pagesMap.set(p.print_job_id, list);
         }
 
-        const formattedJobs = orderJobs.map((job, idx) => {
+        const formattedJobs = claimedJobsList.map((job, idx) => {
           const doc = docsMap.get(job.document_id) || {
             id: job.document_id,
             storage_path: "",
@@ -287,6 +332,7 @@ export async function POST(request: Request) {
             claimedAt: new Date().toISOString(),
             claimExpiresAt: expiresAt,
             defaultPrinter: defaultPrinter?.name || null,
+            duplexPrinterName: job.duplex_printer_name || null,
             duplexStep: job.duplex_step || targetDuplexStep,
             document: {
               id: doc.id,
@@ -297,7 +343,7 @@ export async function POST(request: Request) {
               pageCount: doc.page_count,
             },
             pagesConfig,
-            isLastJobForOrder: idx === orderJobs.length - 1,
+            isLastJobForOrder: idx === claimedJobsList.length - 1,
           };
         });
 

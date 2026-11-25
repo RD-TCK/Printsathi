@@ -7,11 +7,14 @@ export const SITE_DESCRIPTION =
   "Printiva is India's leading print automation software and photocopy management system for print shops, xerox stores, and cyber cafes. Customers scan a counter QR code, upload documents from their phone, and paid files print automatically on your Windows printer.";
 
 export const SITE_KEYWORDS = [
-  "print automation software",
   "printing software",
+  "print automation software",
+  "printing software for Windows",
+  "printing software for shop",
   "photocopy software",
   "photocopy shop software",
   "xerox shop software",
+  "xerox shop billing software",
   "print shop management software",
   "automatic printing software",
   "digital printing service",
@@ -21,6 +24,8 @@ export const SITE_KEYWORDS = [
   "print shop billing software",
   "automatic print spooler software",
   "QR code printing software",
+  "UPI print shop software",
+  "Windows printer automation",
   "document printing online",
   "online printing service India",
   "xerox shop billing and printing",
@@ -41,12 +46,14 @@ export function pageMetadata({
   path,
   keywords,
   absoluteTitle = false,
+  locale = "en_IN",
 }: {
   title: string;
   description: string;
   path: string;
   keywords?: string[];
   absoluteTitle?: boolean;
+  locale?: string;
 }): Metadata {
   const socialTitle = absoluteTitle ? title : `${title} | ${SITE_NAME}`;
   return {
@@ -59,7 +66,7 @@ export function pageMetadata({
       description,
       url: path,
       siteName: SITE_NAME,
-      locale: "en_IN",
+      locale,
       type: "website",
     },
     twitter: { card: "summary_large_image", title: socialTitle, description },
@@ -124,20 +131,13 @@ export function softwareJsonLd() {
     ],
     applicationCategory: "BusinessApplication",
     operatingSystem: "Web, Windows 10, Windows 11",
-    softwareVersion: "1.8.34",
+    softwareVersion: "1.8.35",
     url: siteUrl("/"),
     description:
       "India's #1 print automation software and photocopy management system. Automate customer QR document intake, instant per-page pricing, Razorpay UPI payments, and physical Windows printing.",
     keywords:
-      "print automation software, printing software, photocopy software, xerox shop software, print shop management software, automatic printing software",
+      "printing software, print automation software, printing software for Windows, photocopy software, xerox shop software, print shop management software, automatic printing software",
     publisher: { "@id": organizationId() },
-    aggregateRating: {
-      "@type": "AggregateRating",
-      ratingValue: "4.9",
-      ratingCount: "128",
-      bestRating: "5",
-      worstRating: "1",
-    },
     featureList: [
       "Automated native Windows printing without manual download",
       "QR-code ordering from customer phone with zero app installation",
@@ -236,5 +236,39 @@ export function breadcrumbJsonLd(trail: ReadonlyArray<readonly [name: string, pa
       name,
       item: siteUrl(path),
     })),
+  };
+}
+
+export function blogPostingJsonLd({
+  title,
+  description,
+  path,
+  publishedAt,
+  updatedAt,
+  keywords,
+  inLanguage = "en-IN",
+}: {
+  title: string;
+  description: string;
+  path: string;
+  publishedAt: string;
+  updatedAt?: string;
+  keywords?: string[];
+  inLanguage?: string;
+}) {
+  return {
+    "@context": "https://schema.org",
+    "@type": "BlogPosting",
+    headline: title,
+    description,
+    url: siteUrl(path),
+    mainEntityOfPage: { "@type": "WebPage", "@id": siteUrl(path) },
+    datePublished: publishedAt,
+    dateModified: updatedAt || publishedAt,
+    inLanguage,
+    keywords: keywords?.join(", "),
+    author: { "@type": "Organization", name: SITE_NAME, url: siteUrl("/") },
+    publisher: { "@id": organizationId() },
+    image: siteUrl("/opengraph-image"),
   };
 }

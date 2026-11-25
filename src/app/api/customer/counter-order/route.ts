@@ -39,7 +39,7 @@ export async function POST(request: Request) {
   const [{ data: settings }, { data: subscription }] = await Promise.all([
     client
       .from("shop_settings")
-      .select("accepting_orders, billing_mode, payment_mode")
+      .select("accepting_orders, billing_mode, payment_mode, allow_double_sided")
       .eq("shop_id", shop.id)
       .maybeSingle(),
     client.from("subscriptions").select("status, trial_end, current_period_end").eq("shop_id", shop.id).maybeSingle(),
@@ -125,6 +125,12 @@ export async function POST(request: Request) {
   }
 
   const allRanges = parsed.data.configurations.flatMap((c) => c.ranges);
+  if (settings?.allow_double_sided === false && allRanges.some((r) => r.sideMode === "double_sided")) {
+    return NextResponse.json(
+      { error: "This shop currently does not accept double-sided printing." },
+      { status: 409 },
+    );
+  }
 
   let pricing;
   try {
@@ -185,76 +191,139 @@ export async function POST(request: Request) {
   }
 
   // 5. Replace draft print jobs
-  const { data: existingJobs } = await client.from("print_jobs").select("id").eq("order_id", orderId);
+  const { data: existingJobs, error: existingJobsError } = await client.from("print_jobs").select("id").eq("order_id", orderId);
+  if (existingJobsError) {
+    return NextResponse.json({ error: "Could not inspect previous counter jobs." }, { status: 500 });
+  }
   if (existingJobs && existingJobs.length > 0) {
     const jobIds = existingJobs.map((j) => j.id);
-    await client.from("print_job_pages").delete().in("print_job_id", jobIds);
+    const { error: deletePagesError } = await client.from("print_job_pages").delete().in("print_job_id", jobIds);
+    if (deletePagesError) {
+      return NextResponse.json({ error: "Could not clear previous page ranges." }, { status: 500 });
+    }
   }
-  await client.from("print_jobs").delete().eq("order_id", orderId);
+  const { error: deleteJobsError } = await client.from("print_jobs").delete().eq("order_id", orderId);
+  if (deleteJobsError) {
+    return NextResponse.json({ error: "Could not reset draft jobs." }, { status: 500 });
+  }
+
+  const normalizedRules = rules.map((rule) => ({
+    ...rule,
+    price_per_page: Number(rule.price_per_page),
+    is_active: true,
+  })) as PricingRule[];
 
   let insertedJobCount = 0;
   const allocatedDocIds = new Set<string>();
+  const resolvedJobs: Array<{
+    document: NonNullable<typeof documents>[number];
+    ranges: (typeof parsed.data.configurations)[number]["ranges"];
+    rawCents: number;
+    printedPages: number;
+    maxCopies: number;
+  }> = [];
 
   for (const configuration of parsed.data.configurations) {
-      let document = documentMap.get(configuration.documentId);
-      // If exact ID not found (e.g. crop replaced the document ID right before token submit), match by unallocated order document
-      if (!document && documents && documents.length > 0) {
-        const maxRequestedPage = Math.max(...configuration.ranges.map((r) => r.endPage), 1);
-        document =
-          documents.find((d) => !allocatedDocIds.has(d.id) && d.page_count >= maxRequestedPage) ||
-          documents.find((d) => !allocatedDocIds.has(d.id)) ||
-          documents[0];
-      }
-      if (!document || document.order_id !== orderId) continue;
-      allocatedDocIds.add(document.id);
-
-      const jobId = crypto.randomUUID();
-      const jobPrintedPages = configuration.ranges.reduce(
-        (sum, r) => sum + (r.endPage - r.startPage + 1) * Math.max(1, r.copies ?? 1),
-        0,
-      );
-      await client.from("print_jobs").insert({
-        id: jobId,
-        order_id: orderId,
-        shop_id: shop.id,
-        customer_id: order.customer_id,
-        document_id: document.id,
-        status: "awaiting_payment",
-        total_pages: jobPrintedPages,
-        total_amount: Number(
-          calculatePricing(
-            configuration.ranges,
-            rules.map((rule) => ({
-              ...rule,
-              price_per_page: Number(rule.price_per_page),
-              is_active: true,
-            })) as PricingRule[],
-            billingMode,
-          ).total.toFixed(2),
-        ),
-        idempotency_key: crypto.randomUUID(),
-      });
-
-      await client.from("print_job_pages").insert(
-        configuration.ranges.map((range) => ({
-          print_job_id: jobId,
-          start_page: range.startPage,
-          end_page: range.endPage,
-          color_mode: range.colorMode,
-          paper_size: range.paperSize,
-          side_mode: range.sideMode ?? "single_sided",
-          copies: range.copies ?? 1,
-        })),
-      );
-      insertedJobCount++;
+    let document = documentMap.get(configuration.documentId);
+    // If exact ID not found (e.g. crop replaced the document ID right before token submit), match by unallocated order document
+    if (!document && documents && documents.length > 0) {
+      const maxRequestedPage = Math.max(...configuration.ranges.map((r) => r.endPage), 1);
+      document =
+        documents.find((d) => !allocatedDocIds.has(d.id) && d.page_count >= maxRequestedPage) ||
+        documents.find((d) => !allocatedDocIds.has(d.id)) ||
+        documents[0];
     }
+    if (!document || document.order_id !== orderId) continue;
+    allocatedDocIds.add(document.id);
+
+    const printedPages = configuration.ranges.reduce(
+      (sum, r) => sum + (r.endPage - r.startPage + 1) * Math.max(1, r.copies ?? 1),
+      0,
+    );
+    const maxCopies = Math.max(1, ...configuration.ranges.map((r) => Math.max(1, r.copies ?? 1)));
+    const rawTotal = calculatePricing(configuration.ranges, normalizedRules, billingMode).total;
+    resolvedJobs.push({
+      document,
+      ranges: configuration.ranges,
+      rawCents: Math.round((rawTotal + Number.EPSILON) * 100),
+      printedPages,
+      maxCopies,
+    });
+  }
+
+  const targetOrderCents = Math.round((pricing.total + Number.EPSILON) * 100);
+  const rawTotalCentsSum = resolvedJobs.reduce((sum, item) => sum + item.rawCents, 0);
+  let allocatedCents = 0;
+
+  const jobsToInsert: Array<Record<string, unknown>> = [];
+  const pagesToInsert: Array<Record<string, unknown>> = [];
+
+  for (let idx = 0; idx < resolvedJobs.length; idx++) {
+    const item = resolvedJobs[idx];
+    const jobCents =
+      idx === resolvedJobs.length - 1
+        ? Math.max(0, targetOrderCents - allocatedCents)
+        : rawTotalCentsSum > 0
+          ? Math.round((targetOrderCents * item.rawCents) / rawTotalCentsSum)
+          : Math.round(targetOrderCents / resolvedJobs.length);
+    allocatedCents += jobCents;
+
+    const jobId = crypto.randomUUID();
+    jobsToInsert.push({
+      id: jobId,
+      order_id: orderId,
+      shop_id: shop.id,
+      customer_id: order.customer_id,
+      document_id: item.document.id,
+      status: "awaiting_payment",
+      total_pages: item.printedPages,
+      copies: item.maxCopies,
+      total_amount: Number((jobCents / 100).toFixed(2)),
+      idempotency_key: crypto.randomUUID(),
+    });
+
+    for (const range of item.ranges) {
+      pagesToInsert.push({
+        print_job_id: jobId,
+        start_page: range.startPage,
+        end_page: range.endPage,
+        color_mode: range.colorMode,
+        paper_size: range.paperSize,
+        side_mode: range.sideMode ?? "single_sided",
+        copies: range.copies ?? 1,
+      });
+    }
+    insertedJobCount++;
+  }
+
+  if (jobsToInsert.length > 0) {
+    const { error: jobInsertError } = await client.from("print_jobs").insert(jobsToInsert);
+    if (jobInsertError) {
+      return NextResponse.json({ error: "Could not save counter print job." }, { status: 500 });
+    }
+  }
+  if (pagesToInsert.length > 0) {
+    const { error: pagesInsertError } = await client.from("print_job_pages").insert(pagesToInsert);
+    if (pagesInsertError) {
+      return NextResponse.json({ error: "Could not save counter page ranges." }, { status: 500 });
+    }
+  }
 
   // Fallback safety: If 0 jobs were inserted but documents exist, create default jobs
   if (insertedJobCount === 0 && documents && documents.length > 0) {
-    for (const doc of documents) {
+    let fallbackAllocated = 0;
+    const fallbackJobsToInsert: Array<Record<string, unknown>> = [];
+    const fallbackPagesToInsert: Array<Record<string, unknown>> = [];
+    for (let idx = 0; idx < documents.length; idx++) {
+      const doc = documents[idx];
       const jobId = crypto.randomUUID();
       const pageCount = doc.page_count || 1;
-      await client.from("print_jobs").insert({
+      const jobCents =
+        idx === documents.length - 1
+          ? Math.max(0, targetOrderCents - fallbackAllocated)
+          : Math.round(targetOrderCents / documents.length);
+      fallbackAllocated += jobCents;
+      fallbackJobsToInsert.push({
         id: jobId,
         order_id: orderId,
         shop_id: shop.id,
@@ -262,20 +331,27 @@ export async function POST(request: Request) {
         document_id: doc.id,
         status: "awaiting_payment",
         total_pages: pageCount,
-        total_amount: pricing.total,
+        copies: 1,
+        total_amount: Number((jobCents / 100).toFixed(2)),
         idempotency_key: crypto.randomUUID(),
       });
-      await client.from("print_job_pages").insert([
-        {
-          print_job_id: jobId,
-          start_page: 1,
-          end_page: pageCount,
-          color_mode: (pricing.colorPages || 0) > 0 ? "color" : "black_and_white",
-          paper_size: "a4",
-          side_mode: "single_sided",
-          copies: 1,
-        },
-      ]);
+      fallbackPagesToInsert.push({
+        print_job_id: jobId,
+        start_page: 1,
+        end_page: pageCount,
+        color_mode: (pricing.colorPages || 0) > 0 ? "color" : "black_and_white",
+        paper_size: "a4",
+        side_mode: "single_sided",
+        copies: 1,
+      });
+    }
+    const { error: fallbackJobError } = await client.from("print_jobs").insert(fallbackJobsToInsert);
+    if (fallbackJobError) {
+      return NextResponse.json({ error: "Could not create fallback counter print job." }, { status: 500 });
+    }
+    const { error: fallbackPagesError } = await client.from("print_job_pages").insert(fallbackPagesToInsert);
+    if (fallbackPagesError) {
+      return NextResponse.json({ error: "Could not create fallback counter page ranges." }, { status: 500 });
     }
   }
 

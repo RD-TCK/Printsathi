@@ -55,25 +55,25 @@ export async function GET() {
     .eq("shop_id", member.shop_id)
     .in("status", ["queued", "paid"])
     .order("created_at", { ascending: true })
-    .limit(20);
+    .limit(100);
 
   if (error) {
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
 
-  // Filter to jobs that have verified payments or are unlocked
-  const printableJobs = (jobs || []).filter((job) => {
-    const order = Array.isArray(job.orders) ? job.orders[0] : job.orders;
-    const payment = Array.isArray(order?.payments) ? order?.payments[0] : order?.payments;
-    return (
-      payment?.status === "verified" ||
-      order?.status === "paid" ||
-      job.status === "queued" ||
-      job.status === "paid" ||
-      job.status === "printing" ||
-      job.status === "claimed"
-    );
-  });
+  // Filter strictly to jobs whose payment or paid order state permits printing
+  const printableJobs = (jobs || [])
+    .filter((job) => {
+      const order = Array.isArray(job.orders) ? job.orders[0] : job.orders;
+      const payment = Array.isArray(order?.payments) ? order?.payments[0] : order?.payments;
+      return (
+        payment?.status === "verified" ||
+        order?.status === "paid" ||
+        order?.status === "partially_printed" ||
+        order?.status === "completed"
+      );
+    })
+    .slice(0, 20);
 
   return NextResponse.json({ jobs: printableJobs });
 }

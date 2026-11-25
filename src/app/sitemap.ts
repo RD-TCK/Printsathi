@@ -1,6 +1,7 @@
 import type { MetadataRoute } from "next";
 import { createClient } from "@supabase/supabase-js";
 import { getAppUrl, publicEnv } from "@/lib/env";
+import { BLOG_POSTS } from "@/lib/blog-posts";
 
 // Regenerate hourly so newly registered shops reach search engines without a deploy.
 export const revalidate = 3600;
@@ -11,8 +12,11 @@ const staticPages: Array<{
   changeFrequency: MetadataRoute.Sitemap[number]["changeFrequency"];
 }> = [
   { path: "", priority: 1, changeFrequency: "weekly" },
+  { path: "/printing-software", priority: 0.9, changeFrequency: "weekly" },
+  { path: "/xerox-shop-software", priority: 0.9, changeFrequency: "weekly" },
   { path: "/digital-printing-service", priority: 0.9, changeFrequency: "weekly" },
   { path: "/shops", priority: 0.9, changeFrequency: "daily" },
+  { path: "/blog", priority: 0.85, changeFrequency: "weekly" },
   { path: "/features", priority: 0.8, changeFrequency: "monthly" },
   { path: "/how-it-works", priority: 0.8, changeFrequency: "monthly" },
   { path: "/pricing", priority: 0.8, changeFrequency: "monthly" },
@@ -51,6 +55,12 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
       lastModified,
       changeFrequency,
       priority,
+    })),
+    ...BLOG_POSTS.map((post) => ({
+      url: `${baseUrl}/blog/${post.slug}`,
+      lastModified: new Date(post.publishedAt),
+      changeFrequency: "monthly" as const,
+      priority: 0.75,
     })),
     ...shopIds.map((id) => ({
       url: `${baseUrl}/shop/${encodeURIComponent(id)}`,

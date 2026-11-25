@@ -28,10 +28,51 @@ export async function POST(request: Request) {
     .eq("is_active", true)
     .maybeSingle();
   if (!shop) return NextResponse.json({ error: "Shop not found." }, { status: 404 });
-  const [{ data: settings }, { data: subscription }] = await Promise.all([
+  const orderIds = [...new Set(parsed.data.configurations.map((configuration) => configuration.orderId))];
+  const accessTokenHash = hashGuestOrderToken(parsed.data.accessToken);
+
+  const [
+    { data: settings },
+    { data: subscription },
+    { data: agents },
+    { data: printers },
+    { data: ownedOrders },
+    { data: orderDocuments },
+    { data: rules },
+  ] = await Promise.all([
     client.from("shop_settings").select("accepting_orders, billing_mode").eq("shop_id", shop.id).maybeSingle(),
     client.from("subscriptions").select("status, trial_end, current_period_end").eq("shop_id", shop.id).maybeSingle(),
+    client
+      .from("desktop_agents")
+      .select("id, last_heartbeat_at, is_revoked")
+      .eq("shop_id", shop.id)
+      .eq("is_revoked", false)
+      .order("last_heartbeat_at", { ascending: false })
+      .limit(50),
+    client
+      .from("printers")
+      .select("id, name, driver_name, desktop_agent_id, is_online, status, capabilities, last_seen_at")
+      .eq("shop_id", shop.id)
+      .limit(100),
+    client
+      .from("orders")
+      .select("id")
+      .eq("shop_id", shop.id)
+      .eq("guest_access_token_hash", accessTokenHash)
+      .in("id", orderIds),
+    client
+      .from("documents")
+      .select("id, order_id, page_count, created_at")
+      .eq("shop_id", shop.id)
+      .in("order_id", orderIds)
+      .order("created_at", { ascending: false }),
+    client
+      .from("pricing_rules")
+      .select("color_mode, paper_size, side_mode, min_pages, max_pages, price_per_page")
+      .eq("shop_id", shop.id)
+      .eq("is_active", true),
   ]);
+
   const billingMode = effectiveBillingMode(settings?.billing_mode, subscription);
   try {
     assertShopCanPrice({ isActive: true, acceptingOrders: settings?.accepting_orders === true });
@@ -42,44 +83,13 @@ export async function POST(request: Request) {
     );
   }
 
-  const [{ data: agents }, { data: printers }] = await Promise.all([
-    client
-      .from("desktop_agents")
-      .select("id, last_heartbeat_at, is_revoked")
-      .eq("shop_id", shop.id)
-      .eq("is_revoked", false)
-      .order("last_heartbeat_at", { ascending: false }),
-    client
-      .from("printers")
-      .select("id, name, driver_name, desktop_agent_id, is_online, status, capabilities, last_seen_at")
-      .eq("shop_id", shop.id),
-  ]);
   const colorPrinterIsOnline = availablePrinters(printers ?? [], agents ?? []).some((printer) =>
     Boolean(printer.capabilities?.colorSupport),
   );
-  const orderIds = [...new Set(parsed.data.configurations.map((configuration) => configuration.orderId))];
-  const { data: ownedOrders } = await client
-    .from("orders")
-    .select("id")
-    .eq("shop_id", shop.id)
-    .eq("guest_access_token_hash", hashGuestOrderToken(parsed.data.accessToken))
-    .in("id", orderIds);
   if (ownedOrders?.length !== orderIds.length)
     return NextResponse.json({ error: "Order access could not be verified." }, { status: 403 });
 
-  const { data: orderDocuments } = await client
-    .from("documents")
-    .select("id, order_id, page_count, created_at")
-    .eq("shop_id", shop.id)
-    .in("order_id", orderIds)
-    .order("created_at", { ascending: false });
   const documentMap = new Map((orderDocuments ?? []).map((document) => [document.id, document]));
-
-  const { data: rules } = await client
-    .from("pricing_rules")
-    .select("color_mode, paper_size, side_mode, min_pages, max_pages, price_per_page")
-    .eq("shop_id", shop.id)
-    .eq("is_active", true);
   if (!rules?.length)
     return NextResponse.json({ error: "This shop has not configured printing prices yet." }, { status: 409 });
 

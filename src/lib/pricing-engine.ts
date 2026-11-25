@@ -67,11 +67,24 @@ export function calculatePlatformFee(_totalPages: number, _billingMode: BillingM
   return 0;
 }
 
+function validateBucket(bucket: PricingRule[]) {
+  if (!bucket.length) throw new Error("This shop has not configured printing prices yet.");
+  bucket.sort((a, b) => a.min_pages - b.min_pages);
+  for (let index = 1; index < bucket.length; index += 1) {
+    const previous = bucket[index - 1];
+    const current = bucket[index];
+    if (current.min_pages !== (previous.max_pages === null ? Number.POSITIVE_INFINITY : previous.max_pages + 1))
+      throw new Error("Pricing rules must form contiguous, non-overlapping slabs.");
+  }
+  if (bucket[0].min_pages !== 1) throw new Error("Pricing slabs must start at page 1.");
+  return bucket;
+}
+
 function validateRules(rules: PricingRule[]) {
-  if (!rules.length) throw new Error("This shop has not configured printing prices yet.");
+  const activeRules = rules.filter((r) => r.is_active !== false);
+  if (!activeRules.length) throw new Error("This shop has not configured printing prices yet.");
   const buckets = new Map<string, PricingRule[]>();
-  for (const rule of rules) {
-    if (rule.is_active === false) continue;
+  for (const rule of activeRules) {
     if (rule.max_pages !== null && rule.max_pages < rule.min_pages)
       throw new Error("Pricing rules contain an invalid page range.");
     const side = rule.side_mode ?? "single_sided";
@@ -79,16 +92,6 @@ function validateRules(rules: PricingRule[]) {
     const bucket = buckets.get(key) ?? [];
     bucket.push({ ...rule, side_mode: side });
     buckets.set(key, bucket);
-  }
-  for (const bucket of buckets.values()) {
-    bucket.sort((a, b) => a.min_pages - b.min_pages);
-    for (let index = 1; index < bucket.length; index += 1) {
-      const previous = bucket[index - 1];
-      const current = bucket[index];
-      if (current.min_pages !== (previous.max_pages === null ? Number.POSITIVE_INFINITY : previous.max_pages + 1))
-        throw new Error("Pricing rules must form contiguous, non-overlapping slabs.");
-    }
-    if (bucket[0].min_pages !== 1) throw new Error("Pricing slabs must start at page 1.");
   }
   return buckets;
 }
@@ -168,6 +171,7 @@ export function calculatePricing(
       );
     }
 
+    validateBucket(bucket);
     const priced = priceBucket(mode, paperSize, sideMode, pages, bucket);
     breakdown.push({
       colorMode: mode,

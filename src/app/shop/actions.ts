@@ -5,7 +5,8 @@ import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { z } from "zod";
 import { canManageShop, getShopContext } from "@/lib/shop-portal";
-import { generatePairingCode } from "@/lib/agent/auth";
+import { generatePairingCode, invalidateAgentAuthCache } from "@/lib/agent/auth";
+import { invalidatePublicShopCache } from "@/lib/shops/public-lookup";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 
 const pricingSchema = z.object({
@@ -63,6 +64,7 @@ export async function createPricingRule(formData: FormData) {
         .eq("id", existing.id)
         .eq("shop_id", context.shop.id);
       if (error) result(`Could not save pricing rule: ${error.message}`, true);
+      invalidatePublicShopCache(context.shop.public_id);
       revalidatePath("/shop/pricing");
       result("Pricing rule saved.");
     }
@@ -79,6 +81,7 @@ export async function createPricingRule(formData: FormData) {
     is_active: true,
   });
   if (error) result(`Could not save pricing rule: ${error.message}`, true);
+  invalidatePublicShopCache(context.shop.public_id);
   revalidatePath("/shop/pricing");
   result("Pricing rule saved.");
 }
@@ -94,6 +97,7 @@ export async function deactivatePricingRule(formData: FormData) {
     .eq("id", id.data)
     .eq("shop_id", context.shop.id);
   if (error) result(`Could not deactivate pricing rule: ${error.message}`, true);
+  invalidatePublicShopCache(context.shop.public_id);
   revalidatePath("/shop/pricing");
   result("Pricing rule deactivated.");
 }
@@ -109,6 +113,7 @@ export async function deletePricingRule(formData: FormData) {
     .eq("id", id.data)
     .eq("shop_id", context.shop.id);
   if (error) result(`Could not delete pricing rule: ${error.message}`, true);
+  invalidatePublicShopCache(context.shop.public_id);
   revalidatePath("/shop/pricing");
   result("Pricing rule permanently deleted.");
 }
@@ -162,6 +167,7 @@ export async function updatePricingRule(formData: FormData) {
     .eq("id", id.data)
     .eq("shop_id", context.shop.id);
   if (error) result(`Could not update pricing rule: ${error.message}`, true);
+  invalidatePublicShopCache(context.shop.public_id);
   revalidatePath("/shop/pricing");
   result("Pricing rule updated.");
 }
@@ -299,6 +305,7 @@ export async function updateShopSettings(formData: FormData) {
     redirect(`/shop/settings?error=${encodeURIComponent(errorMsg)}`);
   }
 
+  invalidatePublicShopCache(context.shop.public_id);
   revalidatePath("/shop", "layout");
   redirect("/shop/settings?success=Settings+saved");
 }
@@ -394,6 +401,8 @@ export async function revokeAgent(formData: FormData) {
     redirect("/shop/printer?error=Could+not+revoke+agent");
   }
 
+  invalidateAgentAuthCache();
+  invalidatePublicShopCache(context.shop.public_id);
   revalidatePath("/shop/printer");
   redirect("/shop/printer?success=Agent+access+revoked");
 }
@@ -456,6 +465,7 @@ export async function toggleAcceptingOrders(accepting: boolean): Promise<{ succe
     if (error) return { success: false, error: error.message };
   }
 
+  invalidatePublicShopCache(context.shop.public_id);
   revalidatePath("/shop", "layout");
   revalidatePath("/shop/settings");
   revalidatePath("/shop/dashboard");

@@ -18,6 +18,7 @@ const privatePaths = [
   "/shop/qr",
   "/shop/settings",
   "/shop/subscription",
+  "/preview-token-animations",
   // Shop links shared over WhatsApp carry a private order token in the query string.
   "/*?*token=",
   "/*?*orderId=",

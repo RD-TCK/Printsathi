@@ -50,7 +50,7 @@ export function MarketingFooter() {
               className="inline-flex items-center gap-2 rounded-full border border-emerald-200/90 bg-white px-3.5 py-1.5 text-xs font-medium text-emerald-800 shadow-2xs transition hover:border-emerald-300 hover:bg-emerald-50/60"
             >
               <span className="size-1.5 rounded-full bg-emerald-600" />
-              Windows Agent v1.8.34 &rarr;
+              Windows Agent v1.8.35 &rarr;
             </Link>
           </div>
         </div>
@@ -58,17 +58,20 @@ export function MarketingFooter() {
         <div>
           <h2 className="text-xs font-semibold uppercase tracking-[0.16em] text-brand-700">Product</h2>
           <div className="mt-4 space-y-2.5 text-sm text-slate-600">
+            <Link className="block transition-colors hover:text-brand-950" href="/printing-software">
+              Printing Software
+            </Link>
+            <Link className="block transition-colors hover:text-brand-950" href="/xerox-shop-software">
+              Xerox Shop Software
+            </Link>
             <Link className="block transition-colors hover:text-brand-950" href="/features">
               Features &amp; Specs
-            </Link>
-            <Link className="block transition-colors hover:text-brand-950" href="/how-it-works">
-              How It Works
             </Link>
             <Link className="block transition-colors hover:text-brand-950" href="/pricing">
               Pricing
             </Link>
-            <Link className="block transition-colors hover:text-brand-950" href="/download">
-              Windows Desktop Agent
+            <Link className="block transition-colors hover:text-brand-950" href="/blog">
+              Blog &amp; Guides
             </Link>
           </div>
         </div>
@@ -86,7 +89,7 @@ export function MarketingFooter() {
               Printer Pairing
             </Link>
             <Link className="block transition-colors hover:text-brand-950" href="/download">
-              Installation Guide
+              Windows Desktop Agent
             </Link>
           </div>
         </div>
@@ -94,14 +97,17 @@ export function MarketingFooter() {
         <div>
           <h2 className="text-xs font-semibold uppercase tracking-[0.16em] text-brand-700">Customers</h2>
           <div className="mt-4 space-y-2.5 text-sm text-slate-600">
+            <Link className="block transition-colors hover:text-brand-950" href="/digital-printing-service">
+              Digital Printing Service
+            </Link>
+            <Link className="block transition-colors hover:text-brand-950" href="/shops">
+              Find a Print Shop
+            </Link>
             <Link className="block transition-colors hover:text-brand-950" href="/track">
               Track Print Order
             </Link>
             <Link className="block transition-colors hover:text-brand-950" href="/contact">
               Support &amp; Feedback
-            </Link>
-            <Link className="block transition-colors hover:text-brand-950" href="/how-it-works">
-              Mobile QR Guide
             </Link>
           </div>
         </div>

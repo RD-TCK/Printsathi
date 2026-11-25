@@ -774,5 +774,52 @@ describe("PDF print submission", () => {
         wakeWindowsPrinterOptimistic(printerName);
       }).not.toThrow();
     });
+
+    it("uses 1-based printed sequence index for manual duplex custom page ranges (e.g. Pages 2-3)", async () => {
+      const threePageSource = path.join(directory, "three_pages_custom.pdf");
+      const threePdf = await PDFDocument.create();
+      threePdf.addPage([200, 300]); // Page 1
+      threePdf.addPage([210, 310]); // Page 2 (Printed #1 - Front)
+      threePdf.addPage([220, 320]); // Page 3 (Printed #2 - Back)
+      fs.writeFileSync(threePageSource, await threePdf.save());
+
+      const customOddJob = {
+        id: "job-custom-odd-2-3",
+        totalPages: 2,
+        duplexStep: "odd",
+        isLastJobForOrder: false,
+        pagesConfig: [{ startPage: 2, endPage: 3, colorMode: "black_and_white", paperSize: "a4", sideMode: "double_sided" }],
+      } as ClaimedJob;
+
+      let oddWidths: number[] = [];
+      mocks.execute.mockImplementation(async (_file, args, _options, callback) => {
+        const doc = await PDFDocument.load(fs.readFileSync(args.at(-1)));
+        oddWidths = doc.getPages().map((p) => p.getWidth());
+        callback(null, "", "");
+      });
+
+      const oddRes = await prepareAndPrintDocument(threePageSource, customOddJob, printerName);
+      expect(oddRes.success).toBe(true);
+      expect(oddWidths).toEqual([210]); // Page 2 printed on front, NOT Page 3!
+
+      const customEvenJob = {
+        id: "job-custom-even-2-3",
+        totalPages: 2,
+        duplexStep: "even",
+        isLastJobForOrder: false,
+        pagesConfig: [{ startPage: 2, endPage: 3, colorMode: "black_and_white", paperSize: "a4", sideMode: "double_sided" }],
+      } as ClaimedJob;
+
+      let evenWidths: number[] = [];
+      mocks.execute.mockImplementation(async (_file, args, _options, callback) => {
+        const doc = await PDFDocument.load(fs.readFileSync(args.at(-1)));
+        evenWidths = doc.getPages().map((p) => p.getWidth());
+        callback(null, "", "");
+      });
+
+      const evenRes = await prepareAndPrintDocument(threePageSource, customEvenJob, printerName);
+      expect(evenRes.success).toBe(true);
+      expect(evenWidths).toEqual([220]); // Page 3 printed on back!
+    });
   });
 });

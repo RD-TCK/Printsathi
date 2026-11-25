@@ -42,6 +42,7 @@ async function optimizePreviewImage(
 
     const optimized = await sharp(rawBuffer, { limitInputPixels: 268402689 })
       .rotate()
+      .toColorspace("srgb")
       .resize({ width, withoutEnlargement: true, fit: "inside" })
       .jpeg({ quality, mozjpeg: true })
       .toBuffer();

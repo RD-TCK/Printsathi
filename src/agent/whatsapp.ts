@@ -169,12 +169,32 @@ export class WhatsAppAgentService {
   private lastReplyTimeBySender: Map<string, number> = new Map();
   private lastTextReplyBySender: Map<string, number> = new Map();
   private processedMessageIds: Set<string> = new Set();
+  private inFlightDownloads: Map<string, number> = new Map();
+  private isStarting = false;
+  private socketGeneration = 0;
 
   private customAuthDir?: string;
 
   constructor(customAuthDir?: string) {
     this.customAuthDir = customAuthDir;
     this.loadPendingBatchesFromDisk();
+  }
+
+  private pushRecentEvent(event: WhatsAppEvent): void {
+    this.recentEvents.unshift(event);
+    if (this.recentEvents.length > 100) {
+      this.recentEvents.length = 100;
+    }
+  }
+
+  private markMessageProcessed(msgId: string): void {
+    this.processedMessageIds.add(msgId);
+    if (this.processedMessageIds.size > 2000) {
+      const firstEntries = Array.from(this.processedMessageIds).slice(0, 500);
+      for (const id of firstEntries) {
+        this.processedMessageIds.delete(id);
+      }
+    }
   }
 
   private getAuthDirectory(): string {
@@ -374,11 +394,12 @@ export class WhatsAppAgentService {
     }
 
     // Prevent duplicate concurrent connection attempts unless restarting or explicitly forced
-    if (this.state === "connecting" && !isRestart && !forceFresh) {
+    if ((this.state === "connecting" || this.isStarting) && !isRestart && !forceFresh) {
       return;
     }
+    this.isStarting = true;
 
-    // Clean up partial/unverified session files ONLY if there is NO saved registered session
+    // Clean up partial/unverified session files ONLY if there is NO saved registered session (or forceFresh without saved session)
     if (!onlyIfSavedSession && !isRestart && !hasSaved && fs.existsSync(credsFile)) {
       logger.info("Cleaning up unverified/partial WhatsApp session before generating fresh QR...");
       await this.clearSession();
@@ -388,6 +409,7 @@ export class WhatsAppAgentService {
     this.state = "connecting";
     this.lastError = null;
     this.qrCodeDataUrl = null;
+    const myGen = ++this.socketGeneration;
 
     // Clean up any existing socket before opening a new connection
     if (this.socket) {
@@ -439,6 +461,7 @@ export class WhatsAppAgentService {
       });
 
       sock.ev.on("connection.update", async (update) => {
+        if (myGen !== this.socketGeneration) return;
         const { connection, lastDisconnect, qr } = update;
 
         if (qr) {
@@ -518,8 +541,13 @@ export class WhatsAppAgentService {
       });
 
       sock.ev.on("messages.upsert", async ({ messages, type }) => {
+        if (myGen !== this.socketGeneration) return;
         logger.debug(`WhatsApp messages.upsert event: ${messages.length} message(s), type=${type}`);
+        const fifteenMinutesAgoSec = Math.floor(Date.now() / 1000) - 900;
         for (const msg of messages) {
+          if (type !== "notify" && (!msg.messageTimestamp || Number(msg.messageTimestamp) < fifteenMinutesAgoSec)) {
+            continue;
+          }
           await this.handleIncomingMessage(msg);
         }
       });
@@ -534,15 +562,22 @@ export class WhatsAppAgentService {
       } else {
         this.state = "disconnected";
       }
+    } finally {
+      this.isStarting = false;
     }
   }
 
   /** Graceful pause / stop on agent shutdown. Keeps session credentials completely safe on disk. */
   public stop(): void {
     this.isIntentionalStop = true;
+    this.socketGeneration++;
     if (this.reconnectTimer) {
       clearTimeout(this.reconnectTimer);
       this.reconnectTimer = null;
+    }
+    if (this.retryTimer) {
+      clearTimeout(this.retryTimer);
+      this.retryTimer = null;
     }
     for (const batch of this.pendingBatches.values()) {
       clearTimeout(batch.timer);
@@ -567,16 +602,25 @@ export class WhatsAppAgentService {
   /** Explicit user unlink or permanent session reset */
   public async disconnect(clearSession = true): Promise<void> {
     this.isIntentionalStop = true;
+    this.socketGeneration++;
     if (this.reconnectTimer) {
       clearTimeout(this.reconnectTimer);
       this.reconnectTimer = null;
     }
+    if (this.retryTimer) {
+      clearTimeout(this.retryTimer);
+      this.retryTimer = null;
+    }
 
-    // Clear any pending batch timers
+    // Clear any pending batch timers and queued replies
     for (const batch of this.pendingBatches.values()) {
       clearTimeout(batch.timer);
     }
     this.pendingBatches.clear();
+    if (clearSession) {
+      this.pendingRepliesQueue = [];
+      this.outboundReplyQueue = [];
+    }
 
     if (this.socket) {
       try {
@@ -606,7 +650,12 @@ export class WhatsAppAgentService {
     const authDir = this.getAuthDirectory();
     try {
       if (fs.existsSync(authDir)) {
-        fs.rmSync(authDir, { recursive: true, force: true });
+        // Delete auth credentials/keys but preserve offline customer retry batches inside pending_retries
+        const entries = fs.readdirSync(authDir, { withFileTypes: true });
+        for (const entry of entries) {
+          if (entry.name === "pending_retries") continue;
+          fs.rmSync(path.join(authDir, entry.name), { recursive: true, force: true });
+        }
       }
     } catch (err) {
       logger.warn("Could not completely remove WhatsApp auth directory:", { error: err });
@@ -761,7 +810,7 @@ export class WhatsAppAgentService {
 
     // Reject non-printable media (audio, video, stickers) immediately
     if (audioMsg || videoMsg || stickerMsg) {
-      this.processedMessageIds.add(msgId);
+      this.markMessageProcessed(msgId);
       logger.info(
         `Rejected non-printable media (${audioMsg ? "audio" : videoMsg ? "video" : "sticker"}) from ${senderName} (+${senderPhone})`,
       );
@@ -789,7 +838,7 @@ export class WhatsAppAgentService {
       ).trim();
 
       if (textContent) {
-        this.processedMessageIds.add(msgId);
+        this.markMessageProcessed(msgId);
         await this.handleIncomingTextMessage(remoteJid, senderPhone, senderName, textContent, msg);
       } else {
         logger.debug(`Skipping WhatsApp message ${msgId}: not a document, image, or text`);
@@ -805,12 +854,12 @@ export class WhatsAppAgentService {
 
     // Strictly validate that document/image is PDF, Word (.docx/.doc), or Image
     if (!isSupportedWhatsAppPrintFile(filename, mimetype)) {
-      this.processedMessageIds.add(msgId);
+      this.markMessageProcessed(msgId);
       logger.info(
         `Rejected unsupported file "${filename}" (mime: ${mimetype}) from ${senderName} (+${senderPhone})`,
       );
 
-      this.recentEvents.unshift({
+      this.pushRecentEvent({
         id: crypto.randomUUID(),
         timestamp: new Date().toLocaleTimeString(),
         senderPhone: `+${senderPhone}`,
@@ -839,13 +888,7 @@ export class WhatsAppAgentService {
     }
 
     // Mark as processed so we never duplicate
-    this.processedMessageIds.add(msgId);
-    if (this.processedMessageIds.size > 1000) {
-      const firstEntries = Array.from(this.processedMessageIds).slice(0, 300);
-      for (const id of firstEntries) {
-        this.processedMessageIds.delete(id);
-      }
-    }
+    this.markMessageProcessed(msgId);
 
     logger.info(
       `Received WhatsApp ${documentMsg ? "document" : "image"} from ${senderName} (+${senderPhone}): "${filename}"`,
@@ -867,6 +910,15 @@ export class WhatsAppAgentService {
     if (!config.agentToken || !config.serverUrl) {
       logger.warn("Cannot upload WhatsApp document: Windows Agent is not paired with Printiva server.");
       return;
+    }
+
+    this.inFlightDownloads.set(remoteJid, (this.inFlightDownloads.get(remoteJid) || 0) + 1);
+    const activeBatch = this.pendingBatches.get(remoteJid);
+    if (activeBatch?.timer) {
+      clearTimeout(activeBatch.timer);
+      activeBatch.timer = setTimeout(() => {
+        void this.flushBatch(remoteJid);
+      }, 3000);
     }
 
     try {
@@ -902,7 +954,12 @@ export class WhatsAppAgentService {
         if (existingBatch.timer) {
           clearTimeout(existingBatch.timer);
         }
-        this.retryBatches.delete(remoteJid);
+        if (this.retryBatches.has(remoteJid)) {
+          this.retryBatches.delete(remoteJid);
+          this.deleteBatchFromDisk(remoteJid);
+          existingBatch.retryCount = 0;
+          existingBatch.nextRetryAt = 0;
+        }
         existingBatch.attachments.push({ msg, mediaBuffer, filename, mimetype });
         existingBatch.lastMessage = msg;
         existingBatch.senderName = senderName;
@@ -939,6 +996,30 @@ export class WhatsAppAgentService {
     } catch (err) {
       const errorMsg = err instanceof Error ? err.message : "Media download failed";
       logger.error(`Failed to download WhatsApp attachment from +${senderPhone}:`, { error: errorMsg });
+      this.pushRecentEvent({
+        id: crypto.randomUUID(),
+        timestamp: new Date().toLocaleTimeString(),
+        senderPhone: `+${senderPhone}`,
+        senderName,
+        filename,
+        pageCount: 0,
+        configUrl: "",
+        status: "error",
+        errorMessage: "Could not download file from WhatsApp",
+      });
+      await this.sendOrQueueReply(
+        remoteJid,
+        senderPhone,
+        `⚠️ *Printiva Notice:* We couldn't download *${filename}* from WhatsApp (${errorMsg.slice(0, 80)}). Please send the file again.`,
+        msg,
+      );
+    } finally {
+      const remaining = (this.inFlightDownloads.get(remoteJid) || 1) - 1;
+      if (remaining <= 0) {
+        this.inFlightDownloads.delete(remoteJid);
+      } else {
+        this.inFlightDownloads.set(remoteJid, remaining);
+      }
     }
   }
 
@@ -968,7 +1049,19 @@ export class WhatsAppAgentService {
       return;
     }
 
-    this.lastTextReplyBySender.set(senderPhone, Date.now());
+    const now = Date.now();
+    this.lastTextReplyBySender.set(senderPhone, now);
+    if (this.lastTextReplyBySender.size > 500) {
+      const cutoff = now - 30 * 60 * 1000;
+      for (const [phone, ts] of this.lastTextReplyBySender.entries()) {
+        if (ts < cutoff) this.lastTextReplyBySender.delete(phone);
+      }
+      while (this.lastTextReplyBySender.size > 500) {
+        const oldest = this.lastTextReplyBySender.keys().next().value;
+        if (!oldest) break;
+        this.lastTextReplyBySender.delete(oldest);
+      }
+    }
 
     // Check if customer has an existing successful upload in recent events
     const recentSuccess = this.recentEvents.find(
@@ -1001,8 +1094,8 @@ export class WhatsAppAgentService {
    * and sends a single clean configuration link.
    */
   private async flushBatch(remoteJid: string): Promise<void> {
-    if (this.activeFlushes.has(remoteJid)) {
-      // If a flush is currently in flight for this sender, reschedule
+    if (this.activeFlushes.has(remoteJid) || (this.inFlightDownloads.get(remoteJid) || 0) > 0) {
+      // If a flush or download is currently in flight for this sender, reschedule
       const batch = this.pendingBatches.get(remoteJid);
       if (batch) {
         clearTimeout(batch.timer);
@@ -1038,8 +1131,8 @@ export class WhatsAppAgentService {
       const serverUrl = config.serverUrl.replace(/\/+$/, "");
       const uploadUrl = `${serverUrl}/api/agent/whatsapp-upload`;
 
-      // Upload all batch files into ONE unified draft order (up to 50 files)
-      const CHUNK_SIZE = 50;
+      // Upload batch files in chunks of up to 15 to avoid 4.5MB payload limit on fallback
+      const CHUNK_SIZE = 15;
       const chunks: PendingWhatsAppAttachment[][] = [];
       for (let i = 0; i < attachments.length; i += CHUNK_SIZE) {
         chunks.push(attachments.slice(i, i + CHUNK_SIZE));
@@ -1065,9 +1158,24 @@ export class WhatsAppAgentService {
         } | null = null;
 
         // 1. Local-First Processing (Zero Cloud Upload, Instant SSD Print Execution)
+        // Bound conversion/rendering concurrency to 2 workers so batch bursts never spike CPU/RAM on shop PCs.
         try {
-          const settledResults = await Promise.allSettled(
-            chunk.map((att) => processAndCacheDocument(att.mediaBuffer, att.filename, att.mimetype)),
+          const MAX_WA_PROCESS_CONCURRENCY = 2;
+          const settledResults: Array<PromiseSettledResult<ProcessedLocalDocument>> = new Array(chunk.length);
+          let nextAttIdx = 0;
+          await Promise.all(
+            Array.from({ length: Math.min(MAX_WA_PROCESS_CONCURRENCY, chunk.length) }, async () => {
+              while (nextAttIdx < chunk.length) {
+                const idx = nextAttIdx++;
+                const att = chunk[idx];
+                try {
+                  const value = await processAndCacheDocument(att.mediaBuffer, att.filename, att.mimetype);
+                  settledResults[idx] = { status: "fulfilled", value };
+                } catch (reason) {
+                  settledResults[idx] = { status: "rejected", reason };
+                }
+              }
+            }),
           );
 
           const successfulDocs: ProcessedLocalDocument[] = [];
@@ -1224,17 +1332,23 @@ export class WhatsAppAgentService {
                   }),
                 });
 
-                if (completeRes.ok) {
-                  const compData = await completeRes.json();
-                  chunkResult = {
-                    configUrl: compData.configUrl,
-                    documents: compData.documents || [],
-                  };
+                if (!completeRes.ok) {
+                  const errBody = await completeRes.json().catch(() => ({}));
+                  const err = new Error(errBody.error || `Document finalization failed (HTTP ${completeRes.status})`);
+                  if (completeRes.status >= 400 && completeRes.status < 500) {
+                    (err as Error & { permanentUploadFailure?: boolean }).permanentUploadFailure = true;
+                  }
+                  throw err;
                 }
+                const compData = await completeRes.json();
+                chunkResult = {
+                  configUrl: compData.configUrl,
+                  documents: compData.documents || [],
+                };
               }
             }
           } catch (presignErr) {
-            if (isNetworkError(presignErr)) {
+            if (isNetworkError(presignErr) || (presignErr as Error & { permanentUploadFailure?: boolean })?.permanentUploadFailure) {
               throw presignErr;
             }
             logger.warn("Presigned direct storage upload attempt failed, trying multipart fallback:", {
@@ -1296,7 +1410,7 @@ export class WhatsAppAgentService {
             existingEvent.timestamp = new Date().toLocaleTimeString();
             existingEvent.errorMessage = undefined;
           } else {
-            this.recentEvents.unshift({
+            this.pushRecentEvent({
               id: crypto.randomUUID(),
               timestamp: new Date().toLocaleTimeString(),
               senderPhone: `+${senderPhone}`,
@@ -1330,7 +1444,7 @@ export class WhatsAppAgentService {
         this.deleteBatchFromDisk(remoteJid);
 
         for (const f of skippedFiles) {
-          this.recentEvents.unshift({
+          this.pushRecentEvent({
             id: crypto.randomUUID(),
             timestamp: new Date().toLocaleTimeString(),
             senderPhone: `+${senderPhone}`,
@@ -1414,7 +1528,7 @@ export class WhatsAppAgentService {
         replyText += `_You can still configure and print the other files via the link above!_`;
 
         for (const f of skippedFiles) {
-          this.recentEvents.unshift({
+          this.pushRecentEvent({
             id: crypto.randomUUID(),
             timestamp: new Date().toLocaleTimeString(),
             senderPhone: `+${senderPhone}`,
@@ -1456,7 +1570,7 @@ export class WhatsAppAgentService {
               existingEvent.status = "retrying";
               existingEvent.errorMessage = "Internet connection dropped. Auto-retrying when back online...";
             } else {
-              this.recentEvents.unshift({
+              this.pushRecentEvent({
                 id: crypto.randomUUID(),
                 timestamp: new Date().toLocaleTimeString(),
                 senderPhone: `+${senderPhone}`,
@@ -1495,7 +1609,7 @@ export class WhatsAppAgentService {
           existingEvent.status = "error";
           existingEvent.errorMessage = errorMsg;
         } else {
-          this.recentEvents.unshift({
+          this.pushRecentEvent({
             id: crypto.randomUUID(),
             timestamp: new Date().toLocaleTimeString(),
             senderPhone: `+${senderPhone}`,
@@ -1546,6 +1660,9 @@ export class WhatsAppAgentService {
     replyText: string,
     lastMessage?: WAMessage,
   ): Promise<void> {
+    if (this.outboundReplyQueue.length >= 200) {
+      this.outboundReplyQueue.shift();
+    }
     this.outboundReplyQueue.push({ remoteJid, senderPhone, replyText, lastMessage });
     void this.drainOutboundReplyQueue();
   }
@@ -1561,6 +1678,9 @@ export class WhatsAppAgentService {
             `WhatsApp socket offline; queued ${this.outboundReplyQueue.length} reply(ies) for reconnect delivery.`,
           );
           this.pendingRepliesQueue.push(...this.outboundReplyQueue.splice(0, this.outboundReplyQueue.length));
+          if (this.pendingRepliesQueue.length > 200) {
+            this.pendingRepliesQueue.splice(0, this.pendingRepliesQueue.length - 200);
+          }
           this.scheduleRetryQueue();
           break;
         }

@@ -41,6 +41,19 @@ const publicShopCache = new Map<string, { data: { shop: PublicShop | null; confi
 const publicPricingCache = new Map<string, { data: PublicPricingRule[]; expiresAt: number }>();
 const PUBLIC_SHOP_CACHE_TTL_MS = 30_000;
 const PUBLIC_PRICING_CACHE_TTL_MS = 60_000;
+const MAX_PUBLIC_CACHE_ENTRIES = 5000;
+
+function setBoundedCache<T>(cache: Map<string, T>, key: string, value: T): void {
+  if (cache.has(key)) {
+    cache.delete(key);
+  }
+  cache.set(key, value);
+  while (cache.size > MAX_PUBLIC_CACHE_ENTRIES) {
+    const oldestKey = cache.keys().next().value;
+    if (!oldestKey) break;
+    cache.delete(oldestKey);
+  }
+}
 
 export function invalidatePublicShopCache(publicIdentifier?: string) {
   if (publicIdentifier) {
@@ -106,7 +119,7 @@ export async function getPublicShop(
 
   if (!data) {
     const result = { shop: null, configured: true };
-    publicShopCache.set(publicIdentifier, { data: result, expiresAt: now + 5000 });
+    setBoundedCache(publicShopCache, publicIdentifier, { data: result, expiresAt: now + 5000 });
     return result;
   }
 
@@ -219,7 +232,7 @@ export async function getPublicShop(
   };
 
   const result = { shop, configured: true };
-  publicShopCache.set(publicIdentifier, { data: result, expiresAt: now + PUBLIC_SHOP_CACHE_TTL_MS });
+  setBoundedCache(publicShopCache, publicIdentifier, { data: result, expiresAt: now + PUBLIC_SHOP_CACHE_TTL_MS });
   return result;
 }
 
@@ -240,6 +253,6 @@ export async function getPublicPricing(publicIdentifier: string): Promise<Public
     .order("paper_size")
     .order("min_pages");
   const result = (data ?? []) as PublicPricingRule[];
-  publicPricingCache.set(publicIdentifier, { data: result, expiresAt: now + PUBLIC_PRICING_CACHE_TTL_MS });
+  setBoundedCache(publicPricingCache, publicIdentifier, { data: result, expiresAt: now + PUBLIC_PRICING_CACHE_TTL_MS });
   return result;
 }

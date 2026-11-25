@@ -24,7 +24,7 @@ export function ShopHeader({ shop }: { shop: PublicShop }) {
         if (!t || typeof t !== "object") return false;
         const expTime = new Date(t.expiresAt).getTime();
         const createdTime = t.createdAt ? new Date(t.createdAt).getTime() : expTime;
-        return expTime > nowSnapshot && createdTime > cutoff;
+        return Number.isFinite(createdTime) && createdTime > cutoff;
       });
     } catch {
       return [];

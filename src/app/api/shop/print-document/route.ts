@@ -183,9 +183,16 @@ export async function GET(request: Request) {
             const copies = Math.max(1, config.copies ?? 1);
             const pageIndices: number[] = [];
 
+            let printedSeq = 1;
             for (let i = start; i <= end; i++) {
-              if (duplexStep === "odd" && i % 2 === 0) continue;
-              if (duplexStep === "even" && i % 2 !== 0) continue;
+              const includePage =
+                duplexStep === "odd"
+                  ? printedSeq % 2 === 1
+                  : duplexStep === "even"
+                    ? printedSeq % 2 === 0
+                    : true;
+              printedSeq++;
+              if (!includePage) continue;
               pageIndices.push(i - 1);
             }
 

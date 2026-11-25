@@ -5,18 +5,38 @@ export function summarizeJobs(
     print_job_pages: Array<{ start_page: number; end_page: number }>;
   }>,
 ) {
-  const completed = jobs.filter((job) => job.status === "completed");
+  let completed = 0;
+  let failed = 0;
+  let pending = 0;
+  let revenue = 0;
+  let pages = 0;
+
+  for (const job of jobs) {
+    if (job.status === "completed") {
+      completed += 1;
+      revenue += Number(job.total_amount || 0);
+      for (const range of job.print_job_pages) {
+        pages += range.end_page - range.start_page + 1;
+      }
+    } else if (job.status === "failed") {
+      failed += 1;
+    } else if (
+      job.status === "paid" ||
+      job.status === "queued" ||
+      job.status === "claimed" ||
+      job.status === "printing" ||
+      job.status === "print_submitted"
+    ) {
+      pending += 1;
+    }
+  }
+
   return {
-    completed: completed.length,
-    failed: jobs.filter((job) => job.status === "failed").length,
-    pending: jobs.filter((job) => ["paid", "queued", "claimed", "printing", "print_submitted"].includes(job.status))
-      .length,
-    revenue: completed.reduce((sum, job) => sum + Number(job.total_amount || 0), 0),
-    pages: completed.reduce(
-      (sum, job) =>
-        sum + job.print_job_pages.reduce((total, range) => total + range.end_page - range.start_page + 1, 0),
-      0,
-    ),
+    completed,
+    failed,
+    pending,
+    revenue,
+    pages,
   };
 }
 

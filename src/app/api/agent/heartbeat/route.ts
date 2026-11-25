@@ -57,18 +57,30 @@ export async function POST(request: Request) {
     .eq("id", auth.agent.id);
   if (agentError) return NextResponse.json({ error: "Could not save agent heartbeat." }, { status: 500 });
 
-  // 2. Upsert Discovered Printers only when inventory is provided (on change or startup)
+  // 2. Reconcile Discovered Printers in batched queries (avoids offline flicker & N+1 round-trips)
   if (parsed.data.printers !== undefined) {
-    // A complete inventory must retire printers that disappeared, including an empty inventory.
-    const { error: offlineError } = await adminClient
+    const { data: existingPrinters, error: lookupError } = await adminClient
       .from("printers")
-      .update({ status: "offline", is_online: false })
-      .eq("shop_id", auth.shop.id)
-      .eq("desktop_agent_id", auth.agent.id);
-    if (offlineError) return NextResponse.json({ error: "Could not reconcile printer inventory." }, { status: 500 });
+      .select("id, system_identifier, desktop_agent_id, is_default")
+      .eq("shop_id", auth.shop.id);
+    if (lookupError) return NextResponse.json({ error: "Could not look up the printer inventory." }, { status: 500 });
 
-    if (parsed.data.printers.length > 0) {
-      for (const p of parsed.data.printers) {
+    const existingBySystemId = new Map<string, { id: string; desktop_agent_id: string | null; is_default: boolean }>();
+    for (const row of existingPrinters ?? []) {
+      if (row.system_identifier) {
+        existingBySystemId.set(row.system_identifier, {
+          id: row.id,
+          desktop_agent_id: row.desktop_agent_id,
+          is_default: Boolean(row.is_default),
+        });
+      }
+    }
+
+    const activeSystemIds = new Set<string>();
+    const inserts: Array<Record<string, unknown>> = [];
+    const updates: Array<{ id: string; payload: Record<string, unknown> }> = [];
+
+    for (const p of parsed.data.printers) {
       if (/onenote|print to pdf|xps|fax|pdfcreator|cutepdf/i.test(`${p.name} ${p.driverName || ""}`)) continue;
       const systemId =
         p.systemIdentifier ||
@@ -76,33 +88,27 @@ export async function POST(request: Request) {
           .trim()
           .toLowerCase()
           .replace(/[^a-z0-9]/g, "_");
+      if (activeSystemIds.has(systemId)) continue;
+      activeSystemIds.add(systemId);
 
-      const { data: existing, error: lookupError } = await adminClient
-        .from("printers")
-        .select("id, is_default")
-        .eq("shop_id", auth.shop.id)
-        .eq("system_identifier", systemId)
-        .maybeSingle();
-      if (lookupError) return NextResponse.json({ error: "Could not look up the printer inventory." }, { status: 500 });
-
+      const existing = existingBySystemId.get(systemId);
+      const isOnline = p.status === "online" || p.status === "printing";
       if (existing) {
-        const { error: printerError } = await adminClient
-          .from("printers")
-          .update({
+        updates.push({
+          id: existing.id,
+          payload: {
             desktop_agent_id: auth.agent.id,
             name: p.name,
             status: p.status,
             driver_name: p.driverName,
             capabilities: p.capabilities || {},
-            is_online: p.status === "online" || p.status === "printing",
+            is_online: isOnline,
             is_default: existing.is_default,
             last_seen_at: now,
-          })
-          .eq("id", existing.id);
-        if (printerError)
-          return NextResponse.json({ error: "Could not update the detected printer." }, { status: 500 });
+          },
+        });
       } else {
-        const { error: printerError } = await adminClient.from("printers").insert({
+        inserts.push({
           shop_id: auth.shop.id,
           desktop_agent_id: auth.agent.id,
           name: p.name,
@@ -110,14 +116,36 @@ export async function POST(request: Request) {
           status: p.status,
           driver_name: p.driverName,
           capabilities: p.capabilities || {},
-          is_online: p.status === "online" || p.status === "printing",
+          is_online: isOnline,
           is_default: Boolean(p.isDefault),
           last_seen_at: now,
         });
-        if (printerError)
-          return NextResponse.json({ error: "Could not register the detected printer." }, { status: 500 });
       }
     }
+
+    const stalePrinterIds = (existingPrinters ?? [])
+      .filter((row) => row.desktop_agent_id === auth.agent.id && !activeSystemIds.has(row.system_identifier || ""))
+      .map((row) => row.id);
+
+    const tasks: Array<PromiseLike<{ error: unknown }>> = [];
+    if (stalePrinterIds.length > 0) {
+      tasks.push(
+        adminClient
+          .from("printers")
+          .update({ status: "offline", is_online: false })
+          .in("id", stalePrinterIds),
+      );
+    }
+    if (inserts.length > 0) {
+      tasks.push(adminClient.from("printers").insert(inserts));
+    }
+    for (const u of updates) {
+      tasks.push(adminClient.from("printers").update(u.payload).eq("id", u.id));
+    }
+
+    const results = await Promise.all(tasks);
+    if (results.some((r) => Boolean(r.error))) {
+      return NextResponse.json({ error: "Could not reconcile printer inventory." }, { status: 500 });
     }
   } else {
     // Touch last_seen_at for all online printers of this connected agent so they never expire while agent is active

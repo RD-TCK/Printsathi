@@ -280,9 +280,9 @@ export async function POST(request: Request) {
   razorpayPaymentData = fetchedPayment as unknown as Record<string, unknown>;
   paymentMethod = String(fetchedPayment.method || "razorpay");
 
-  // 8. Update Payment record to VERIFIED
+  // 8. Update Payment record to VERIFIED atomically
   const verifiedAt = new Date().toISOString();
-  const { error: updatePaymentError } = await adminClient
+  const { data: updatedPayment, error: updatePaymentError } = await adminClient
     .from("payments")
     .update({
       status: "verified",
@@ -299,10 +299,47 @@ export async function POST(request: Request) {
       },
     })
     .eq("id", payment.id)
-    .neq("status", "verified");
+    .neq("status", "verified")
+    .select("id")
+    .maybeSingle();
 
   if (updatePaymentError) {
     return NextResponse.json({ error: "Could not update payment status." }, { status: 500 });
+  }
+
+  if (!updatedPayment) {
+    const { data: currentPayment } = await adminClient
+      .from("payments")
+      .select("status, provider_payment_id, amount, currency")
+      .eq("id", payment.id)
+      .maybeSingle();
+
+    if (currentPayment?.status === "verified" && currentPayment.provider_payment_id === razorpayPaymentId) {
+      try {
+        await releasePaidOrder(adminClient, order.id);
+      } catch (error) {
+        return NextResponse.json(
+          { error: error instanceof Error ? error.message : "Queue update failed" },
+          { status: 503 },
+        );
+      }
+      return NextResponse.json({
+        success: true,
+        verified: true,
+        orderId: order.id,
+        publicOrderId: order.public_id,
+        paymentId: razorpayPaymentId,
+        status: "paid",
+        amount: Number(currentPayment.amount),
+        currency: currentPayment.currency,
+        message: "Payment already verified.",
+      });
+    }
+
+    return NextResponse.json(
+      { error: "This order has already been verified under another payment transaction.", alreadyPaid: true },
+      { status: 409 },
+    );
   }
 
   try {
@@ -315,7 +352,7 @@ export async function POST(request: Request) {
   }
 
   // 10. Record transaction log & audit log
-  await Promise.all([
+  const [txResult, auditResult] = await Promise.all([
     adminClient.from("payment_transactions").insert({
       payment_id: payment.id,
       order_id: order.id,
@@ -349,6 +386,8 @@ export async function POST(request: Request) {
       },
     }),
   ]);
+  if (txResult.error) console.error("Verify payment_transactions insert error:", txResult.error);
+  if (auditResult.error) console.error("Verify audit_logs insert error:", auditResult.error);
 
   return NextResponse.json({
     success: true,

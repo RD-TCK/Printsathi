@@ -65,8 +65,12 @@ export const metadata: Metadata = {
     other: process.env.BING_SITE_VERIFICATION ? { "msvalidate.01": process.env.BING_SITE_VERIFICATION } : undefined,
   },
   icons: {
-    icon: [{ url: "/icon.svg", type: "image/svg+xml" }, { url: "/favicon.ico" }],
-    apple: "/icon.png",
+    icon: [
+      { url: "/icon.png", sizes: "512x512", type: "image/png" },
+      { url: "/favicon.ico", sizes: "48x48" },
+    ],
+    shortcut: "/favicon.ico",
+    apple: { url: "/icon.png", sizes: "512x512", type: "image/png" },
   },
 };
 

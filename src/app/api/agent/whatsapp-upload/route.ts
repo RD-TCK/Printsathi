@@ -43,6 +43,9 @@ export async function POST(request: Request) {
   // Normalize all documents (PDF, Word, or Image)
   const normalizedDocs: NormalizedDocumentResult[] = [];
   for (const file of files) {
+    if (file.size < 1) {
+      return NextResponse.json({ error: `"${file.name}" is empty (0 bytes).` }, { status: 400 });
+    }
     try {
       const norm = await normalizeDocument(file);
       normalizedDocs.push(norm);

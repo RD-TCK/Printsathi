@@ -58,7 +58,7 @@ export async function POST(request: Request) {
   const [{ data: settings }, { data: subscription }] = await Promise.all([
     adminClient
       .from("shop_settings")
-      .select("accepting_orders, billing_mode, razorpay_key_id, razorpay_key_secret, razorpay_webhook_secret")
+      .select("accepting_orders, billing_mode, allow_double_sided, payment_mode, razorpay_key_id, razorpay_key_secret, razorpay_webhook_secret")
       .eq("shop_id", shop.id)
       .maybeSingle(),
     adminClient
@@ -84,13 +84,17 @@ export async function POST(request: Request) {
   // 2. Fetch order and verify authorization
   const { data: order, error: orderError } = await adminClient
     .from("orders")
-    .select("id, public_id, shop_id, customer_id, status, total_amount, currency, guest_access_token_hash")
+    .select("id, public_id, shop_id, customer_id, status, total_amount, currency, expires_at, payment_mode, guest_access_token_hash")
     .eq("id", orderId)
     .eq("shop_id", shop.id)
     .maybeSingle();
 
   if (orderError || !order) {
     return NextResponse.json({ error: "Order not found." }, { status: 404 });
+  }
+
+  if (order.expires_at && new Date(order.expires_at).getTime() <= Date.now()) {
+    return NextResponse.json({ error: "This order has expired. Please upload again to place a fresh order." }, { status: 410 });
   }
 
   // Verify access either through guest token or authenticated customer
@@ -205,6 +209,12 @@ export async function POST(request: Request) {
       .eq("shop_id", shop.id)
       .eq("is_revoked", false),
   ]);
+  if (settings?.allow_double_sided === false && ranges.some((r) => r.sideMode === "double_sided")) {
+    return NextResponse.json(
+      { error: "This shop currently does not accept double-sided printing." },
+      { status: 409 },
+    );
+  }
   const online = availablePrinters(inventory.data || [], agents.data || []);
   if (ranges.some((range) => !online.some((printer) => supportsPrint(printer, range.colorMode, range.paperSize)))) {
     return NextResponse.json(
@@ -231,9 +241,9 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Order amount must be greater than zero." }, { status: 400 });
   }
 
-  // Update order with authoritative total if needed
+  // Update order with authoritative total if needed (and proportionally align print_jobs totals)
   if (Number(order.total_amount) !== authoritativeTotal) {
-    await adminClient
+    const { error: orderSyncError } = await adminClient
       .from("orders")
       .update({
         total_amount: authoritativeTotal,
@@ -242,6 +252,28 @@ export async function POST(request: Request) {
         black_and_white_pages: authoritativePricing.blackAndWhitePages,
       })
       .eq("id", order.id);
+    if (orderSyncError) {
+      return NextResponse.json({ error: "Could not refresh order total before payment." }, { status: 500 });
+    }
+    const rulesForJobs = rules.map((r) => ({ ...r, price_per_page: Number(r.price_per_page), is_active: true })) as PricingRule[];
+    const jobRawCents = printJobs.map((j) => {
+      const jobRanges = ranges.filter((_, idx) => pages[idx]?.print_job_id === j.id);
+      const amt = jobRanges.length > 0 ? calculatePricing(jobRanges, rulesForJobs, billingMode).total : Number(j.total_amount || 0);
+      return Math.round((amt + Number.EPSILON) * 100);
+    });
+    const rawSumCents = jobRawCents.reduce((s, c) => s + c, 0);
+    const targetCents = Math.round((authoritativeTotal + Number.EPSILON) * 100);
+    let allocated = 0;
+    for (let i = 0; i < printJobs.length; i++) {
+      const centsVal =
+        i === printJobs.length - 1
+          ? Math.max(0, targetCents - allocated)
+          : rawSumCents > 0
+            ? Math.round((targetCents * jobRawCents[i]) / rawSumCents)
+            : Math.round(targetCents / printJobs.length);
+      allocated += centsVal;
+      await adminClient.from("print_jobs").update({ total_amount: Number((centsVal / 100).toFixed(2)) }).eq("id", printJobs[i].id);
+    }
   }
 
   if (paymentMode === "mock") {
@@ -322,7 +354,7 @@ export async function POST(request: Request) {
   // 5. Check existing payment records for idempotency
   const { data: existingPayment } = await adminClient
     .from("payments")
-    .select("id, status, provider_order_id, provider_payment_id, amount, idempotency_key")
+    .select("id, status, provider_order_id, provider_payment_id, amount, idempotency_key, metadata")
     .eq("order_id", order.id)
     .maybeSingle();
 
@@ -334,11 +366,18 @@ export async function POST(request: Request) {
       );
     }
 
-    // If there is an active created/pending payment with the exact same amount and provider_order_id, reuse it
+    const storedKeyId =
+      existingPayment.metadata && typeof existingPayment.metadata === "object"
+        ? (existingPayment.metadata as Record<string, unknown>).razorpay_key_id
+        : undefined;
+    const sameGatewayKey = !storedKeyId || storedKeyId === razorpayConfig.keyId;
+
+    // Only reuse an active non-failed payment order created with the exact same Razorpay key and amount
     if (
-      ["created", "pending", "failed"].includes(existingPayment.status) &&
+      ["created", "pending"].includes(existingPayment.status) &&
       existingPayment.provider_order_id &&
-      Number(existingPayment.amount) === authoritativeTotal
+      Number(existingPayment.amount) === authoritativeTotal &&
+      sameGatewayKey
     ) {
       return NextResponse.json({
         success: true,
@@ -399,11 +438,13 @@ export async function POST(request: Request) {
         error_description: null,
         metadata: {
           razorpay_order_id: razorpayOrder.id,
+          razorpay_key_id: razorpayConfig.keyId,
           receipt: razorpayOrder.receipt,
           notes: razorpayOrder.notes,
         },
       })
       .eq("id", existingPayment.id)
+      .neq("status", "verified")
       .select("id")
       .single();
 
@@ -425,12 +466,41 @@ export async function POST(request: Request) {
         idempotency_key: effectiveIdempotencyKey,
         metadata: {
           razorpay_order_id: razorpayOrder.id,
+          razorpay_key_id: razorpayConfig.keyId,
           receipt: razorpayOrder.receipt,
           notes: razorpayOrder.notes,
         },
       })
       .select("id")
       .single();
+
+    if (insertError?.code === "23505") {
+      const { data: racedPayment } = await adminClient
+        .from("payments")
+        .select("id, status, provider_order_id, amount, metadata")
+        .eq("order_id", order.id)
+        .maybeSingle();
+      if (racedPayment?.status === "verified") {
+        return NextResponse.json(
+          { error: "Payment for this order has already been verified.", alreadyPaid: true },
+          { status: 409 },
+        );
+      }
+      if (racedPayment?.provider_order_id && Number(racedPayment.amount) === authoritativeTotal) {
+        return NextResponse.json({
+          success: true,
+          orderId: order.id,
+          publicOrderId: order.public_id,
+          razorpayOrderId: racedPayment.provider_order_id,
+          amount: toPaise(authoritativeTotal),
+          amountRupees: authoritativeTotal,
+          currency: "INR",
+          keyId: razorpayConfig.keyId,
+          isTestMode: razorpayConfig.isTestMode,
+        });
+      }
+      return NextResponse.json({ error: "Concurrent payment initialization conflict. Please retry." }, { status: 409 });
+    }
 
     if (insertError || !newPayment) {
       return NextResponse.json({ error: "Failed to create payment record." }, { status: 500 });

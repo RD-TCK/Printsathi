@@ -12,15 +12,27 @@ interface PrecacheEntry {
 // In-process cache mapping orderId -> set of pre-cached document IDs
 const precacheRegistry = new Map<string, PrecacheEntry>();
 
-// Keep memory bounded (clean up entries older than 2 hours)
+// Keep memory bounded (clean up entries older than 2 hours, throttled)
 const ENTRY_TTL_MS = 2 * 60 * 60 * 1000;
+const CLEANUP_INTERVAL_MS = 60_000;
+const MAX_PRECACHE_ENTRIES = 5000;
+let lastCleanupAt = 0;
 
-function cleanupStaleEntries() {
+function cleanupStaleEntries(force = false) {
   const now = Date.now();
+  if (!force && now - lastCleanupAt < CLEANUP_INTERVAL_MS && precacheRegistry.size < MAX_PRECACHE_ENTRIES) {
+    return;
+  }
+  lastCleanupAt = now;
   for (const [orderId, entry] of precacheRegistry.entries()) {
     if (now - entry.lastUpdated > ENTRY_TTL_MS) {
       precacheRegistry.delete(orderId);
     }
+  }
+  while (precacheRegistry.size > MAX_PRECACHE_ENTRIES) {
+    const oldestKey = precacheRegistry.keys().next().value;
+    if (!oldestKey) break;
+    precacheRegistry.delete(oldestKey);
   }
 }
 

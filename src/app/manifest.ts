@@ -13,9 +13,8 @@ export default function manifest(): MetadataRoute.Manifest {
     lang: "en-IN",
     categories: ["business", "productivity", "utilities"],
     icons: [
-      { src: "/icon.svg", sizes: "any", type: "image/svg+xml" },
       { src: "/icon.png", sizes: "512x512", type: "image/png" },
-      { src: "/favicon.ico", sizes: "any", type: "image/x-icon" },
+      { src: "/favicon.ico", sizes: "48x48 32x32 16x16", type: "image/x-icon" },
     ],
   };
 }

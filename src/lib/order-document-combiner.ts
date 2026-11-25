@@ -7,26 +7,23 @@ import sharp from "sharp";
 
 async function wrapImageToPdf(rawBuffer: Buffer): Promise<Buffer> {
   const pdfDoc = await PDFDocument.create();
-  const isPng = rawBuffer.subarray(0, 4).toString("hex") === "89504e47";
   let embeddedImg;
 
+  // Always run Sharp EXIF auto-rotate & sRGB conversion first so mobile portrait photos never embed sideways
   try {
-    embeddedImg = isPng ? await pdfDoc.embedPng(rawBuffer) : await pdfDoc.embedJpg(rawBuffer);
+    const normalizedJpeg = await sharp(rawBuffer)
+      .rotate()
+      .toColorspace("srgb")
+      .flatten({ background: "white" })
+      .jpeg({ quality: 92, chromaSubsampling: "4:4:4" })
+      .toBuffer();
+    embeddedImg = await pdfDoc.embedJpg(normalizedJpeg);
   } catch {
+    const isPng = rawBuffer.subarray(0, 4).toString("hex") === "89504e47";
     try {
-      embeddedImg = isPng ? await pdfDoc.embedJpg(rawBuffer) : await pdfDoc.embedPng(rawBuffer);
-    } catch {
-      // If direct embedding fails (e.g. WebP, HEIC, TIFF, BMP, or EXIF rotated), normalize via sharp
-      try {
-        const normalizedJpeg = await sharp(rawBuffer)
-          .rotate() // Automatically orient by EXIF tag
-          .toColorspace("srgb")
-          .jpeg({ quality: 92, chromaSubsampling: "4:4:4" })
-          .toBuffer();
-        embeddedImg = await pdfDoc.embedJpg(normalizedJpeg);
-      } catch (sharpErr) {
-        throw new Error(`Unsupported image format for PDF embedding: ${sharpErr}`);
-      }
+      embeddedImg = isPng ? await pdfDoc.embedPng(rawBuffer) : await pdfDoc.embedJpg(rawBuffer);
+    } catch (embedErr) {
+      throw new Error(`Unsupported image format for PDF embedding: ${embedErr}`);
     }
   }
 
@@ -119,10 +116,12 @@ export async function combineOrderDocumentsForPrint(
       return { success: false, combined: false, error: "No documents found for this order." };
     }
 
-    // Filter out previously generated combined token document to get the raw user documents
-    const rawDocs = orderDocs.filter(
-      (d) => !d.original_filename?.toLowerCase().includes("combined"),
-    );
+    // Filter out previously generated Printiva combined token PDFs without matching customer files like "combined_notes.pdf"
+    const isCombinedArtifact = (d: { storage_path?: string | null; original_filename?: string | null }) =>
+      Boolean(d.storage_path?.includes("token_combined_")) ||
+      /\(All \d+ pictures combined\)/i.test(d.original_filename || "");
+
+    const rawDocs = orderDocs.filter((d) => !isCombinedArtifact(d));
 
     // If order has only 1 raw document and no complex multi-doc configs, no combination is required
     if (rawDocs.length <= 1 && (!configurations || configurations.length <= 1)) {

@@ -101,28 +101,27 @@ export async function wakeWindowsPrinter(printerName: string, force = false): Pr
     const script = `
 [Console]::OutputEncoding = [System.Text.UTF8Encoding]::new()
 $pName = '${escaped}'
-$p = [wmi]"Win32_Printer.DeviceID='$pName'"
+$p = Get-CimInstance Win32_Printer -ErrorAction SilentlyContinue | Where-Object { $_.Name -eq $pName -or $_.DeviceID -eq $pName } | Select-Object -First 1
 $woke = $false
 if ($p) {
   if ($p.WorkOffline) {
-    $p.WorkOffline = $false
-    $p.Put() | Out-Null
+    Set-CimInstance -InputObject $p -Property @{ WorkOffline = $false } -ErrorAction SilentlyContinue | Out-Null
     $woke = $true
   }
-  if ($p.Paused) {
-    $p.Resume() | Out-Null
+  if ($p.PrinterStatus -eq 1 -or $p.PrinterState -band 1) {
+    Invoke-CimMethod -InputObject $p -MethodName Resume -ErrorAction SilentlyContinue | Out-Null
     $woke = $true
   }
 }
 Get-PrintJob -PrinterName $pName -ErrorAction SilentlyContinue | Where-Object { $_.JobStatus -like "*Paused*" } | Resume-PrintJob -ErrorAction SilentlyContinue | Out-Null
-if ($woke) { "WOKE" } else { "READY" }
+if (-not $p) { "MISSING" } elseif ($woke) { "WOKE" } else { "READY" }
 `;
     const res = await runPowerShellInline(script, 4000);
     const trimmed = res.trim();
     if (trimmed.includes("WOKE")) {
       logger.info(`Wake-up signal sent to printer "${printerName}": reset WorkOffline and unpaused spooler queue.`);
     }
-    return true;
+    return trimmed.includes("WOKE") || trimmed.includes("READY");
   } catch (err) {
     logger.warn(`Could not send wake signal to printer "${printerName}": ${err instanceof Error ? err.message : String(err)}`);
     return false;
@@ -365,10 +364,12 @@ export async function slicePdfForConfigs(
       }
     } else if (isManualDuplexOdd) {
       const oddIndices: number[] = [];
+      let printedSeq = 1;
       for (let i = start; i <= end; i++) {
-        if (i % 2 === 1) {
+        if (printedSeq % 2 === 1) {
           oddIndices.push(i - 1);
         }
+        printedSeq++;
       }
       if (oddIndices.length > 0) {
         for (let c = 0; c < copies; c++) {
@@ -378,25 +379,25 @@ export async function slicePdfForConfigs(
         }
       }
     } else if (isManualDuplexEven) {
+      const oddPagesInConfig: number[] = [];
       const evenPagesInConfig: number[] = [];
+      let printedSeq = 1;
       for (let i = start; i <= end; i++) {
-        if (i % 2 === 0) evenPagesInConfig.push(i);
+        if (printedSeq % 2 === 1) oddPagesInConfig.push(i);
+        else evenPagesInConfig.push(i);
+        printedSeq++;
       }
 
       if (evenPagesInConfig.length > 0) {
-        const oddPagesInConfig: number[] = [];
-        for (let i = start; i <= end; i++) {
-          if (i % 2 === 1) oddPagesInConfig.push(i);
-        }
-
         for (let c = 0; c < copies; c++) {
-          for (const oddPage of oddPagesInConfig) {
-            const evenPage = oddPage + 1;
-            if (evenPage <= end) {
+          for (let sheetIdx = 0; sheetIdx < oddPagesInConfig.length; sheetIdx++) {
+            const evenPage = evenPagesInConfig[sheetIdx];
+            if (evenPage !== undefined) {
               const [copiedPage] = await outputPdf.copyPages(sourcePdf, [evenPage - 1]);
               outputPdf.addPage(copiedPage);
               calculatedPages += 1;
             } else {
+              const oddPage = oddPagesInConfig[sheetIdx];
               const [correspondingOdd] = await outputPdf.copyPages(sourcePdf, [oddPage - 1]);
               const { width, height } = correspondingOdd.getSize();
               outputPdf.addPage([width, height]);
@@ -773,6 +774,7 @@ export async function prepareAndPrintDocument(
     }
 
     await submitToPrinterSerialized(targetPrinterName, async () => {
+      const preQueueCount = process.env.NODE_ENV === "test" ? 0 : await getPrinterQueueCount(targetPrinterName);
       try {
         await execFileAsync(
           executable,
@@ -780,6 +782,15 @@ export async function prepareAndPrintDocument(
           { timeout: 120000, windowsHide: true },
         );
       } catch (sumatraErr) {
+        if (process.env.NODE_ENV !== "test") {
+          const postQueueCount = await getPrinterQueueCount(targetPrinterName);
+          if (postQueueCount > preQueueCount) {
+            logger.warn(
+              `SumatraPDF returned error on "${targetPrinterName}", but spooler queue count increased (${preQueueCount} -> ${postQueueCount}). Avoiding duplicate retry.`,
+            );
+            return;
+          }
+        }
         logger.warn(
           `Immediate print submission failed on "${targetPrinterName}". Attempting forced wake-up and retry...`,
           { error: sumatraErr },
@@ -1069,6 +1080,7 @@ export async function prepareAndPrintBatch(
     const batchSpoolPath = tempExtractedPath;
 
     await submitToPrinterSerialized(targetPrinterName, async () => {
+      const preQueueCount = process.env.NODE_ENV === "test" ? 0 : await getPrinterQueueCount(targetPrinterName);
       try {
         await execFileAsync(
           executable,
@@ -1076,6 +1088,15 @@ export async function prepareAndPrintBatch(
           { timeout: 180000, windowsHide: true },
         );
       } catch (sumatraErr) {
+        if (process.env.NODE_ENV !== "test") {
+          const postQueueCount = await getPrinterQueueCount(targetPrinterName);
+          if (postQueueCount > preQueueCount) {
+            logger.warn(
+              `SumatraPDF returned error on batch "${targetPrinterName}", but spooler queue count increased (${preQueueCount} -> ${postQueueCount}). Avoiding duplicate retry.`,
+            );
+            return;
+          }
+        }
         logger.warn(
           `Immediate batch print submission failed on "${targetPrinterName}". Attempting forced wake-up and retry...`,
           { error: sumatraErr },

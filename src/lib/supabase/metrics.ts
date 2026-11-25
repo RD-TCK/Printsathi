@@ -13,6 +13,7 @@ type RequestRecord = {
 
 const records: RequestRecord[] = [];
 const ENABLED = process.env.SUPABASE_METRICS === "true";
+const MAX_METRICS_RECORDS = 5000;
 
 function extractTableOrEndpoint(urlStr: string): string {
   try {
@@ -46,9 +47,9 @@ export function devMetricsFetch(input: RequestInfo | URL, init?: RequestInit): P
       tableOrEndpoint,
     });
 
-    // Keep records only for the last 5 minutes
+    // Keep records bounded by time (5 minutes) and max count
     const fiveMinutesAgo = Date.now() - 5 * 60 * 1000;
-    while (records.length > 0 && records[0].timestamp < fiveMinutesAgo) {
+    while (records.length > 0 && (records[0].timestamp < fiveMinutesAgo || records.length > MAX_METRICS_RECORDS)) {
       records.shift();
     }
   }

@@ -12,13 +12,14 @@ import { faqItems } from "@/components/marketing-site";
 import { faqJsonLd, pageMetadata, softwareJsonLd } from "@/lib/seo";
 
 export const metadata = pageMetadata({
-  title: "Printiva — #1 Print Automation Software & Photocopy Management System",
+  title: "Printiva — Printing Software & Print Automation System for Xerox Shops",
   description:
-    "India's leading print automation software & photocopy management system. Automate printing in xerox shops & cyber cafes: customers scan QR, upload files, and pay; your Windows printer prints automatically. Start 7-day trial for ₹100.",
+    "India's automated printing software and photocopy shop system. Customers scan your counter QR, upload files, and pay via UPI; your Windows printer prints automatically in 2 seconds. Start 7-day trial for ₹100.",
   path: "/",
   keywords: [
-    "print automation software",
     "printing software",
+    "print automation software",
+    "printing software for Windows",
     "photocopy software",
     "photocopy shop software",
     "xerox shop software",
@@ -109,7 +110,7 @@ export default function Home() {
                   href="/download"
                   className="font-medium text-emerald-800 hover:text-emerald-950 hover:underline inline-flex items-center gap-1"
                 >
-                  Download v1.8.34 (.exe)
+                  Download v1.8.35 (.exe)
                   <Download className="size-3 text-emerald-800" />
                 </Link>
               </div>
@@ -271,42 +272,42 @@ export default function Home() {
             <div className="mt-14 grid gap-px rounded-2xl border border-line bg-line overflow-hidden sm:grid-cols-2 lg:grid-cols-3">
               <div className="bg-white p-7 sm:p-8 flex flex-col justify-between transition-colors hover:bg-slate-50/70">
                 <div>
-                  <h3 className="text-lg font-semibold tracking-tight text-brand-950">Print Automation Software</h3>
+                  <h3 className="text-lg font-semibold tracking-tight text-brand-950">Printing Software for Windows</h3>
                   <p className="mt-2.5 text-sm leading-relaxed text-slate-600">
-                    Eliminate manual printer dialogs and repetitive file openings. The Windows desktop agent talks natively to the print spooler to feed pages in under 500ms.
+                    Eliminate manual printer dialogs and repetitive file openings. Our Windows printing software talks natively to your print spooler to feed pages in under 500ms.
                   </p>
                 </div>
                 <div className="mt-6 pt-4 border-t border-slate-100">
-                  <Link href="/features" className="text-xs font-semibold text-brand-700 hover:text-brand-900 inline-flex items-center">
-                    Explore print automation
+                  <Link href="/printing-software" className="text-xs font-semibold text-brand-700 hover:text-brand-900 inline-flex items-center">
+                    Explore printing software
                   </Link>
                 </div>
               </div>
 
               <div className="bg-white p-7 sm:p-8 flex flex-col justify-between transition-colors hover:bg-slate-50/70">
                 <div>
-                  <h3 className="text-lg font-semibold tracking-tight text-brand-950">Photocopy &amp; Xerox Software</h3>
+                  <h3 className="text-lg font-semibold tracking-tight text-brand-950">Photocopy &amp; Xerox Shop Software</h3>
                   <p className="mt-2.5 text-sm leading-relaxed text-slate-600">
                     Stop chasing files over WhatsApp. Customers scan your counter QR, pick A4/A3, B&amp;W or color, and duplexing with live per-page pricing.
                   </p>
                 </div>
                 <div className="mt-6 pt-4 border-t border-slate-100">
-                  <Link href="/digital-printing-service" className="text-xs font-semibold text-brand-700 hover:text-brand-900 inline-flex items-center">
-                    Digital printing service
+                  <Link href="/xerox-shop-software" className="text-xs font-semibold text-brand-700 hover:text-brand-900 inline-flex items-center">
+                    Explore xerox shop software
                   </Link>
                 </div>
               </div>
 
               <div className="bg-white p-7 sm:p-8 flex flex-col justify-between transition-colors hover:bg-slate-50/70">
                 <div>
-                  <h3 className="text-lg font-semibold tracking-tight text-brand-950">Universal Printer Compatibility</h3>
+                  <h3 className="text-lg font-semibold tracking-tight text-brand-950">Printer Guides &amp; Troubleshooting</h3>
                   <p className="mt-2.5 text-sm leading-relaxed text-slate-600">
-                    Works with HP LaserJet, Canon imageCLASS, Epson EcoTank, Brother, Ricoh, and Konica Minolta printers over USB, Wi-Fi, Ethernet, or WSD.
+                    Read step-by-step guides on fixing USB printer sleep issues, isolating B&amp;W laser vs. color ink tanks, and eliminating pen drives.
                   </p>
                 </div>
                 <div className="mt-6 pt-4 border-t border-slate-100">
-                  <Link href="/download" className="text-xs font-semibold text-brand-700 hover:text-brand-900 inline-flex items-center">
-                    Download Windows Agent
+                  <Link href="/blog" className="text-xs font-semibold text-brand-700 hover:text-brand-900 inline-flex items-center">
+                    Read printer &amp; shop guides
                   </Link>
                 </div>
               </div>
@@ -333,7 +334,7 @@ export default function Home() {
                   <Button asChild variant="primary">
                     <Link href="/download">
                       <Download className="size-4" />
-                      Download v1.8.34 (.exe)
+                      Download v1.8.35 (.exe)
                     </Link>
                   </Button>
                   <Link

@@ -90,9 +90,9 @@ export async function normalizeDocument(file: DocumentInputSource): Promise<Norm
     if (isJpeg) {
       try {
         const meta = await sharp(bytes, { limitInputPixels: 268402689 }).metadata();
-        // If the JPEG has EXIF orientation (e.g. mobile photo) or non-sRGB profile, process via Sharp auto-rotate
-        if (meta.orientation && meta.orientation > 1) {
-          throw new Error("Requires EXIF auto-rotation");
+        // If the JPEG has EXIF orientation (e.g. mobile photo) or non-sRGB (e.g. CMYK) profile, process via Sharp
+        if ((meta.orientation && meta.orientation > 1) || (meta.space && meta.space !== "srgb" && meta.space !== "rgb")) {
+          throw new Error("Requires EXIF/sRGB normalization");
         }
         // Fast-path: Directly embed raw upright JPEG bytes into PDF in ~10ms without heavy Sharp re-encoding
         embeddedImage = await pdf.embedJpg(bytes);
@@ -257,6 +257,11 @@ export async function normalizeDocument(file: DocumentInputSource): Promise<Norm
     throw new Error(
       `${file.name}: unsupported file type. Upload a PDF, image (JPG/PNG), Word document (.docx), PowerPoint, Excel, or plain text file.`,
     );
+  } else {
+    const header = bytes.subarray(0, 1024).toString("latin1");
+    if (!header.includes("%PDF-")) {
+      throw new Error(`"${file.name}" is damaged or unreadable. Please check the file and re-upload.`);
+    }
   }
 
   if (bytes.length > 50 * 1024 * 1024) {
@@ -320,7 +325,33 @@ function getLibreOfficePath(): string {
 async function countPdfPages(bytes: Buffer, filename: string): Promise<number> {
   const text = bytes.toString("latin1");
 
-  // Check for password protection / encryption
+  // Check PDF magic header and password protection / encryption
+  const headerSlice = text.slice(0, 1024);
+  if (!headerSlice.includes("%PDF-")) {
+    throw new Error(`"${filename}" is damaged or unreadable. Please check the file and re-upload.`);
+  }
+
+  // 1. Always inspect with pdf-lib for moderately sized PDFs (<15 MB) so nested /Pages trees,
+  // incremental updates, and /Encrypt flags are resolved authoritatively.
+  if (bytes.length <= 15 * 1024 * 1024) {
+    try {
+      const pdf = await PDFDocument.load(bytes, { ignoreEncryption: false, updateMetadata: false });
+      if (pdf.isEncrypted) {
+        throw new Error(`"${filename}" is password-protected. Please unlock or remove the password before uploading.`);
+      }
+      return pdf.getPageCount();
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      if (msg.includes("password") || msg.includes("encrypted") || msg.includes("Encrypted") || msg.includes("password-protected")) {
+        throw new Error(`"${filename}" is password-protected. Please unlock or remove the password before uploading.`);
+      }
+      if (!text.includes("/Type")) {
+        throw new Error(`"${filename}" is damaged or unreadable. Please check the file and re-upload.`);
+      }
+    }
+  }
+
+  // 2. Fallback for very large PDFs (>15 MB): verify encryption first, then parse root /Pages /Count
   if (text.includes("/Encrypt")) {
     try {
       const testDoc = await PDFDocument.load(bytes, { ignoreEncryption: false });
@@ -335,28 +366,23 @@ async function countPdfPages(bytes: Buffer, filename: string): Promise<number> {
     }
   }
 
-  // 1. Fast regex / binary search on PDF page tree
   try {
-    // Match root Pages catalog /Count
-    const rootMatches = text.match(/\/Type\s*\/Pages[\s\S]*?\/Count\s+(\d+)/);
-    if (rootMatches && rootMatches[1]) {
-      const count = parseInt(rootMatches[1], 10);
+    const pagesTreeMatches = Array.from(text.matchAll(/\/Type\s*\/Pages\b[\s\S]{0,400}?\/Count\s+(\d+)/g));
+    if (pagesTreeMatches.length === 1 && pagesTreeMatches[0][1]) {
+      const count = parseInt(pagesTreeMatches[0][1], 10);
       if (count > 0 && count <= 2000) {
         return count;
       }
     }
-    // Match discrete /Type /Page objects (excluding /Type /Pages)
-    const pageMatches = text.match(/\/Type\s*\/Page\b(?!\s*s)/g);
-    if (pageMatches && pageMatches.length > 0 && pageMatches.length <= 2000) {
-      return pageMatches.length;
-    }
   } catch {
-    // Fall back to PDFDocument loader
+    // Fall through to PDFDocument loader
   }
 
-  // 2. Robust fallback via pdf-lib
   try {
-    const pdf = await PDFDocument.load(bytes, { ignoreEncryption: true });
+    const pdf = await PDFDocument.load(bytes, { ignoreEncryption: false });
+    if (pdf.isEncrypted) {
+      throw new Error(`"${filename}" is password-protected. Please unlock or remove the password before uploading.`);
+    }
     return pdf.getPageCount();
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : String(err);

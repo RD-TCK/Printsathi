@@ -6,6 +6,7 @@ import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { createGuestOrderToken, hashGuestOrderToken } from "@/lib/guest-order";
 
 export const runtime = "nodejs";
+export const maxDuration = 60;
 
 export async function POST(request: Request) {
   let form: FormData;
@@ -74,16 +75,25 @@ export async function POST(request: Request) {
   if (files.reduce((sum, file) => sum + file.size, 0) > 100 * 1024 * 1024)
     return NextResponse.json({ error: "Combined upload size must be under 100 MB." }, { status: 400 });
 
-  const settled = await Promise.allSettled(
-    files.map(async (file) => {
-      try {
-        return await normalizeDocument(file);
-      } catch (error) {
-        const rawMessage = error instanceof Error ? error.message : "Document conversion failed.";
-        const errorMsg = rawMessage.includes(file.name)
-          ? rawMessage
-          : `Failed to process "${file.name}": ${rawMessage}`;
-        throw { errorMsg, failedFilename: file.name };
+  // Bound normalizeDocument concurrency (max 3 workers) so large multi-file uploads don't spike RAM/CPU on serverless
+  const MAX_NORMALIZE_CONCURRENCY = 3;
+  const settled: Array<PromiseSettledResult<NormalizedDocumentResult>> = new Array(files.length);
+  let nextIdx = 0;
+  await Promise.all(
+    Array.from({ length: Math.min(MAX_NORMALIZE_CONCURRENCY, files.length) }, async () => {
+      while (nextIdx < files.length) {
+        const currentIdx = nextIdx++;
+        const file = files[currentIdx];
+        try {
+          const value = await normalizeDocument(file);
+          settled[currentIdx] = { status: "fulfilled", value };
+        } catch (error) {
+          const rawMessage = error instanceof Error ? error.message : "Document conversion failed.";
+          const errorMsg = rawMessage.includes(file.name)
+            ? rawMessage
+            : `Failed to process "${file.name}": ${rawMessage}`;
+          settled[currentIdx] = { status: "rejected", reason: { errorMsg, failedFilename: file.name } };
+        }
       }
     }),
   );
@@ -198,24 +208,26 @@ export async function POST(request: Request) {
     const preparedDocs = normalized.map((doc) => {
       const documentId = crypto.randomUUID();
       const storagePath = `shops/${shop.id}/orders/${orderId}/documents/${documentId}/source.pdf`;
+      const previewStoragePath = `shops/${shop.id}/orders/${orderId}/documents/${documentId}/preview.jpg`;
       return {
         id: documentId,
         doc,
         storagePath,
+        previewStoragePath,
       };
     });
 
-    // 1. Upload files to storage in parallel
-    await Promise.all(
-      preparedDocs.map(async ({ storagePath, doc, id }) => {
+    // 1. Upload files to storage in parallel and collect ALL uploaded paths deterministically even on partial failure
+    const uploadSettled = await Promise.allSettled(
+      preparedDocs.map(async ({ storagePath, previewStoragePath, doc }) => {
+        const uploadedForDoc: string[] = [];
         const { error: uploadError } = await client.storage
           .from("print-documents")
           .upload(storagePath, doc.bytes, { contentType: "application/pdf", upsert: false });
         if (uploadError) throw new Error("Could not securely store the document.");
-        storedPaths.push(storagePath);
+        uploadedForDoc.push(storagePath);
 
         if (doc.previewImage) {
-          const previewStoragePath = `shops/${shop.id}/orders/${orderId}/documents/${id}/preview.jpg`;
           const { error: previewUploadError } = await client.storage
             .from("print-documents")
             .upload(previewStoragePath, doc.previewImage, {
@@ -223,11 +235,24 @@ export async function POST(request: Request) {
               upsert: true,
             });
           if (!previewUploadError) {
-            storedPaths.push(previewStoragePath);
+            uploadedForDoc.push(previewStoragePath);
           }
         }
+        return uploadedForDoc;
       }),
     );
+
+    let firstUploadErr: unknown = null;
+    for (const res of uploadSettled) {
+      if (res.status === "fulfilled") {
+        storedPaths.push(...res.value);
+      } else if (!firstUploadErr) {
+        firstUploadErr = res.reason;
+      }
+    }
+    if (firstUploadErr) {
+      throw firstUploadErr instanceof Error ? firstUploadErr : new Error("Could not securely store the document.");
+    }
 
     // 2. Batch insert all documents in a single round-trip query instead of N serial/parallel queries
     const documentsToInsert = preparedDocs.map(({ id, storagePath, doc }) => ({
@@ -259,9 +284,12 @@ export async function POST(request: Request) {
 
       if (oldDoc) {
         await client.from("documents").delete().eq("id", oldDocId);
-        const pathsToDelete = [oldDoc.storage_path, oldDoc.normalized_storage_path].filter(
-          (p): p is string => Boolean(p) && !storedPaths.includes(p),
-        );
+        const pathsToDelete = [
+          oldDoc.storage_path,
+          oldDoc.normalized_storage_path,
+          `shops/${shop.id}/orders/${orderId}/documents/${oldDocId}/preview.jpg`,
+          `shops/${shop.id}/orders/${orderId}/documents/${oldDocId}/preview_v2.jpg`,
+        ].filter((p): p is string => Boolean(p) && !p.startsWith("local://") && !storedPaths.includes(p));
         if (pathsToDelete.length > 0) {
           void client.storage.from("print-documents").remove(pathsToDelete);
         }
@@ -296,4 +324,69 @@ export async function POST(request: Request) {
       { status: 500 },
     );
   }
+}
+
+const deleteDocsSchema = z.object({
+  shopIdentifier: z.string().min(1),
+  orderId: z.string().uuid(),
+  accessToken: z.string().min(10),
+  documentIds: z.array(z.string().uuid()).min(1).max(20),
+});
+
+export async function DELETE(request: Request) {
+  const body = await request.json().catch(() => null);
+  const parsed = deleteDocsSchema.safeParse(body);
+  if (!parsed.success) {
+    return NextResponse.json({ error: "Invalid delete request." }, { status: 400 });
+  }
+
+  const client = createSupabaseAdminClient();
+  if (!client) return NextResponse.json({ error: "Storage service unavailable." }, { status: 503 });
+
+  const { data: shop } = await client
+    .from("shops")
+    .select("id")
+    .eq("public_id", parsed.data.shopIdentifier)
+    .maybeSingle();
+  if (!shop) return NextResponse.json({ error: "Shop not found." }, { status: 404 });
+
+  const tokenHash = hashGuestOrderToken(parsed.data.accessToken);
+  const { data: order } = await client
+    .from("orders")
+    .select("id, status")
+    .eq("id", parsed.data.orderId)
+    .eq("shop_id", shop.id)
+    .eq("guest_access_token_hash", tokenHash)
+    .maybeSingle();
+
+  if (!order) return NextResponse.json({ error: "Order access denied." }, { status: 403 });
+  if (!["draft", "awaiting_payment"].includes(order.status)) {
+    return NextResponse.json({ error: "Cannot delete documents after payment." }, { status: 409 });
+  }
+
+  const { data: docs } = await client
+    .from("documents")
+    .select("id, storage_path, normalized_storage_path")
+    .eq("order_id", order.id)
+    .eq("shop_id", shop.id)
+    .in("id", parsed.data.documentIds);
+
+  if (docs && docs.length > 0) {
+    const idsToDelete = docs.map((d) => d.id);
+    await client.from("print_jobs").delete().eq("order_id", order.id).in("document_id", idsToDelete);
+    await client.from("documents").delete().eq("order_id", order.id).in("id", idsToDelete);
+    const storagePaths = docs
+      .flatMap((d) => [
+        d.storage_path,
+        d.normalized_storage_path,
+        `shops/${shop.id}/orders/${order.id}/documents/${d.id}/preview.jpg`,
+        `shops/${shop.id}/orders/${order.id}/documents/${d.id}/preview_v2.jpg`,
+      ])
+      .filter((p): p is string => Boolean(p) && !p.startsWith("local://"));
+    if (storagePaths.length > 0) {
+      await client.storage.from("print-documents").remove(storagePaths);
+    }
+  }
+
+  return NextResponse.json({ success: true });
 }

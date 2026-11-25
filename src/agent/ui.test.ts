@@ -529,4 +529,52 @@ describe("agent dashboard status", () => {
     expect(listHtml).toContain("No compatible printer connected");
     expect(listHtml).not.toContain("⏳ Processing...");
   });
+
+  it("toggles printer color mode case-insensitively and updates button label immediately", async () => {
+    const server = new AgentWebServer();
+    const html = (server as unknown as { getDashboardHtml(): string }).getDashboardHtml();
+    const script = html.match(/<script>([\s\S]*?)<\/script>/)?.[1];
+    expect(script).toBeTruthy();
+
+    const elements = new Map<string, Record<string, unknown>>();
+    const status = {
+      isPaired: true,
+      isConnected: true,
+      printers: [
+        { name: "HP LaserJet M1005", status: "offline", capabilities: { colorSupport: false } },
+      ],
+      printerColorOverrides: {} as Record<string, boolean>,
+      stats: { jobsProcessed: 0, jobsSubmitted: 0, jobsFailed: 0, totalPagesSubmitted: 0 },
+      recentLogs: [],
+      currentJob: null,
+    };
+
+    const context = vm.createContext({
+      document: {
+        getElementById: (id: string) => {
+          if (!elements.has(id)) elements.set(id, {});
+          return elements.get(id);
+        },
+      },
+      fetch: async (url: string, init?: { body?: string }) => {
+        if (url === "/api/toggle-color-printer") {
+          const payload = JSON.parse(init?.body || "{}");
+          status.printerColorOverrides[String(payload.printerName).toLowerCase()] = Boolean(payload.isColor);
+          status.printers[0].capabilities.colorSupport = Boolean(payload.isColor);
+          return { ok: true, json: async () => ({ success: true }) };
+        }
+        return { ok: true, json: async () => structuredClone(status) };
+      },
+      setInterval: () => 0,
+      window: {},
+    });
+
+    new vm.Script(script!).runInContext(context);
+    await vm.runInContext("refreshStatus(true)", context);
+    expect(elements.get("printersList")?.innerHTML).toContain("Switch to Color");
+
+    await vm.runInContext("toggleColorPrinter('HP LaserJet M1005', true)", context);
+    expect(elements.get("printersList")?.innerHTML).toContain("Switch to B&W");
+    expect(elements.get("printersList")?.innerHTML).toContain("🎨 Color");
+  });
 });

@@ -189,5 +189,22 @@ describe("Printer Routing & Exclusion Safety", () => {
     expect(selected).not.toBeNull();
     expect(selected?.name).toBe(colorPrinter.name);
   });
+
+  it("prefers dedicated monochrome printer over a color preferred/default printer for B&W jobs", () => {
+    const printers = [
+      { ...bwPrinter, isDefault: false },
+      { ...colorPrinter, isDefault: true },
+    ];
+
+    const selected = findBestPrinterForJob(printers, {
+      colorMode: "black_and_white",
+      preferredName: colorPrinter.name,
+      allowColorFallbackForMono: true,
+    });
+
+    expect(selected).not.toBeNull();
+    expect(selected?.name).toBe(bwPrinter.name);
+    expect(selected?.capabilities?.colorSupport).toBe(false);
+  });
 });
 

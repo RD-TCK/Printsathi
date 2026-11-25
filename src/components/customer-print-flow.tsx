@@ -778,28 +778,74 @@ export function CustomerPrintFlow({
 
   const loadedDraftOrderIdRef = useRef<string | null>(initialDraftOrder?.orderId || null);
 
-  // Auto-resume draft order created via WhatsApp
+  // Persist active web order draft in sessionStorage so accidental page refreshes don't lose uploaded documents
   useEffect(() => {
-    if (!initialOrderId || !initialAccessToken) return;
-    if (loadedDraftOrderIdRef.current === initialOrderId) return;
+    if (typeof window === "undefined") return;
+    const storageKey = `printsaathi_web_draft_${identifier}`;
+    try {
+      if (orderId && accessToken && step >= 1 && step < 3 && !isPaidOnMount) {
+        sessionStorage.setItem(storageKey, JSON.stringify({ orderId, accessToken }));
+      } else if (!orderId || step === 0 || step >= 4) {
+        sessionStorage.removeItem(storageKey);
+      }
+    } catch {
+      // ignore storage errors in private browsing
+    }
+  }, [identifier, orderId, accessToken, step, isPaidOnMount]);
+
+  // Auto-resume draft order created via WhatsApp or saved in web sessionStorage
+  useEffect(() => {
+    let targetOrderId = initialOrderId;
+    let targetToken = initialAccessToken;
+    let isFromSession = false;
+
+    if ((!targetOrderId || !targetToken) && !initialDraftOrder && typeof window !== "undefined") {
+      try {
+        const raw = sessionStorage.getItem(`printsaathi_web_draft_${identifier}`);
+        if (raw) {
+          const parsed = JSON.parse(raw) as { orderId?: string; accessToken?: string };
+          if (parsed.orderId && parsed.accessToken) {
+            targetOrderId = parsed.orderId;
+            targetToken = parsed.accessToken;
+            isFromSession = true;
+          }
+        }
+      } catch {
+        // ignore invalid JSON
+      }
+    }
+
+    if (!targetOrderId || !targetToken) return;
+    if (loadedDraftOrderIdRef.current === targetOrderId) return;
     let isSubscribed = true;
 
     async function loadDraftFromWhatsApp() {
       try {
         setBusy(true);
-        setUploadStatus("Connecting to your WhatsApp order draft...");
+        setUploadStatus(isFromSession ? "Restoring your uploaded documents..." : "Connecting to your WhatsApp order draft...");
         const response = await fetch(
-          `/api/customer/draft-order?orderId=${encodeURIComponent(initialOrderId!)}&accessToken=${encodeURIComponent(initialAccessToken!)}`,
+          `/api/customer/draft-order?orderId=${encodeURIComponent(targetOrderId!)}&accessToken=${encodeURIComponent(targetToken!)}`,
           { cache: "no-store" },
         );
         if (!response.ok) {
+          if (isFromSession && typeof window !== "undefined") {
+            sessionStorage.removeItem(`printsaathi_web_draft_${identifier}`);
+          }
           const errData = await response.json().catch(() => ({}));
+          if (isFromSession) return;
           throw new Error(errData.error || "Order draft is no longer available or has already been completed.");
         }
         const data = await response.json();
         if (!isSubscribed) return;
 
-        loadedDraftOrderIdRef.current = initialOrderId;
+        if (isFromSession && data.isAlreadySubmitted && (data.status === "completed" || data.status === "cancelled" || data.status === "expired")) {
+          if (typeof window !== "undefined") {
+            sessionStorage.removeItem(`printsaathi_web_draft_${identifier}`);
+          }
+          return;
+        }
+
+        loadedDraftOrderIdRef.current = targetOrderId;
 
         const docs: CustomerDocument[] = (data.documents || []).map(
           (d: { id: string; filename: string; pageCount: number; sizeBytes?: number }) => {
@@ -923,6 +969,10 @@ export function CustomerPrintFlow({
       ".jpeg",
       ".png",
       ".webp",
+      ".heic",
+      ".heif",
+      ".avif",
+      ".svg",
       ".gif",
       ".bmp",
       ".tif",
@@ -943,8 +993,10 @@ export function CustomerPrintFlow({
     ]);
 
     for (const f of files) {
-      const ext = f.name.slice(f.name.lastIndexOf(".")).toLowerCase();
-      if (!allowedExtensions.has(ext)) {
+      const lastDot = f.name.lastIndexOf(".");
+      const ext = lastDot > 0 ? f.name.slice(lastDot).toLowerCase() : "";
+      const hasAllowedMime = f.type.startsWith("image/") || f.type === "application/pdf";
+      if (ext ? !allowedExtensions.has(ext) && !hasAllowedMime : !hasAllowedMime) {
         setFailedFiles({ [f.name]: "Unsupported file format" });
         setError(`"${f.name}" has an unsupported format. Please upload PDF, images, or Office documents.`);
         return;
@@ -1023,8 +1075,16 @@ export function CustomerPrintFlow({
         setRejectedFiles([]);
       }
 
-      const newDocs: CustomerDocument[] = result.documents.map((document: CustomerDocument, index: number) => {
-        const matchingFile = processedFiles[index];
+      const filesByName = new Map<string, File[]>();
+      for (const pf of processedFiles) {
+        const queue = filesByName.get(pf.name) || [];
+        queue.push(pf);
+        filesByName.set(pf.name, queue);
+      }
+
+      const newDocs: CustomerDocument[] = result.documents.map((document: CustomerDocument) => {
+        const matchingQueue = filesByName.get(document.filename);
+        const matchingFile = matchingQueue && matchingQueue.length > 0 ? matchingQueue.shift() : undefined;
         const isImg = matchingFile
           ? Boolean(
               matchingFile.type.startsWith("image/") &&
@@ -1206,10 +1266,30 @@ export function CustomerPrintFlow({
     }));
   }
 
+  function deleteDocumentsFromServer(docIds: string[]) {
+    if (!orderId || !accessToken || docIds.length === 0) return;
+    const validUuidIds = docIds.filter((id) => /^[0-9a-f-]{36}$/i.test(id));
+    if (validUuidIds.length === 0) return;
+    void fetch("/api/customer/upload", {
+      method: "DELETE",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        shopIdentifier: identifier,
+        orderId,
+        accessToken,
+        documentIds: validUuidIds,
+      }),
+    }).catch(() => {});
+  }
+
   function removeDocument(index: number) {
     if (documents.length <= 1) {
       setError("An order needs at least one document. Upload another file first.");
       return;
+    }
+    const targetDoc = documents[index];
+    if (targetDoc?.id) {
+      deleteDocumentsFromServer([targetDoc.id]);
     }
     const nextDocuments = documents.filter((_, documentIndex) => documentIndex !== index);
     setDocuments(nextDocuments);
@@ -1219,6 +1299,13 @@ export function CustomerPrintFlow({
   }
 
   function resetOrder() {
+    if (typeof window !== "undefined") {
+      try {
+        sessionStorage.removeItem(`printsaathi_web_draft_${identifier}`);
+      } catch {
+        // ignore
+      }
+    }
     setStep(0);
     setDocuments([]);
     setActiveDocument(0);
@@ -1285,7 +1372,7 @@ export function CustomerPrintFlow({
           throw new Error(uploadRes.error || "Failed to update cropped document on server.");
         }
 
-        const updatedServerDoc = uploadRes.data.documents[uploadRes.data.documents.length - 1];
+        const updatedServerDoc = uploadRes.data.documents[0];
         if (uploadRes.data.orderId) {
           setOrderId(uploadRes.data.orderId);
         }
@@ -1313,6 +1400,8 @@ export function CustomerPrintFlow({
           uploadRes.data.orderId || orderId,
           uploadRes.data.accessToken || accessToken,
         );
+        setCropTargetDocIndex(null);
+        setCropperOpen(false);
       } catch (err) {
         setError(err instanceof Error ? err.message : "Failed to update cropped document on server.");
       } finally {
@@ -1396,6 +1485,10 @@ export function CustomerPrintFlow({
       const firstConsumedIndex = documents.findIndex(isDocUsed);
 
       // Keep all non-consumed documents (remaining images + all PDFs)
+      const consumedDocIds = documents.filter(isDocUsed).map((d) => d.id);
+      if (consumedDocIds.length > 0) {
+        deleteDocumentsFromServer(consumedDocIds);
+      }
       const remainingDocs = documents.filter((d) => !isDocUsed(d));
 
       let nextDocs: CustomerDocument[];
@@ -1912,7 +2005,7 @@ function UploadStep({
           className="sr-only"
           name="files"
           type="file"
-          accept=".pdf,.png,.jpg,.jpeg,.webp,.gif,.tif,.tiff,.doc,.docx,.odt,.rtf,.ppt,.pptx,.odp,.xls,.xlsx,.ods,.txt,.csv,.md"
+          accept=".pdf,.png,.jpg,.jpeg,.webp,.heic,.heif,.avif,.svg,.gif,.tif,.tiff,.doc,.docx,.odt,.rtf,.ppt,.pptx,.odp,.xls,.xlsx,.ods,.txt,.csv,.md"
           multiple
           onChange={(e) => {
             const files = Array.from(e.target.files ?? []);
@@ -2698,7 +2791,7 @@ function ConfigureAndCropStep({
                 ref={reuploadInputRef}
                 className="sr-only"
                 type="file"
-                accept=".pdf,.png,.jpg,.jpeg,.webp,.gif,.tif,.tiff,.doc,.docx,.odt,.rtf,.ppt,.pptx,.odp,.xls,.xlsx,.ods,.txt,.csv,.md"
+                accept=".pdf,.png,.jpg,.jpeg,.webp,.heic,.heif,.avif,.svg,.gif,.tif,.tiff,.doc,.docx,.odt,.rtf,.ppt,.pptx,.odp,.xls,.xlsx,.ods,.txt,.csv,.md"
                 multiple
                 onChange={(e) => {
                   const files = Array.from(e.target.files ?? []);
@@ -2934,7 +3027,7 @@ function ConfigureAndCropStep({
                 ref={fileInputRef}
                 className="sr-only"
                 type="file"
-                accept=".pdf,.png,.jpg,.jpeg,.webp,.gif,.tif,.tiff,.doc,.docx,.odt,.rtf,.ppt,.pptx,.odp,.xls,.xlsx,.ods,.txt,.csv,.md"
+                accept=".pdf,.png,.jpg,.jpeg,.webp,.heic,.heif,.avif,.svg,.gif,.tif,.tiff,.doc,.docx,.odt,.rtf,.ppt,.pptx,.odp,.xls,.xlsx,.ods,.txt,.csv,.md"
                 multiple
                 onChange={(e) => {
                   const files = Array.from(e.target.files ?? []);
@@ -3350,7 +3443,7 @@ function ConfigureAndCropStep({
           <div className="grid gap-2 sm:grid-cols-2">
             <button
               type="button"
-              disabled={!allValid}
+              disabled={!allValid || busy}
               onClick={onProceedToCounterToken}
               className="flex items-center justify-center gap-2 rounded-2xl bg-emerald-600 px-4 py-3.5 sm:py-4 text-sm sm:text-base font-bold text-white shadow-[0_4px_0_#047857,0_10px_20px_-2px_rgba(5,150,105,0.35)] hover:bg-emerald-700 active:bg-emerald-800 active:translate-y-0.5 active:shadow-none transition-all cursor-pointer disabled:opacity-50 disabled:pointer-events-none"
             >
@@ -3380,7 +3473,7 @@ function ConfigureAndCropStep({
         ) : shopPaymentMode === "counter" ? (
           <button
             type="button"
-            disabled={!allValid}
+            disabled={!allValid || busy}
             onClick={onProceedToCounterToken}
             className="flex w-full items-center justify-center gap-2 rounded-2xl bg-emerald-600 px-4 py-3.5 sm:py-4 text-sm sm:text-base font-bold text-white shadow-[0_4px_0_#047857,0_10px_20px_-2px_rgba(5,150,105,0.35)] hover:bg-emerald-700 active:bg-emerald-800 active:translate-y-0.5 active:shadow-none transition-all cursor-pointer disabled:opacity-50 disabled:pointer-events-none"
           >
@@ -3443,7 +3536,7 @@ function ConfigureAndCropStep({
             <div className="flex flex-1 items-center gap-1.5 min-w-0">
               <button
                 type="button"
-                disabled={!allValid}
+                disabled={!allValid || busy}
                 onClick={onProceedToCounterToken}
                 className="flex-1 inline-flex items-center justify-center gap-1 rounded-xl bg-emerald-600 py-2.5 px-2 text-[11.5px] font-bold text-white shadow-xs active:scale-95 transition disabled:opacity-50 truncate min-h-[44px]"
               >
@@ -3472,7 +3565,7 @@ function ConfigureAndCropStep({
           ) : shopPaymentMode === "counter" ? (
             <button
               type="button"
-              disabled={!allValid}
+              disabled={!allValid || busy}
               onClick={onProceedToCounterToken}
               className="flex-1 inline-flex items-center justify-center gap-1.5 rounded-xl bg-emerald-600 py-2.5 px-3 text-xs font-bold text-white shadow-xs active:scale-95 transition disabled:opacity-50 min-h-[44px]"
             >

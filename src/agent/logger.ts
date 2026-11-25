@@ -7,6 +7,8 @@ class AgentLogger {
   private logs: LogEntry[] = [];
   private maxLogs = 150;
   private logFilePath: string | null = null;
+  private maxLogFileBytes = 5 * 1024 * 1024;
+  private logWriteCount = 0;
 
   constructor() {
     this.initFileLogger();
@@ -60,6 +62,17 @@ class AgentLogger {
     const ctxStr = context ? " " + JSON.stringify(context) : "";
     if (this.logFilePath) {
       try {
+        this.logWriteCount += 1;
+        if (this.logWriteCount % 50 === 0 && fs.existsSync(this.logFilePath)) {
+          const stat = fs.statSync(this.logFilePath);
+          if (stat.size >= this.maxLogFileBytes) {
+            const rot1 = `${this.logFilePath}.1`;
+            const rot2 = `${this.logFilePath}.2`;
+            if (fs.existsSync(rot2)) fs.unlinkSync(rot2);
+            if (fs.existsSync(rot1)) fs.renameSync(rot1, rot2);
+            fs.renameSync(this.logFilePath, rot1);
+          }
+        }
         fs.appendFileSync(this.logFilePath, `${formatted}${ctxStr}\n`, "utf8");
       } catch {
         // Ignore file logging errors

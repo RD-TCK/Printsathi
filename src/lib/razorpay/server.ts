@@ -20,6 +20,27 @@ export interface RazorpayCredentials {
 }
 
 const clientCache = new Map<string, Razorpay>();
+const MAX_RAZORPAY_CACHE_SIZE = 500;
+
+function getOrCreateRazorpayClient(cacheKey: string, keyId: string, keySecret: string): Razorpay {
+  const existing = clientCache.get(cacheKey);
+  if (existing) {
+    clientCache.delete(cacheKey);
+    clientCache.set(cacheKey, existing);
+    return existing;
+  }
+  const instance = new Razorpay({
+    key_id: keyId,
+    key_secret: keySecret,
+  });
+  clientCache.set(cacheKey, instance);
+  while (clientCache.size > MAX_RAZORPAY_CACHE_SIZE) {
+    const oldestKey = clientCache.keys().next().value;
+    if (!oldestKey) break;
+    clientCache.delete(oldestKey);
+  }
+  return instance;
+}
 
 export function getRazorpayClient(credentials?: RazorpayCredentials | null): {
   client: Razorpay;
@@ -30,14 +51,7 @@ export function getRazorpayClient(credentials?: RazorpayCredentials | null): {
 } | null {
   if (credentials && credentials.keyId && credentials.keySecret) {
     const cacheKey = `${credentials.keyId}:${credentials.keySecret}`;
-    let instance = clientCache.get(cacheKey);
-    if (!instance) {
-      instance = new Razorpay({
-        key_id: credentials.keyId,
-        key_secret: credentials.keySecret,
-      });
-      clientCache.set(cacheKey, instance);
-    }
+    const instance = getOrCreateRazorpayClient(cacheKey, credentials.keyId, credentials.keySecret);
 
     const isTest =
       credentials.isTestMode !== undefined ? credentials.isTestMode : credentials.keyId.startsWith("rzp_test_");
@@ -56,14 +70,7 @@ export function getRazorpayClient(credentials?: RazorpayCredentials | null): {
   if (!env) return null;
 
   const cacheKey = `platform:${env.keyId}:${env.keySecret}`;
-  let instance = clientCache.get(cacheKey);
-  if (!instance) {
-    instance = new Razorpay({
-      key_id: env.keyId,
-      key_secret: env.keySecret,
-    });
-    clientCache.set(cacheKey, instance);
-  }
+  const instance = getOrCreateRazorpayClient(cacheKey, env.keyId, env.keySecret);
 
   return {
     client: instance,

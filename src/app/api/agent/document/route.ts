@@ -2,11 +2,19 @@ import { NextResponse } from "next/server";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import { authenticateAgent } from "@/lib/agent/auth";
 import { PDFDocument } from "pdf-lib";
+import sharp from "sharp";
 
 async function wrapImageToPdf(rawBuffer: Buffer): Promise<Buffer> {
   const pdfDoc = await PDFDocument.create();
-  const isPng = rawBuffer.subarray(0, 4).toString("hex") === "89504e47";
-  const embeddedImg = isPng ? await pdfDoc.embedPng(rawBuffer) : await pdfDoc.embedJpg(rawBuffer);
+  let embeddedImg;
+  try {
+    // Apply EXIF auto-orientation and convert to RGB PNG so rotated phone photos & CMYK/HEIC/WebP print accurately
+    const pngBuffer = await sharp(rawBuffer).rotate().toColorspace("srgb").png().toBuffer();
+    embeddedImg = await pdfDoc.embedPng(pngBuffer);
+  } catch {
+    const isPng = rawBuffer.subarray(0, 4).toString("hex") === "89504e47";
+    embeddedImg = isPng ? await pdfDoc.embedPng(rawBuffer) : await pdfDoc.embedJpg(rawBuffer);
+  }
   const isLandscape = embeddedImg.width > embeddedImg.height * 1.15;
   const pageWidth = isLandscape ? 841.89 : 595.28;
   const pageHeight = isLandscape ? 595.28 : 841.89;
@@ -66,19 +74,19 @@ export async function GET(request: Request) {
 
     effectiveOrderId = job.order_id;
 
-    // If this print job belongs to this shop but was claimed by another agent or lease expired,
-    // adopt and renew the claim for this active agent so downloads and batch execution proceed seamlessly.
-    if (job.claimed_by_agent_id !== auth.agent.id) {
+    // Only extend an active lease already held by this agent on a claimed job.
+    // Never mutate status or hijack unapproved/queued/other-agent jobs inside a GET download (e.g. background precache).
+    if (job.claimed_by_agent_id === auth.agent.id && job.status === "claimed") {
       await adminClient
         .from("print_jobs")
         .update({
-          claimed_by_agent_id: auth.agent.id,
           claim_expires_at: new Date(Date.now() + 120000).toISOString(),
-          status: "claimed",
           updated_at: new Date().toISOString(),
         })
         .eq("id", job.id)
-        .eq("shop_id", auth.shop.id);
+        .eq("shop_id", auth.shop.id)
+        .eq("claimed_by_agent_id", auth.agent.id)
+        .eq("status", "claimed");
     }
   }
 

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import Link from "next/link";
 import {
   ArrowRight,
@@ -24,6 +24,7 @@ type TrackResult = {
   paymentMode?: string;
   tokenNumber?: number | null;
   expiresAt?: string | null;
+  isExpired?: boolean;
   createdAt: string;
   paymentStatus: string;
   paymentTxnId?: string | null;
@@ -42,14 +43,14 @@ export default function PublicTrackPage() {
   const [result, setResult] = useState<null | { found: false } | TrackResult>(null);
   const [error, setError] = useState<string | null>(null);
 
-  async function handleTrack(e: React.FormEvent) {
-    e.preventDefault();
-    if (!orderId.trim()) return;
+  async function trackById(rawQuery: string) {
+    const cleanId = rawQuery.trim().replace(/^#+/, "");
+    if (!cleanId) return;
     setLoading(true);
     setError(null);
     setResult(null);
     try {
-      const res = await fetch(`/api/customer/track?id=${encodeURIComponent(orderId.trim())}`);
+      const res = await fetch(`/api/customer/track?id=${encodeURIComponent(cleanId)}`);
       const text = await res.text();
       let data: (TrackResult | { found: false }) & { error?: string };
       try {
@@ -69,6 +70,20 @@ export default function PublicTrackPage() {
     } finally {
       setLoading(false);
     }
+  }
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const paramId = new URLSearchParams(window.location.search).get("id");
+    if (paramId && paramId.trim()) {
+      setOrderId(paramId.trim());
+      void trackById(paramId.trim());
+    }
+  }, []);
+
+  async function handleTrack(e: React.FormEvent) {
+    e.preventDefault();
+    await trackById(orderId);
   }
 
   return (
@@ -162,25 +177,40 @@ export default function PublicTrackPage() {
 }
 
 function TrackResultCard({ data }: { data: TrackResult }) {
-  const isVerified = data.paymentStatus === "verified";
-  const isFailed = data.paymentStatus === "failed";
+  const isVerified = data.paymentStatus === "verified" || ["paid", "completed", "partially_printed", "printing"].includes(data.status);
+  const isFailedPayment = data.paymentStatus === "failed";
+  const isCancelled = data.status === "cancelled";
+  const isExpired = Boolean(data.isExpired || data.status === "expired");
   const isCounter = data.paymentMode === "counter";
-  const allDone = data.jobs.every((j) => j.status === "completed");
+  const hasFailedJobs = data.jobs.some((j) => j.status === "failed");
+  const allDone =
+    data.status === "completed" ||
+    (data.jobs.length > 0 && data.jobs.every((j) => j.status === "completed"));
 
   return (
     <div className="space-y-4">
       {/* Counter Token Banner if applicable */}
       {isCounter && data.tokenNumber ? (
-        <div className="rounded-2xl border-2 border-emerald-300 bg-emerald-50/80 p-5 text-emerald-950 shadow-xs">
+        <div className={`rounded-2xl border-2 p-5 shadow-xs ${isExpired || isCancelled ? "border-slate-300 bg-slate-100 text-slate-800" : "border-emerald-300 bg-emerald-50/80 text-emerald-950"}`}>
           <div className="flex flex-wrap items-center justify-between gap-3">
             <div>
-              <span className="text-xs font-bold uppercase tracking-wider text-emerald-700">Pay at Counter Token</span>
-              <p className="mt-0.5 text-3xl font-black font-mono text-emerald-800">#{data.tokenNumber}</p>
+              <span className={`text-xs font-bold uppercase tracking-wider ${isExpired || isCancelled ? "text-slate-600" : "text-emerald-700"}`}>
+                Pay at Counter Token
+              </span>
+              <p className={`mt-0.5 text-3xl font-black font-mono ${isExpired || isCancelled ? "text-slate-700" : "text-emerald-800"}`}>
+                #{data.tokenNumber}
+              </p>
             </div>
-            <div className="text-right text-xs text-emerald-800">
+            <div className="text-right text-xs">
               <span className="block font-semibold">Show Token #{data.tokenNumber} at counter</span>
               <span className="text-[11px] opacity-80">
-                {isVerified ? "Payment Collected & Approved" : "Awaiting Shopkeeper Approval"}
+                {isCancelled
+                  ? "Order Cancelled"
+                  : isExpired
+                    ? "Token Expired (1-hour validity passed)"
+                    : isVerified
+                      ? "Payment Collected & Approved"
+                      : "Awaiting Shopkeeper Approval"}
               </span>
             </div>
           </div>
@@ -192,18 +222,16 @@ function TrackResultCard({ data }: { data: TrackResult }) {
         className={`flex items-center gap-4 rounded-2xl border px-6 py-5 ${
           allDone && isVerified
             ? "border-emerald-200 bg-emerald-50"
-            : isFailed
+            : isFailedPayment || isCancelled || hasFailedJobs || isExpired
               ? "border-red-200 bg-red-50"
               : isVerified
                 ? "border-blue-200 bg-blue-50"
-                : isCounter
-                  ? "border-amber-200 bg-amber-50"
-                  : "border-amber-200 bg-amber-50"
+                : "border-amber-200 bg-amber-50"
         }`}
       >
         {allDone && isVerified ? (
           <CheckCircle2 className="size-8 shrink-0 text-emerald-600" />
-        ) : isFailed ? (
+        ) : isFailedPayment || isCancelled || hasFailedJobs || isExpired ? (
           <XCircle className="size-8 shrink-0 text-red-600" />
         ) : isVerified ? (
           <Printer className="size-8 shrink-0 text-blue-600" />
@@ -214,13 +242,19 @@ function TrackResultCard({ data }: { data: TrackResult }) {
           <p className="text-lg font-bold text-slate-900">
             {allDone && isVerified
               ? "Your documents have been printed!"
-              : isFailed
-                ? "Payment was not completed"
-                : isVerified
-                  ? "Printing in progress…"
-                  : isCounter
-                    ? "Waiting for shopkeeper at counter"
-                    : "Awaiting payment confirmation"}
+              : isCancelled
+                ? "This order was cancelled"
+                : isExpired
+                  ? "This counter token has expired"
+                  : hasFailedJobs
+                    ? "Printing issue reported — contact the counter"
+                    : isFailedPayment
+                      ? "Payment was not completed"
+                      : isVerified
+                        ? "Printing in progress…"
+                        : isCounter
+                          ? "Waiting for shopkeeper at counter"
+                          : "Awaiting payment confirmation"}
           </p>
           <p className="text-sm text-slate-500">
             Order #{data.publicId} · {data.shopName}
@@ -241,12 +275,12 @@ function TrackResultCard({ data }: { data: TrackResult }) {
                 ? isCounter
                   ? "Paid at Counter ✓"
                   : "Verified ✓"
-                : isFailed
+                : isFailedPayment
                   ? "Failed"
                   : isCounter
                     ? "Pay at Counter"
                     : "Pending",
-              highlight: isVerified ? "text-emerald-700" : isFailed ? "text-red-700" : "text-amber-700",
+              highlight: isVerified ? "text-emerald-700" : isFailedPayment || isCancelled ? "text-red-700" : "text-amber-700",
             },
             { label: "Date", value: new Date(data.createdAt).toLocaleDateString("en-IN", { dateStyle: "medium" }) },
           ].map(({ label, value, highlight }) => (

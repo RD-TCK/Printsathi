@@ -13,7 +13,6 @@ import {
   prepareAndPrintDocument,
   presliceJobDocument,
   proactiveWarmupPrinter,
-  resetPrinterSpoolQueue,
   waitForPhysicalPrintCompletion,
 } from "./print-executor";
 import { logger } from "./logger";
@@ -45,9 +44,13 @@ export class AgentDaemon {
   private discovering = false;
   private heartbeatBusy = false;
   private lastSentPrintersSignature: string | null = null;
+  private lastFullPrinterSyncAt = 0;
+  private precacheDebounceTimer: NodeJS.Timeout | null = null;
   private processedJobIds: Set<string> = new Set();
   private pendingCompletionJobIds: Set<string> = new Set();
+  private pendingCompletionRetries: Map<string, number> = new Map();
   private forcedOrderIds: Set<string> = new Set();
+  private approvingOrderIds: Set<string> = new Set();
 
   private heartbeatTimer: NodeJS.Timeout | null = null;
   private pollTimeout: NodeJS.Timeout | null = null;
@@ -125,10 +128,15 @@ export class AgentDaemon {
 
   stop(): void {
     this.isRunning = false;
+    this.forcedOrderIds.clear();
     this.instanceLock?.close();
     this.instanceLock = null;
     if (this.discoveryTimer) clearInterval(this.discoveryTimer);
     if (this.heartbeatTimer) clearInterval(this.heartbeatTimer);
+    if (this.precacheDebounceTimer) {
+      clearTimeout(this.precacheDebounceTimer);
+      this.precacheDebounceTimer = null;
+    }
     if (this.pollTimeout) {
       clearTimeout(this.pollTimeout);
       this.pollTimeout = null;
@@ -173,8 +181,12 @@ export class AgentDaemon {
 
     logger.info(`Successfully paired with shop: "${result.shopName}" (Shop ID: ${result.shopId})`);
 
-    // Trigger immediate heartbeat
+    // Trigger immediate heartbeat and ensure loops are active if agent was started before pairing
     await this.sendHeartbeat();
+    if (this.isRunning) {
+      if (!this.heartbeatTimer) this.startHeartbeatLoop();
+      if (!this.pollTimeout) this.startJobPollingLoop();
+    }
 
     return { success: true, shopName: result.shopName };
   }
@@ -215,12 +227,16 @@ export class AgentDaemon {
 
     logger.info(`Successfully logged in and linked to shop: "${result.shopName}" (Shop ID: ${result.shopId})`);
 
-    // Trigger immediate printer discovery and heartbeat
+    // Trigger immediate printer discovery, heartbeat, and ensure background loops run
     try {
       this.discoveredPrinters = await discoverWindowsPrinters();
       await this.sendHeartbeat();
     } catch (err) {
       logger.warn("Post-login heartbeat error:", { err });
+    }
+    if (this.isRunning) {
+      if (!this.heartbeatTimer) this.startHeartbeatLoop();
+      if (!this.pollTimeout) this.startJobPollingLoop();
     }
 
     return { success: true, shopName: result.shopName };
@@ -254,6 +270,10 @@ export class AgentDaemon {
       throw new Error("Enter the website address, for example http://localhost:3000.");
     const serverUrl = url.href.replace(/\/+$/, "");
     if (serverUrl === this.config.serverUrl) return;
+    // Clear existing credentials if already paired so tokens are never sent to a different server URL
+    if (this.config.agentToken) {
+      this.unpair();
+    }
     this.config = saveConfig({ serverUrl });
     this.client.setServerUrl(serverUrl);
     this.isConnected = false;
@@ -267,6 +287,34 @@ export class AgentDaemon {
 
   private lastPrinterDiscoveryTime = 0;
 
+  private applyLocalPrinterOverrides(printers: DiscoveredPrinter[]): DiscoveredPrinter[] {
+    const disabledSet = new Set((this.config.disabledPrinters || []).map((s) => s.trim().toLowerCase()));
+    const colorOverrides = new Map<string, boolean>();
+    for (const [key, val] of Object.entries(this.config.printerColorOverrides || {})) {
+      colorOverrides.set(key.trim().toLowerCase(), Boolean(val));
+    }
+    return printers.map((p) => {
+      const lower = p.name.trim().toLowerCase();
+      const isDisabled = disabledSet.has(lower);
+      const hasColorOverride = colorOverrides.has(lower);
+      const colorSupport = hasColorOverride
+        ? Boolean(colorOverrides.get(lower))
+        : Boolean(p.capabilities?.colorSupport);
+      return {
+        ...p,
+        isDisabled,
+        status: isDisabled ? "offline" : p.status,
+        isColorUserOverride: hasColorOverride || p.isColorUserOverride,
+        capabilities: {
+          duplexSupport: Boolean(p.capabilities?.duplexSupport),
+          paperSizes: p.capabilities?.paperSizes || ["A4", "Letter"],
+          ...p.capabilities,
+          colorSupport,
+        },
+      };
+    });
+  }
+
   private async refreshPrinters(force = false): Promise<void> {
     if (this.discovering) return;
     const now = Date.now();
@@ -275,7 +323,10 @@ export class AgentDaemon {
     }
     this.discovering = true;
     try {
-      this.discoveredPrinters = await discoverWindowsPrinters();
+      const discovered = await discoverWindowsPrinters(force);
+      if (discovered.length > 0 || this.discoveredPrinters.length === 0) {
+        this.discoveredPrinters = this.applyLocalPrinterOverrides(discovered);
+      }
       this.lastPrinterDiscoveryTime = Date.now();
 
       // Zero-Touch Auto-Selection: If no printer is selected, or if the currently selected printer is offline,
@@ -298,8 +349,8 @@ export class AgentDaemon {
           }
         }
       }
-    } catch {
-      this.discoveredPrinters = [];
+    } catch (err) {
+      logger.debug("Printer refresh failed; keeping last known printer list:", { err });
     } finally {
       this.discovering = false;
     }
@@ -348,20 +399,28 @@ export class AgentDaemon {
           status: p.status,
           isDefault: p.isDefault,
           driver: p.driverName,
+          color: Boolean(p.capabilities?.colorSupport),
         })),
       );
 
-      // Always transmit detected printers on heartbeat so server & customer checkout stay continuously fresh
-      const printersToSend = this.discoveredPrinters;
+      // Send full printer inventory on startup, when signature changes, or at least every 10 minutes
+      const nowMs = Date.now();
+      const shouldIncludePrinters =
+        !this.lastSentPrintersSignature ||
+        this.lastSentPrintersSignature !== currentSignature ||
+        nowMs - this.lastFullPrinterSyncAt >= 10 * 60 * 1000;
 
       const result = await this.client.sendHeartbeat({
-        printers: printersToSend,
+        ...(shouldIncludePrinters ? { printers: this.discoveredPrinters } : {}),
         currentJobId: this.currentJob?.id || null,
         version: this.config.version,
         machineInfo,
       });
 
-      this.lastSentPrintersSignature = currentSignature;
+      if (shouldIncludePrinters) {
+        this.lastSentPrintersSignature = currentSignature;
+        this.lastFullPrinterSyncAt = nowMs;
+      }
       this.lastHeartbeatTime = result.timestamp;
       this.isConnected = true;
       logger.debug("Heartbeat acknowledged by server.", { timestamp: result.timestamp });
@@ -416,7 +475,7 @@ export class AgentDaemon {
           { event: 'INSERT', schema: 'public', table: 'print_jobs', filter: `shop_id=eq.${this.config.shopId}` },
           () => {
             logger.info("⚡ Realtime event: new print job created. Pre-caching documents, warming up printers & checking queue...");
-            void this.precachePendingCounterDocuments();
+            this.schedulePrecacheRefresh();
             void this.warmupTargetPrinters();
             void this.triggerPoll();
           }
@@ -426,7 +485,7 @@ export class AgentDaemon {
           { event: 'UPDATE', schema: 'public', table: 'print_jobs', filter: `shop_id=eq.${this.config.shopId}` },
           (payload) => {
             const status = payload.new ? (payload.new as { status?: string }).status : undefined;
-            void this.precachePendingCounterDocuments();
+            this.schedulePrecacheRefresh();
             void this.warmupTargetPrinters();
             if (!status || status === 'queued' || status === 'paid') {
               logger.info(`⚡ Realtime event: print job status updated${status ? ` to "${status}"` : ""}. Waking up agent immediately...`);
@@ -439,7 +498,7 @@ export class AgentDaemon {
           { event: 'INSERT', schema: 'public', table: 'documents', filter: `shop_id=eq.${this.config.shopId}` },
           () => {
             logger.info("⚡ Realtime event: new document uploaded by customer. Pre-caching early in background...");
-            void this.precachePendingCounterDocuments();
+            this.schedulePrecacheRefresh();
             void this.warmupTargetPrinters();
           }
         )
@@ -448,7 +507,7 @@ export class AgentDaemon {
           { event: 'INSERT', schema: 'public', table: 'orders', filter: `shop_id=eq.${this.config.shopId}` },
           () => {
             logger.info("⚡ Realtime event: new customer order initiated. Pre-caching early in background...");
-            void this.precachePendingCounterDocuments();
+            this.schedulePrecacheRefresh();
             void this.warmupTargetPrinters();
           }
         )
@@ -480,11 +539,10 @@ export class AgentDaemon {
     }
     if (this.isRealtimeConnected) {
       // Realtime is connected and active:
-      // WebSocket pushes immediately upon any new job.
-      // Fast fallback poll safety net (max 8s).
+      // WebSocket pushes immediately upon any new job; keep conservative 20s safety-net poll.
       if (this.idlePollCount === 1) return 2000;
-      if (this.idlePollCount === 2) return 4000;
-      return 8000;
+      if (this.idlePollCount === 2) return 5000;
+      return 20000;
     } else {
       // Realtime is offline / degraded network / polling mode:
       if (this.idlePollCount === 1) return 1500;
@@ -617,13 +675,30 @@ export class AgentDaemon {
 
   private async flushPendingCompletions(): Promise<void> {
     if (this.pendingCompletionJobIds.size === 0) return;
+    while (this.pendingCompletionJobIds.size > 200) {
+      const oldestId = this.pendingCompletionJobIds.values().next().value;
+      if (!oldestId) break;
+      this.pendingCompletionJobIds.delete(oldestId);
+      this.pendingCompletionRetries.delete(oldestId);
+    }
     for (const jobId of Array.from(this.pendingCompletionJobIds)) {
       try {
         await this.client.reportComplete(jobId);
         this.pendingCompletionJobIds.delete(jobId);
+        this.pendingCompletionRetries.delete(jobId);
         logger.info(`Previously pending Job #${jobId.slice(0, 8)} successfully reported as COMPLETED to server.`);
-      } catch {
-        // Will retry on next cycle
+      } catch (err) {
+        const status = (err as Error & { status?: number })?.status;
+        const attempts = (this.pendingCompletionRetries.get(jobId) || 0) + 1;
+        this.pendingCompletionRetries.set(jobId, attempts);
+        if (
+          attempts >= 20 ||
+          (status && status >= 400 && status < 500 && status !== 401 && status !== 403 && status !== 408 && status !== 429)
+        ) {
+          this.pendingCompletionJobIds.delete(jobId);
+          this.pendingCompletionRetries.delete(jobId);
+          logger.warn(`Dropping pending completion for Job #${jobId.slice(0, 8)} (${status ? `HTTP ${status}` : `after ${attempts} attempts`}).`);
+        }
       }
     }
   }
@@ -675,9 +750,10 @@ export class AgentDaemon {
           this.processedJobIds.add(`${j.orderId}:${j.id}:${j.duplexStep || "standard"}`);
         }
       }
-      if (this.processedJobIds.size > 500) {
+      while (this.processedJobIds.size > 500) {
         const firstKey = this.processedJobIds.values().next().value;
-        if (firstKey) this.processedJobIds.delete(firstKey);
+        if (!firstKey) break;
+        this.processedJobIds.delete(firstKey);
       }
 
       this.currentJob = job;
@@ -747,7 +823,7 @@ export class AgentDaemon {
       }
 
       const hasHardwareDuplexInShop = this.discoveredPrinters.some(
-        (p) => isPhysicalPrinter(p) && p.capabilities?.duplexSupport === true,
+        (p) => !p.isDisabled && p.status !== "offline" && isPhysicalPrinter(p) && p.capabilities?.duplexSupport === true,
       );
       const hasColorPrinterInShop = this.discoveredPrinters.some(
         (p) => isPhysicalPrinter(p) && p.capabilities?.colorSupport === true,
@@ -873,18 +949,45 @@ export class AgentDaemon {
             batchSubmissionStarted = true;
             anySubmitted = true;
             const shouldIncludeSeparator = this.config.enableSeparatorPage !== false;
-
-            const batchResult = await prepareAndPrintBatch(
-              resolvedItems.map((item) => ({ sourcePath: item.sourcePath, job: item.job })),
-              targetPrinterName,
-              {
-                includeSeparatorPage: shouldIncludeSeparator,
-                discoveredPrinter: targetPrinter,
-              },
+            const needsManualDuplexIndividually = printerJobs.some(
+              (pJob) =>
+                pJob.duplexStep === "even" ||
+                pJob.duplexStep === "odd" ||
+                ((pJob.pagesConfig || []).some((c) => c.sideMode === "double_sided") &&
+                  targetPrinter.capabilities?.duplexSupport !== true),
             );
 
-            if (!batchResult.success) {
-              throw new Error(batchResult.errorMessage || "Print submission failed.");
+            let batchPagesSubmitted = 0;
+            if (needsManualDuplexIndividually) {
+              for (let idx = 0; idx < resolvedItems.length; idx++) {
+                const rItem = resolvedItems[idx];
+                const rDoubleSided = (rItem.job.pagesConfig || []).some((c) => c.sideMode === "double_sided");
+                if (rDoubleSided && targetPrinter.capabilities?.duplexSupport !== true && (!rItem.job.duplexStep || rItem.job.duplexStep === "none")) {
+                  rItem.job.duplexStep = "odd";
+                }
+                const singleRes = await prepareAndPrintDocument(rItem.sourcePath, rItem.job, targetPrinterName, undefined, {
+                  includeSeparatorPage: shouldIncludeSeparator && idx === resolvedItems.length - 1,
+                  discoveredPrinter: targetPrinter,
+                });
+                if (!singleRes.success) {
+                  throw new Error(singleRes.errorMessage || "Print submission failed.");
+                }
+                batchPagesSubmitted += singleRes.pagesSubmitted;
+              }
+            } else {
+              const batchResult = await prepareAndPrintBatch(
+                resolvedItems.map((item) => ({ sourcePath: item.sourcePath, job: item.job })),
+                targetPrinterName,
+                {
+                  includeSeparatorPage: shouldIncludeSeparator,
+                  discoveredPrinter: targetPrinter,
+                },
+              );
+
+              if (!batchResult.success) {
+                throw new Error(batchResult.errorMessage || "Print submission failed.");
+              }
+              batchPagesSubmitted = batchResult.pagesSubmitted;
             }
 
             if (process.platform === "win32" || os.platform() === "win32") {
@@ -903,6 +1006,7 @@ export class AgentDaemon {
             }
 
             for (const pJob of printerJobs) {
+              if (pJob.duplexStep === "odd") continue;
               try {
                 await this.client.reportComplete(pJob.id);
                 this.pendingCompletionJobIds.delete(pJob.id);
@@ -916,12 +1020,12 @@ export class AgentDaemon {
             }
 
             this.stats.jobsSubmitted += printerJobs.length;
-            this.stats.totalPagesSubmitted += batchResult.pagesSubmitted;
+            this.stats.totalPagesSubmitted += batchPagesSubmitted;
             if (heldJobs.length === 0) {
               this.forcedOrderIds.delete(job.orderId);
             }
             logger.info(
-              `✅ Order #${job.orderId.slice(0, 8)}: ${printerJobs.length} document(s) (${batchResult.pagesSubmitted} pages) physically spooled to "${targetPrinterName}".`,
+              `✅ Order #${job.orderId.slice(0, 8)}: ${printerJobs.length} document(s) (${batchPagesSubmitted} pages) physically spooled to "${targetPrinterName}".`,
             );
           } catch (batchErr) {
             const errorMsg = batchErr instanceof Error ? batchErr.message : "Print execution error";
@@ -1219,11 +1323,11 @@ export class AgentDaemon {
 
       void (async () => {
         const { order, doc, targetPath, matchingJob } = item;
+        const tmpPath = `${targetPath}.${Date.now()}.tmp`;
         try {
           if (!fs.existsSync(targetPath) || fs.statSync(targetPath).size === 0) {
             logger.info(`⚡ Pre-caching document "${doc.filename}" for Token #${order.tokenNumber ?? order.publicId}...`);
             const jobIdToUse = matchingJob?.id;
-            const tmpPath = `${targetPath}.${Date.now()}.tmp`;
             await this.client.downloadDocument(doc.id, jobIdToUse, tmpPath);
             if (fs.existsSync(tmpPath) && fs.statSync(tmpPath).size > 0) {
               fs.renameSync(tmpPath, targetPath);
@@ -1246,12 +1350,28 @@ export class AgentDaemon {
             err: err instanceof Error ? err.message : String(err),
           });
         } finally {
+          try {
+            if (fs.existsSync(tmpPath)) fs.unlinkSync(tmpPath);
+          } catch {
+            // ignore temp file cleanup error
+          }
           this.precachingDocIds.delete(doc.id);
           this.activePrecacheCount--;
           this.drainPrecacheQueue();
         }
       })();
     }
+  }
+
+  private schedulePrecacheRefresh(): void {
+    if (!this.isRunning || !isConfigPaired(this.config)) return;
+    if (this.precacheDebounceTimer) {
+      clearTimeout(this.precacheDebounceTimer);
+    }
+    this.precacheDebounceTimer = setTimeout(() => {
+      this.precacheDebounceTimer = null;
+      void this.precachePendingCounterDocuments();
+    }, 600);
   }
 
   async precachePendingCounterDocuments(): Promise<void> {
@@ -1280,8 +1400,7 @@ export class AgentDaemon {
 
           const targetPath = path.join(cacheDir, `doc_${doc.id}.pdf`);
           const matchingJob =
-            ((order.jobs || []) as any[]).find((j: any) => j.documentId === doc.id) ||
-            ((order.jobs?.[0] as any) || null);
+            ((order.jobs || []) as any[]).find((j: any) => j.documentId === doc.id) || null;
 
           if (fs.existsSync(targetPath) && fs.statSync(targetPath).size > 0) {
             void this.client.reportPrecacheComplete(doc.id, order.id);
@@ -1324,16 +1443,29 @@ export class AgentDaemon {
       }
     }
     this.config = saveConfig({ disabledPrinters: Array.from(disabled) });
-    void this.refreshPrinters(true);
+    this.discoveredPrinters = this.applyLocalPrinterOverrides(this.discoveredPrinters);
+    void this.refreshPrinters(true).then(() => {
+      if (isConfigPaired(this.config)) void this.sendHeartbeat();
+    });
     return isDisabledNow;
   }
 
   setPrinterColorOverride(printerName: string, isColor: boolean): void {
-    const overrides = { ...(this.config.printerColorOverrides || {}) };
-    overrides[printerName] = isColor;
+    const lowerName = printerName.trim().toLowerCase();
+    const overrides: Record<string, boolean> = {};
+    for (const [k, v] of Object.entries(this.config.printerColorOverrides || {})) {
+      const kLower = k.trim().toLowerCase();
+      if (kLower !== lowerName) {
+        overrides[kLower] = Boolean(v);
+      }
+    }
+    overrides[lowerName] = isColor;
     this.config = saveConfig({ printerColorOverrides: overrides });
+    this.discoveredPrinters = this.applyLocalPrinterOverrides(this.discoveredPrinters);
     logger.info(`Printer "${printerName}" color mode override set to: ${isColor ? "Color" : "Black & White"}`);
-    void this.refreshPrinters(true);
+    void this.refreshPrinters(true).then(() => {
+      if (isConfigPaired(this.config)) void this.sendHeartbeat();
+    });
   }
 
   getStatus(): AgentStatusSnapshot {
@@ -1426,36 +1558,47 @@ export class AgentDaemon {
   }
 
   async approveCounterOrder(orderId: string, duplexStep?: "odd" | "even" | "all") {
-    // Clear processed keys for this order so re-approving or printing next side can claim and print fresh
-    this.clearProcessedJob(orderId);
-    this.forcedOrderIds.add(orderId);
-    resetPrinterSpoolQueue();
-    // Unstick agent if it was marked as processing without an active job
-    if (this.isProcessingJob && !this.currentJob) {
-      this.isProcessingJob = false;
+    if (this.approvingOrderIds.has(orderId)) {
+      throw new Error("Order approval is already in progress.");
     }
-    // 1. Proactively ensure target printers are warm & awake
-    void this.warmupTargetPrinters();
-    // 2. Dispatch cloud approval request (which atomically claims the job on server)
-    const approvalPromise = this.client.approveCounterOrder(orderId, duplexStep);
-    // 3. Await cloud approval confirmation
-    const result = await approvalPromise;
-    // 4. Fast-path: If the server returned the claimed job directly, execute it immediately!
-    if (result && (result as any).claimedJob) {
-      logger.info(
-        `⚡ Instant Fast-Path: Order #${orderId.slice(0, 8)} claimed atomically during approval. Initiating 0ms local dispatch...`,
-      );
-      await this.executeClaimedJob((result as any).claimedJob as ClaimedJob);
+    this.approvingOrderIds.add(orderId);
+    try {
+      // Clear processed keys for this order so re-approving or printing next side can claim and print fresh
+      this.clearProcessedJob(orderId);
+      this.forcedOrderIds.add(orderId);
+      while (this.forcedOrderIds.size > 200) {
+        const oldestOrder = this.forcedOrderIds.values().next().value;
+        if (!oldestOrder) break;
+        this.forcedOrderIds.delete(oldestOrder);
+      }
+      // Unstick agent if it was marked as processing without an active job
+      if (this.isProcessingJob && !this.currentJob) {
+        this.isProcessingJob = false;
+      }
+      // 1. Proactively ensure target printers are warm & awake
+      void this.warmupTargetPrinters();
+      // 2. Dispatch cloud approval request (which atomically claims the job on server)
+      const result = await this.client.approveCounterOrder(orderId, duplexStep);
+      // 3. Fast-path: If the server returned the claimed job directly, execute it immediately!
+      if (result && (result as any).claimedJob) {
+        logger.info(
+          `⚡ Instant Fast-Path: Order #${orderId.slice(0, 8)} claimed atomically during approval. Initiating 0ms local dispatch...`,
+        );
+        await this.executeClaimedJob((result as any).claimedJob as ClaimedJob);
+        return result;
+      }
+      // 4. Fallback safety net: Force immediate poll without idle backoff
+      this.hasPendingWakeup = false;
+      this.scheduleNextPoll(0);
       return result;
+    } finally {
+      this.approvingOrderIds.delete(orderId);
     }
-    // 5. Fallback safety net: Force immediate poll without idle backoff
-    this.hasPendingWakeup = false;
-    this.scheduleNextPoll(0);
-    return result;
   }
 
   async cancelCounterOrder(orderId: string) {
     this.clearProcessedJob(orderId);
+    this.forcedOrderIds.delete(orderId);
     const reservedName = this.orderToReservedPrinter.get(orderId);
     if (reservedName) {
       this.reservedDuplexPrinters.delete(reservedName);
@@ -1466,6 +1609,7 @@ export class AgentDaemon {
 
   async completeCounterOrder(orderId: string) {
     this.clearProcessedJob(orderId);
+    this.forcedOrderIds.delete(orderId);
     return await this.client.completeCounterOrder(orderId);
   }
 

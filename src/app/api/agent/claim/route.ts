@@ -61,13 +61,39 @@ export async function POST(request: Request) {
     return NextResponse.json({ success: true, job: null });
   }
 
-  const { data: verifiedPayment } = await adminClient
-    .from("payments")
-    .select("id, provider, status, provider_payment_id, metadata")
-    .eq("order_id", claimed.order_id)
-    .eq("status", "verified")
-    .not("provider_payment_id", "is", null)
-    .limit(1);
+  // 2. Fetch payment eligibility, page ranges, default printer, and duplex details in parallel
+  const [
+    { data: verifiedPayment },
+    { data: pages, error: pagesError },
+    { data: defaultPrinter },
+    { data: jobDetails },
+  ] = await Promise.all([
+    adminClient
+      .from("payments")
+      .select("id, provider, status, provider_payment_id, metadata")
+      .eq("order_id", claimed.order_id)
+      .eq("status", "verified")
+      .not("provider_payment_id", "is", null)
+      .limit(1),
+    adminClient
+      .from("print_job_pages")
+      .select("start_page, end_page, color_mode, paper_size, side_mode, copies")
+      .eq("print_job_id", claimed.job_id)
+      .order("start_page", { ascending: true }),
+    adminClient
+      .from("printers")
+      .select("name, system_identifier")
+      .eq("shop_id", auth.shop.id)
+      .eq("desktop_agent_id", auth.agent.id)
+      .eq("is_default", true)
+      .maybeSingle(),
+    adminClient
+      .from("print_jobs")
+      .select("duplex_step, duplex_printer_name")
+      .eq("id", claimed.job_id)
+      .maybeSingle(),
+  ]);
+
   if (!verifiedPayment?.some(paymentCanPrint)) {
     await adminClient.rpc("fail_print_job", {
       p_job_id: claimed.job_id,
@@ -78,13 +104,6 @@ export async function POST(request: Request) {
     return NextResponse.json({ success: true, job: null });
   }
 
-  // 2. Fetch page ranges / configurations for this job
-  const { data: pages, error: pagesError } = await adminClient
-    .from("print_job_pages")
-    .select("start_page, end_page, color_mode, paper_size, side_mode, copies")
-    .eq("print_job_id", claimed.job_id)
-    .order("start_page", { ascending: true });
-
   if (pagesError || !pages?.length) {
     await adminClient.rpc("fail_print_job", {
       p_job_id: claimed.job_id,
@@ -94,21 +113,6 @@ export async function POST(request: Request) {
     });
     return NextResponse.json({ error: "Could not load the customer's print settings." }, { status: 503 });
   }
-
-  // 3. Fetch default printer and duplex_step for this job
-  const { data: defaultPrinter } = await adminClient
-    .from("printers")
-    .select("name, system_identifier")
-    .eq("shop_id", auth.shop.id)
-    .eq("desktop_agent_id", auth.agent.id)
-    .eq("is_default", true)
-    .maybeSingle();
-
-  const { data: jobDetails } = await adminClient
-    .from("print_jobs")
-    .select("duplex_step, duplex_printer_name")
-    .eq("id", claimed.job_id)
-    .maybeSingle();
 
   const isDoubleSided = (pages ?? []).some((p) => p.side_mode === "double_sided");
   let effectiveDuplexStep = jobDetails?.duplex_step || "none";
@@ -188,7 +192,7 @@ export async function POST(request: Request) {
       )
       .eq("order_id", claimed.order_id)
       .neq("id", claimed.job_id)
-      .not("status", "in", '("completed","cancelled")')
+      .eq("status", "queued")
       .order("created_at", { ascending: true });
 
     if (sibErr) {
@@ -203,49 +207,60 @@ export async function POST(request: Request) {
         .in("id", siblingDocIds);
       const docsMap = new Map((docs || []).map((d) => [d.id, d]));
 
-      const siblingJobIds = rawSiblings.map((s) => s.id);
-      const { data: allPages } = await adminClient
-        .from("print_job_pages")
-        .select("print_job_id, start_page, end_page, color_mode, paper_size, side_mode, copies")
-        .in("print_job_id", siblingJobIds)
-        .order("start_page", { ascending: true });
+      // Filter to siblings that have an existing document record and claim them atomically while still "queued"
+      const candidateSiblings = rawSiblings.filter((s) => docsMap.has(s.document_id));
+      const claimedSiblingsList: typeof candidateSiblings = [];
+      const claimedAtIso = new Date().toISOString();
+      const leaseExpiresIso = new Date(Date.now() + leaseSeconds * 1000).toISOString();
 
-      const pagesMap = new Map<
-        string,
-        Array<{
-          start_page: number;
-          end_page: number;
-          color_mode?: string;
-          paper_size?: string;
-          side_mode?: string;
-          copies?: number;
-        }>
-      >();
-      for (const p of allPages || []) {
-        const list = pagesMap.get(p.print_job_id) || [];
-        list.push(p);
-        pagesMap.set(p.print_job_id, list);
-      }
-
-      // Filter to siblings that have an existing document record
-      const validSiblings = rawSiblings.filter((s) => docsMap.has(s.document_id));
-      const validSiblingIds = validSiblings.map((s) => s.id);
-
-      if (validSiblingIds.length > 0) {
-        await adminClient
+      for (const candidate of candidateSiblings) {
+        const { data: claimedSiblingRow } = await adminClient
           .from("print_jobs")
           .update({
             status: "claimed",
             claimed_by_agent_id: auth.agent.id,
-            claimed_at: new Date().toISOString(),
-            claim_expires_at: new Date(Date.now() + leaseSeconds * 1000).toISOString(),
-            print_attempts: 1,
+            claimed_at: claimedAtIso,
+            claim_expires_at: leaseExpiresIso,
+            print_attempts: (candidate.print_attempts || 0) + 1,
             failure_reason: null,
           })
-          .in("id", validSiblingIds);
+          .eq("id", candidate.id)
+          .eq("status", "queued")
+          .select("id")
+          .maybeSingle();
 
-        for (let sIdx = 0; sIdx < validSiblings.length; sIdx++) {
-          const s = validSiblings[sIdx];
+        if (claimedSiblingRow) {
+          claimedSiblingsList.push(candidate);
+        }
+      }
+
+      if (claimedSiblingsList.length > 0) {
+        const siblingJobIds = claimedSiblingsList.map((s) => s.id);
+        const { data: allPages } = await adminClient
+          .from("print_job_pages")
+          .select("print_job_id, start_page, end_page, color_mode, paper_size, side_mode, copies")
+          .in("print_job_id", siblingJobIds)
+          .order("start_page", { ascending: true });
+
+        const pagesMap = new Map<
+          string,
+          Array<{
+            start_page: number;
+            end_page: number;
+            color_mode?: string;
+            paper_size?: string;
+            side_mode?: string;
+            copies?: number;
+          }>
+        >();
+        for (const p of allPages || []) {
+          const list = pagesMap.get(p.print_job_id) || [];
+          list.push(p);
+          pagesMap.set(p.print_job_id, list);
+        }
+
+        for (let sIdx = 0; sIdx < claimedSiblingsList.length; sIdx++) {
+          const s = claimedSiblingsList[sIdx];
           const sDoc = docsMap.get(s.document_id)!;
           let sPages = pagesMap.get(s.id) || [];
           if (!sPages.length) {
@@ -278,10 +293,10 @@ export async function POST(request: Request) {
             totalPages: s.total_pages,
             totalAmount: Number(s.total_amount),
             currency: s.currency,
-            printAttempts: s.print_attempts,
+            printAttempts: (s.print_attempts || 0) + 1,
             maxAttempts: s.max_attempts,
             defaultPrinter: defaultPrinter?.name || null,
-            requiredPrinterName,
+            requiredPrinterName: s.duplex_printer_name ?? requiredPrinterName,
             duplexStep: s.duplex_step || "none",
             document: {
               id: sDoc.id,
@@ -292,7 +307,7 @@ export async function POST(request: Request) {
               pageCount: sDoc.page_count,
             },
             pagesConfig: sResolvedPages,
-            isLastJobForOrder: sIdx === validSiblings.length - 1,
+            isLastJobForOrder: sIdx === claimedSiblingsList.length - 1,
           });
         }
       }

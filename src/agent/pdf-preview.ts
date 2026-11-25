@@ -16,6 +16,17 @@ function ensureCanvasPolyfills(napiCanvas: any) {
 
 const fontCache = new Map<string, Uint8Array>();
 const cmapCache = new Map<string, Uint8Array>();
+const MAX_PDF_ASSET_CACHE = 150;
+
+function setBoundedAsset(cache: Map<string, Uint8Array>, key: string, data: Uint8Array) {
+  if (cache.has(key)) cache.delete(key);
+  cache.set(key, data);
+  while (cache.size > MAX_PDF_ASSET_CACHE) {
+    const oldest = cache.keys().next().value;
+    if (!oldest) break;
+    cache.delete(oldest);
+  }
+}
 
 function getCandidateFontDirs(): string[] {
   const dirs = [
@@ -89,7 +100,7 @@ class ResilientStandardFontDataFactory {
         if (fs.existsSync(fullPath)) {
           const buf = fs.readFileSync(fullPath);
           const data = new Uint8Array(buf.buffer, buf.byteOffset, buf.byteLength);
-          fontCache.set(filename, data);
+          setBoundedAsset(fontCache, filename, data);
           return data;
         }
       } catch {}
@@ -114,7 +125,7 @@ class ResilientStandardFontDataFactory {
           if (fs.existsSync(fullPath)) {
             const buf = fs.readFileSync(fullPath);
             const data = new Uint8Array(buf.buffer, buf.byteOffset, buf.byteLength);
-            fontCache.set(filename, data);
+            setBoundedAsset(fontCache, filename, data);
             return data;
           }
         }
@@ -131,7 +142,7 @@ class ResilientStandardFontDataFactory {
         if (res.ok) {
           const ab = await res.arrayBuffer();
           const data = new Uint8Array(ab);
-          fontCache.set(filename, data);
+          setBoundedAsset(fontCache, filename, data);
           return data;
         }
       } catch {}
@@ -158,7 +169,7 @@ class ResilientCMapReaderFactory {
         if (fs.existsSync(fullPath)) {
           const buf = fs.readFileSync(fullPath);
           const data = new Uint8Array(buf.buffer, buf.byteOffset, buf.byteLength);
-          cmapCache.set(filename, data);
+          setBoundedAsset(cmapCache, filename, data);
           return { cMapData: data, compressionType: 1 };
         }
       } catch {}
@@ -168,7 +179,7 @@ class ResilientCMapReaderFactory {
       const res = await fetch(cdnUrl);
       if (res.ok) {
         const data = new Uint8Array(await res.arrayBuffer());
-        cmapCache.set(filename, data);
+        setBoundedAsset(cmapCache, filename, data);
         return { cMapData: data, compressionType: 1 };
       }
     } catch {}
@@ -348,26 +359,43 @@ export async function renderPdfFirstPage(
       canvasFactory,
     });
 
-    const pdfDoc = await loadingTask.promise;
-    if (!pdfDoc || pdfDoc.numPages < 1) return null;
+    let pdfDoc: {
+      numPages: number;
+      getPage: (n: number) => Promise<{
+        getViewport: (opts: { scale: number }) => { width: number; height: number };
+        render: (opts: Record<string, unknown>) => { promise: Promise<void> };
+      }>;
+      destroy?: () => Promise<void>;
+    } | null = null;
+    try {
+      pdfDoc = await loadingTask.promise;
+      if (!pdfDoc || pdfDoc.numPages < 1) return null;
 
-    const page = await pdfDoc.getPage(1);
-    const initialViewport = page.getViewport({ scale: 1.0 });
-    const scale = Math.min(2.5, Math.max(0.6, targetWidth / Math.max(1, initialViewport.width)));
-    const viewport = page.getViewport({ scale });
+      const page = await pdfDoc.getPage(1);
+      const initialViewport = page.getViewport({ scale: 1.0 });
+      const scale = Math.min(2.5, Math.max(0.6, targetWidth / Math.max(1, initialViewport.width)));
+      const viewport = page.getViewport({ scale });
 
-    const { canvas, context } = canvasFactory.create(viewport.width, viewport.height);
-    context.fillStyle = "#ffffff";
-    context.fillRect(0, 0, canvas.width, canvas.height);
+      const { canvas, context } = canvasFactory.create(viewport.width, viewport.height);
+      context.fillStyle = "#ffffff";
+      context.fillRect(0, 0, canvas.width, canvas.height);
 
-    await page.render({
-      canvasContext: context,
-      viewport: viewport,
-      canvasFactory,
-    }).promise;
+      await page.render({
+        canvasContext: context,
+        viewport: viewport,
+        canvasFactory,
+      }).promise;
 
-    const buffer = canvas.toBuffer("image/jpeg", 82);
-    return { buffer, mimeType: "image/jpeg" };
+      const buffer = canvas.toBuffer("image/jpeg", 82);
+      return { buffer, mimeType: "image/jpeg" };
+    } finally {
+      try {
+        await pdfDoc?.destroy?.();
+      } catch {}
+      try {
+        await loadingTask?.destroy?.();
+      } catch {}
+    }
   } catch (error) {
     // Fallback: only extract embedded image if rasterization failed completely
     // AND the image is large enough to represent a full page (not a tiny icon or logo)

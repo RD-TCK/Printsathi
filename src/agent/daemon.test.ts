@@ -10,18 +10,21 @@ const mocks = vi.hoisted(() => ({
   printBatch: vi.fn(),
   approve: vi.fn(),
   findBestPrinter: vi.fn(),
+  saveConfig: vi.fn(),
   waitForPhysicalPrintCompletion: vi.fn().mockResolvedValue({ completed: true }),
   cacheFileExists: false,
 }));
 vi.mock("./config", () => ({
   loadConfig: () => ({ serverUrl: "http://localhost:3000", agentToken: "test", selectedPrinter: null }),
   isConfigPaired: () => true,
-  saveConfig: vi.fn(),
+  saveConfig: (...args: any[]) => mocks.saveConfig(...args),
   clearConfig: vi.fn(),
   getDocumentCacheDirectory: () => "C:\\fake\\cache",
   cleanDocumentCache: vi.fn(),
 }));
-vi.mock("./logger", () => ({ logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn() } }));
+vi.mock("./logger", () => ({
+  logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), getRecentLogs: () => [] },
+}));
 vi.mock("./client", () => ({
   AgentApiClient: class {
     claimNextJob = mocks.claim;
@@ -71,6 +74,12 @@ describe("automatic dispatch safety", () => {
   beforeEach(() => {
     vi.resetAllMocks();
     mocks.cacheFileExists = false;
+    mocks.saveConfig.mockImplementation((update: Record<string, unknown>) => ({
+      serverUrl: "http://localhost:3000",
+      agentToken: "test",
+      selectedPrinter: null,
+      ...update,
+    }));
     mocks.claim.mockResolvedValue({
       id: "job-123456",
       orderId: "order-123456",
@@ -417,6 +426,24 @@ describe("automatic dispatch safety", () => {
     expect(mocks.submit).toHaveBeenCalledWith("job-mixed-doc", "Test physical printer", undefined);
     expect(mocks.complete).toHaveBeenCalledWith("job-mixed-doc");
     expect(mocks.failure).not.toHaveBeenCalled();
+  });
+
+  it("applies Switch to Color override case-insensitively and updates status immediately", async () => {
+    const daemon = new AgentDaemon();
+    (daemon as unknown as { discoveredPrinters: any[] }).discoveredPrinters = [
+      {
+        name: "HP LaserJet M1005",
+        status: "offline",
+        capabilities: { colorSupport: false, duplexSupport: false, paperSizes: ["A4"] },
+      },
+    ];
+
+    daemon.setPrinterColorOverride("HP LaserJet M1005", true);
+
+    const status = daemon.getStatus();
+    expect(status.printerColorOverrides?.["hp laserjet m1005"]).toBe(true);
+    expect(status.printers[0].capabilities?.colorSupport).toBe(true);
+    expect(status.printers[0].isColorUserOverride).toBe(true);
   });
 });
 

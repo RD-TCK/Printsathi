@@ -2,7 +2,8 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const mocks = vi.hoisted(() => ({ context: vi.fn(), manage: vi.fn(), admin: vi.fn(), from: vi.fn() }));
 vi.mock("@/lib/shop-portal", () => ({ getShopContext: mocks.context, canManageShop: mocks.manage }));
 vi.mock("@/lib/supabase/admin", () => ({ createSupabaseAdminClient: mocks.admin }));
-vi.mock("@/lib/agent/auth", () => ({ generatePairingCode: vi.fn() }));
+vi.mock("@/lib/agent/auth", () => ({ generatePairingCode: vi.fn(), invalidateAgentAuthCache: vi.fn() }));
+vi.mock("@/lib/shops/public-lookup", () => ({ invalidatePublicShopCache: vi.fn() }));
 vi.mock("next/cache", () => ({ revalidatePath: vi.fn() }));
 vi.mock("next/navigation", () => ({
   redirect: (url: string) => {
