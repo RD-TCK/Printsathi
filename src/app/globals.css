@@ -228,3 +228,12 @@ textarea {
   height: 1px;
   background: var(--color-line);
 }
+
+/* ─── Hide Horizontal Scrollbar for Carousels ─── */
+.no-scrollbar {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}

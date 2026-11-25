@@ -61,7 +61,7 @@ export const metadata: Metadata = {
     googleBot: { index: true, follow: true, "max-image-preview": "large", "max-snippet": -1, "max-video-preview": -1 },
   },
   verification: {
-    google: process.env.GOOGLE_SITE_VERIFICATION || undefined,
+    google: process.env.GOOGLE_SITE_VERIFICATION || "Jlf3PdAfou6wTbOornnnBkJf6VxmytDZpb72_u-7gDM",
     other: process.env.BING_SITE_VERIFICATION ? { "msvalidate.01": process.env.BING_SITE_VERIFICATION } : undefined,
   },
   icons: {

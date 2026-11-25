@@ -30,85 +30,85 @@ export function SectionHeading({
 /* ─── Footer ─── */
 export function MarketingFooter() {
   return (
-    <footer className="border-t border-brand-900 bg-brand-950 text-white relative">
+    <footer className="border-t border-line bg-[#fafaf8] text-ink relative">
       <div className="mx-auto grid max-w-7xl gap-10 px-6 py-16 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-[1.3fr_1fr_1fr_1fr_1.1fr] lg:px-8">
         <div>
-          <Link href="/" className="group inline-flex items-center gap-3">
+          <Link href="/" className="group inline-flex items-center gap-2.5">
             <div className="relative flex items-center justify-center transition-transform group-hover:scale-105">
-              <Logo size={36} className="shrink-0" />
+              <Logo size={34} className="shrink-0" />
             </div>
-            <span className="text-xl font-bold tracking-tight text-white">
-              Print<span className="text-brand-400">iva</span>
+            <span className="text-xl font-bold tracking-tight text-brand-950">
+              Print<span className="text-brand-600">iva</span>
             </span>
           </Link>
-          <p className="mt-4 max-w-sm text-sm leading-6 text-slate-300">
+          <p className="mt-4 max-w-sm text-sm leading-6 text-slate-600">
             Automating customer document intake, per-page pricing, UPI payments, and physical Windows printing for local print shops.
           </p>
           <div className="mt-6 flex items-center gap-3">
             <Link
               href="/download"
-              className="inline-flex items-center gap-2 rounded-lg border border-emerald-500/40 bg-emerald-950/80 px-3 py-1.5 text-xs font-medium text-emerald-300 transition hover:bg-emerald-900/60"
+              className="inline-flex items-center gap-2 rounded-full border border-emerald-200/90 bg-white px-3.5 py-1.5 text-xs font-medium text-emerald-800 shadow-2xs transition hover:border-emerald-300 hover:bg-emerald-50/60"
             >
-              <span className="size-1.5 rounded-full bg-emerald-400" />
+              <span className="size-1.5 rounded-full bg-emerald-600" />
               Windows Agent v1.8.34 &rarr;
             </Link>
           </div>
         </div>
 
         <div>
-          <h2 className="text-xs font-semibold uppercase tracking-[0.16em] text-emerald-400">Product</h2>
-          <div className="mt-4 space-y-2.5 text-sm text-slate-300">
-            <Link className="block transition-colors hover:text-white" href="/features">
+          <h2 className="text-xs font-semibold uppercase tracking-[0.16em] text-brand-700">Product</h2>
+          <div className="mt-4 space-y-2.5 text-sm text-slate-600">
+            <Link className="block transition-colors hover:text-brand-950" href="/features">
               Features &amp; Specs
             </Link>
-            <Link className="block transition-colors hover:text-white" href="/how-it-works">
+            <Link className="block transition-colors hover:text-brand-950" href="/how-it-works">
               How It Works
             </Link>
-            <Link className="block transition-colors hover:text-white" href="/pricing">
+            <Link className="block transition-colors hover:text-brand-950" href="/pricing">
               Pricing
             </Link>
-            <Link className="block transition-colors hover:text-white" href="/download">
+            <Link className="block transition-colors hover:text-brand-950" href="/download">
               Windows Desktop Agent
             </Link>
           </div>
         </div>
 
         <div>
-          <h2 className="text-xs font-semibold uppercase tracking-[0.16em] text-emerald-400">For Shops</h2>
-          <div className="mt-4 space-y-2.5 text-sm text-slate-300">
-            <Link className="block transition-colors hover:text-white" href="/register">
+          <h2 className="text-xs font-semibold uppercase tracking-[0.16em] text-brand-700">For Shops</h2>
+          <div className="mt-4 space-y-2.5 text-sm text-slate-600">
+            <Link className="block transition-colors hover:text-brand-950" href="/register">
               ₹100 for 7 Days Trial
             </Link>
-            <Link className="block transition-colors hover:text-white" href="/login">
+            <Link className="block transition-colors hover:text-brand-950" href="/login">
               Shop Owner Login
             </Link>
-            <Link className="block transition-colors hover:text-white" href="/shop/printer">
+            <Link className="block transition-colors hover:text-brand-950" href="/shop/printer">
               Printer Pairing
             </Link>
-            <Link className="block transition-colors hover:text-white" href="/download">
+            <Link className="block transition-colors hover:text-brand-950" href="/download">
               Installation Guide
             </Link>
           </div>
         </div>
 
         <div>
-          <h2 className="text-xs font-semibold uppercase tracking-[0.16em] text-emerald-400">Customers</h2>
-          <div className="mt-4 space-y-2.5 text-sm text-slate-300">
-            <Link className="block transition-colors hover:text-white" href="/track">
+          <h2 className="text-xs font-semibold uppercase tracking-[0.16em] text-brand-700">Customers</h2>
+          <div className="mt-4 space-y-2.5 text-sm text-slate-600">
+            <Link className="block transition-colors hover:text-brand-950" href="/track">
               Track Print Order
             </Link>
-            <Link className="block transition-colors hover:text-white" href="/contact">
+            <Link className="block transition-colors hover:text-brand-950" href="/contact">
               Support &amp; Feedback
             </Link>
-            <Link className="block transition-colors hover:text-white" href="/how-it-works">
+            <Link className="block transition-colors hover:text-brand-950" href="/how-it-works">
               Mobile QR Guide
             </Link>
           </div>
         </div>
 
         <div>
-          <h2 className="text-xs font-semibold uppercase tracking-[0.16em] text-emerald-400">System</h2>
-          <div className="mt-4 space-y-2 text-xs font-mono text-slate-300">
+          <h2 className="text-xs font-semibold uppercase tracking-[0.16em] text-brand-700">System</h2>
+          <div className="mt-4 space-y-2 text-xs font-mono text-slate-600">
             <p>Platform: Windows 10/11 x64</p>
             <p>Spool Latency: &lt; 500ms</p>
             <p>Agent Size: &lt; 48 MB RAM</p>
@@ -117,27 +117,27 @@ export function MarketingFooter() {
         </div>
       </div>
 
-      <div className="border-t border-white/10 bg-black/25">
-        <div className="mx-auto flex max-w-7xl flex-col gap-4 px-6 py-6 text-xs text-slate-400 sm:flex-row sm:items-center sm:justify-between lg:px-8">
+      <div className="border-t border-line bg-white/70">
+        <div className="mx-auto flex max-w-7xl flex-col gap-4 px-6 py-6 text-xs text-slate-500 sm:flex-row sm:items-center sm:justify-between lg:px-8">
           <span>&copy; 2026 Printiva Inc. All rights reserved.</span>
-          <div className="flex flex-wrap items-center gap-x-5 gap-y-2 text-slate-400">
-            <Link className="transition-colors hover:text-white" href="/privacy">
+          <div className="flex flex-wrap items-center gap-x-5 gap-y-2 text-slate-500">
+            <Link className="transition-colors hover:text-brand-950" href="/privacy">
               Privacy
             </Link>
             <span>&middot;</span>
-            <Link className="transition-colors hover:text-white" href="/terms">
+            <Link className="transition-colors hover:text-brand-950" href="/terms">
               Terms
             </Link>
             <span>&middot;</span>
-            <Link className="transition-colors hover:text-white" href="/refund">
+            <Link className="transition-colors hover:text-brand-950" href="/refund">
               Refunds
             </Link>
             <span>&middot;</span>
-            <Link className="transition-colors hover:text-white" href="/shipping">
+            <Link className="transition-colors hover:text-brand-950" href="/shipping">
               Delivery
             </Link>
             <span>&middot;</span>
-            <Link className="transition-colors hover:text-white" href="/contact">
+            <Link className="transition-colors hover:text-brand-950" href="/contact">
               Contact
             </Link>
           </div>

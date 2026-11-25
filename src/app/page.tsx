@@ -6,6 +6,7 @@ import { FeatureGrid, FaqList, MarketingFooter, Steps, TrialCallout } from "@/co
 import { Button } from "@/components/ui/button";
 import { HeroAnimatedHeading } from "@/components/hero-animated-heading";
 import { AuthBackgroundDecoration } from "@/components/auth-background-decoration";
+import { SupportedPrinters } from "@/components/supported-printers";
 import { JsonLd } from "@/components/json-ld";
 import { faqItems } from "@/components/marketing-site";
 import { faqJsonLd, pageMetadata, softwareJsonLd } from "@/lib/seo";
@@ -313,19 +314,22 @@ export default function Home() {
           </div>
         </section>
 
+        {/* ━━━ SUPPORTED PRINTERS CAROUSEL ━━━ */}
+        <SupportedPrinters />
+
         {/* ━━━ WINDOWS AGENT ━━━ */}
-        <section className="bg-brand-950 py-20 lg:py-28 relative text-white border-t border-brand-900">
+        <section className="bg-gradient-to-br from-[#f2fbf6] via-white to-[#f6fdf4] py-20 lg:py-28 relative text-ink border-y border-line">
           <div className="relative mx-auto max-w-7xl px-6 lg:px-8">
             <div className="grid lg:grid-cols-[1.2fr_0.8fr] gap-12 items-center">
               <div>
-                <p className="text-xs font-semibold uppercase tracking-[0.18em] text-emerald-400">Hardware Native Architecture</p>
-                <h2 className="mt-3 text-3xl font-bold tracking-tight text-white sm:text-4xl lg:text-5xl">
+                <p className="text-xs font-semibold uppercase tracking-[0.18em] text-brand-700">Hardware Native Architecture</p>
+                <h2 className="mt-3 text-3xl font-bold tracking-tight text-brand-950 sm:text-4xl lg:text-5xl">
                   The Windows Desktop Agent
                 </h2>
-                <p className="mt-4 text-base leading-relaxed text-slate-300 sm:text-lg">
+                <p className="mt-4 text-base leading-relaxed text-slate-600 sm:text-lg">
                   Web browsers cannot control paper trays or communicate with hardware drivers. Printiva runs a lightweight background agent in your Windows system tray that speaks directly to the Windows Print Spooler.
                 </p>
-                <div className="mt-8 flex flex-wrap gap-4">
+                <div className="mt-8 flex flex-wrap gap-3.5">
                   <Button asChild variant="primary">
                     <Link href="/download">
                       <Download className="size-4" />
@@ -334,7 +338,7 @@ export default function Home() {
                   </Button>
                   <Link
                     href="/shop/printer"
-                    className="inline-flex items-center gap-2 rounded-xl border border-white/20 bg-white/10 px-5 py-2.5 text-sm font-semibold text-white transition-all hover:bg-white/15"
+                    className="inline-flex items-center gap-2 rounded-xl border border-line bg-white px-5 py-2.5 text-sm font-semibold text-brand-950 shadow-2xs transition-all hover:bg-slate-50 hover:border-slate-300"
                   >
                     Setup Guide
                   </Link>
@@ -342,11 +346,11 @@ export default function Home() {
               </div>
 
               {/* Technical Spec Card */}
-              <div className="rounded-2xl border border-white/15 bg-black/30 p-6 space-y-4">
-                <div className="flex items-center justify-between border-b border-white/10 pb-3 text-xs">
-                  <span className="font-semibold text-white">System Specification</span>
-                  <span className="inline-flex items-center gap-1.5 font-medium text-emerald-400 font-mono">
-                    <span className="size-1.5 rounded-full bg-emerald-400" />
+              <div className="rounded-2xl border border-line bg-white p-6 sm:p-7 shadow-sm space-y-4">
+                <div className="flex items-center justify-between border-b border-slate-100 pb-3 text-xs">
+                  <span className="font-semibold text-brand-950">System Specification</span>
+                  <span className="inline-flex items-center gap-1.5 font-medium text-emerald-700 font-mono">
+                    <span className="size-1.5 rounded-full bg-emerald-600" />
                     Verified Production
                   </span>
                 </div>
@@ -357,9 +361,9 @@ export default function Home() {
                   ["Spool Latency", "< 500ms Dispatch"],
                   ["Spooler Driver", "Direct Win32 Print Spooler API"],
                 ].map(([label, value]) => (
-                  <div key={label} className="flex justify-between py-1.5 text-xs font-mono border-b border-white/5 last:border-b-0">
-                    <span className="text-slate-400">{label}</span>
-                    <span className={`font-medium ${label === "Spool Latency" ? "text-emerald-400 font-bold" : "text-white"}`}>
+                  <div key={label} className="flex justify-between py-1.5 text-xs font-mono border-b border-slate-100 last:border-b-0">
+                    <span className="text-slate-500">{label}</span>
+                    <span className={`font-medium ${label === "Spool Latency" ? "text-emerald-700 font-bold" : "text-brand-950"}`}>
                       {value}
                     </span>
                   </div>
