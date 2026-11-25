@@ -1064,7 +1064,7 @@ export function MultiImagePageModal({
                 </div>
                 {selectedId && (
                   <p className="text-[10px] text-blue-800 font-medium">
-                    💡 Click any thumbnail above to place it into the selected slot on page.
+                    Click any thumbnail above to place it into the selected slot on page.
                   </p>
                 )}
               </div>
@@ -1574,7 +1574,7 @@ export function MultiImagePageModal({
                       : "border-slate-200 bg-white text-slate-700 hover:bg-slate-100 hover:border-slate-300",
                   )}
                 >
-                  📄 A4 Portrait
+                  A4 Portrait
                 </button>
                 <button
                   type="button"
@@ -1586,7 +1586,7 @@ export function MultiImagePageModal({
                       : "border-slate-200 bg-white text-slate-700 hover:bg-slate-100 hover:border-slate-300",
                   )}
                 >
-                  📑 A4 Landscape
+                  A4 Landscape
                 </button>
               </div>
             </div>

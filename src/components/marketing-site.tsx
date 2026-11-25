@@ -1,10 +1,10 @@
 import Link from "next/link";
-import { ArrowRight, Check, ChevronDown, FileStack, Printer, QrCode, ShieldCheck, Workflow, Zap } from "lucide-react";
+import { Check, ChevronDown } from "lucide-react";
 import type { ReactNode } from "react";
 import { Button } from "@/components/ui/button";
 import { Logo } from "@/components/ui/logo";
 
-/* ─── Section heading (kept for backwards compat, but page.tsx now inlines) ─── */
+/* ─── Section heading ─── */
 export function SectionHeading({
   eyebrow,
   title,
@@ -20,8 +20,8 @@ export function SectionHeading({
 }) {
   return (
     <div className={align === "center" ? "mx-auto max-w-2xl text-center" : "max-w-2xl"}>
-      <p className="text-xs font-semibold uppercase tracking-[0.2em] text-brand-600">{eyebrow}</p>
-      <Heading className="mt-3 text-3xl font-semibold tracking-tight text-brand-950 sm:text-4xl">{title}</Heading>
+      <p className="text-xs font-semibold uppercase tracking-[0.16em] text-brand-700">{eyebrow}</p>
+      <Heading className="mt-3 text-3xl font-bold tracking-tight text-brand-950 sm:text-4xl">{title}</Heading>
       <p className="mt-4 text-base leading-7 text-muted sm:text-lg">{description}</p>
     </div>
   );
@@ -30,38 +30,34 @@ export function SectionHeading({
 /* ─── Footer ─── */
 export function MarketingFooter() {
   return (
-    <footer className="border-t border-white/10 bg-brand-950 text-white relative overflow-hidden">
-      <div className="absolute top-0 right-1/4 -z-10 size-96 rounded-full bg-emerald-600/8 blur-3xl pointer-events-none" />
-
-      <div className="mx-auto grid max-w-7xl gap-8 px-6 py-16 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-[1.3fr_1fr_1fr_1fr_1.1fr] lg:px-8">
+    <footer className="border-t border-brand-900 bg-brand-950 text-white relative">
+      <div className="mx-auto grid max-w-7xl gap-10 px-6 py-16 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-[1.3fr_1fr_1fr_1fr_1.1fr] lg:px-8">
         <div>
           <Link href="/" className="group inline-flex items-center gap-3">
             <div className="relative flex items-center justify-center transition-transform group-hover:scale-105">
-              <Logo size={38} className="shrink-0" />
+              <Logo size={36} className="shrink-0" />
             </div>
-            <span className="text-2xl font-semibold tracking-tight text-white">
-              Print
-              <span className="text-emerald-400">iva</span>
+            <span className="text-xl font-bold tracking-tight text-white">
+              Print<span className="text-brand-400">iva</span>
             </span>
           </Link>
-          <p className="mt-4 max-w-sm text-sm leading-6 text-white/50">
-            Connecting customers with local print shops through QR ordering, automated payments, and native Windows
-            printing.
+          <p className="mt-4 max-w-sm text-sm leading-6 text-slate-300">
+            Automating customer document intake, per-page pricing, UPI payments, and physical Windows printing for local print shops.
           </p>
           <div className="mt-6 flex items-center gap-3">
             <Link
               href="/download"
-              className="inline-flex items-center gap-1.5 rounded-full border border-emerald-500/30 bg-emerald-950/80 px-3 py-1 text-xs font-medium text-emerald-400/90 transition hover:bg-emerald-900/60 hover:text-emerald-300"
+              className="inline-flex items-center gap-2 rounded-lg border border-emerald-500/40 bg-emerald-950/80 px-3 py-1.5 text-xs font-medium text-emerald-300 transition hover:bg-emerald-900/60"
             >
-              <span className="size-1.5 rounded-full bg-emerald-400 animate-pulse" />
-              Download Agent v1.8.34 Live &rarr;
+              <span className="size-1.5 rounded-full bg-emerald-400" />
+              Windows Agent v1.8.34 &rarr;
             </Link>
           </div>
         </div>
 
         <div>
-          <h2 className="text-xs font-semibold uppercase tracking-[0.16em] text-emerald-400/80">Product</h2>
-          <div className="mt-4 space-y-3 text-sm text-white/50">
+          <h2 className="text-xs font-semibold uppercase tracking-[0.16em] text-emerald-400">Product</h2>
+          <div className="mt-4 space-y-2.5 text-sm text-slate-300">
             <Link className="block transition-colors hover:text-white" href="/features">
               Features &amp; Specs
             </Link>
@@ -78,8 +74,8 @@ export function MarketingFooter() {
         </div>
 
         <div>
-          <h2 className="text-xs font-semibold uppercase tracking-[0.16em] text-emerald-400/80">For Shops</h2>
-          <div className="mt-4 space-y-3 text-sm text-white/50">
+          <h2 className="text-xs font-semibold uppercase tracking-[0.16em] text-emerald-400">For Shops</h2>
+          <div className="mt-4 space-y-2.5 text-sm text-slate-300">
             <Link className="block transition-colors hover:text-white" href="/register">
               ₹100 for 7 Days Trial
             </Link>
@@ -96,65 +92,51 @@ export function MarketingFooter() {
         </div>
 
         <div>
-          <h2 className="text-xs font-semibold uppercase tracking-[0.16em] text-emerald-400/80">Customers</h2>
-          <div className="mt-4 space-y-3 text-sm text-white/50">
-            <Link className="block transition-colors hover:text-white" href="/digital-printing-service">
-              Digital Printing Service
-            </Link>
-            <Link className="block transition-colors hover:text-white" href="/shops">
-              Find a Print Shop
-            </Link>
+          <h2 className="text-xs font-semibold uppercase tracking-[0.16em] text-emerald-400">Customers</h2>
+          <div className="mt-4 space-y-2.5 text-sm text-slate-300">
             <Link className="block transition-colors hover:text-white" href="/track">
-              Track Order
+              Track Print Order
             </Link>
-            <Link className="block transition-colors hover:text-white" href="/customer">
-              Order History
+            <Link className="block transition-colors hover:text-white" href="/contact">
+              Support &amp; Feedback
+            </Link>
+            <Link className="block transition-colors hover:text-white" href="/how-it-works">
+              Mobile QR Guide
             </Link>
           </div>
         </div>
 
         <div>
-          <h2 className="text-xs font-semibold uppercase tracking-[0.16em] text-emerald-400/80">Legal &amp; Support</h2>
-          <div className="mt-4 space-y-3 text-sm text-white/50">
-            <Link className="block transition-colors hover:text-white" href="/privacy">
-              Privacy Policy
-            </Link>
-            <Link className="block transition-colors hover:text-white" href="/terms">
-              Terms &amp; Conditions
-            </Link>
-            <Link className="block transition-colors hover:text-white" href="/refund">
-              Refund &amp; Cancellation
-            </Link>
-            <Link className="block transition-colors hover:text-white" href="/shipping">
-              Shipping &amp; Pick-up
-            </Link>
-            <Link className="block transition-colors hover:text-white" href="/contact">
-              Contact &amp; Support
-            </Link>
+          <h2 className="text-xs font-semibold uppercase tracking-[0.16em] text-emerald-400">System</h2>
+          <div className="mt-4 space-y-2 text-xs font-mono text-slate-300">
+            <p>Platform: Windows 10/11 x64</p>
+            <p>Spool Latency: &lt; 500ms</p>
+            <p>Agent Size: &lt; 48 MB RAM</p>
+            <p>Verified: Razorpay &amp; UPI</p>
           </div>
         </div>
       </div>
 
-      <div className="border-t border-white/5">
-        <div className="mx-auto flex max-w-7xl flex-col gap-4 px-6 py-6 text-xs text-white/40 sm:flex-row sm:items-center sm:justify-between lg:px-8">
-          <span>© 2026 Printiva Inc. All rights reserved.</span>
-          <div className="flex flex-wrap items-center gap-x-5 gap-y-2 text-white/40">
+      <div className="border-t border-white/10 bg-black/25">
+        <div className="mx-auto flex max-w-7xl flex-col gap-4 px-6 py-6 text-xs text-slate-400 sm:flex-row sm:items-center sm:justify-between lg:px-8">
+          <span>&copy; 2026 Printiva Inc. All rights reserved.</span>
+          <div className="flex flex-wrap items-center gap-x-5 gap-y-2 text-slate-400">
             <Link className="transition-colors hover:text-white" href="/privacy">
               Privacy
             </Link>
-            <span>·</span>
+            <span>&middot;</span>
             <Link className="transition-colors hover:text-white" href="/terms">
               Terms
             </Link>
-            <span>·</span>
+            <span>&middot;</span>
             <Link className="transition-colors hover:text-white" href="/refund">
               Refunds
             </Link>
-            <span>·</span>
+            <span>&middot;</span>
             <Link className="transition-colors hover:text-white" href="/shipping">
               Delivery
             </Link>
-            <span>·</span>
+            <span>&middot;</span>
             <Link className="transition-colors hover:text-white" href="/contact">
               Contact
             </Link>
@@ -177,40 +159,34 @@ export function MarketingShell({ children }: { children: ReactNode }) {
 /* ─── Feature data ─── */
 export const featureItems = [
   {
-    icon: QrCode,
     title: "Instant QR Entry",
-    body: "Customers scan your counter sticker and land directly on your upload page. No app downloads.",
-    tag: "Mobile-First",
+    body: "Customers scan your counter sticker and open your upload page in any mobile browser. No app to install.",
+    tag: "Counter Intake",
   },
   {
-    icon: FileStack,
-    title: "Multi-Document Staging",
-    body: "Upload PDFs, handouts, and multi-file jobs under one order. Each document has independent specs.",
-    tag: "Batch Support",
+    title: "Multi-Document Batching",
+    body: "Upload multiple PDFs, images, and notes in one order with separate color, page range, and copy settings.",
+    tag: "Batch Queue",
   },
   {
-    icon: Workflow,
-    title: "Smart Page Controls",
-    body: "Color switching, grayscale, page ranges, and paper weights — all configured before payment.",
-    tag: "Precision",
+    title: "Per-Page Print Controls",
+    body: "Page counts, color vs B&W split, duplexing, and paper sizes calculate automatically before checkout.",
+    tag: "Pricing Engine",
   },
   {
-    icon: ShieldCheck,
-    title: "Verified Payments",
-    body: "Integrated Razorpay. Zero manual UPI verification. Jobs unlock only after payment clears.",
-    tag: "Automated",
+    title: "Verified UPI & Cash",
+    body: "Razorpay verifies online UPI payments before spooling, with instant counter cash approval built in.",
+    tag: "Payments",
   },
   {
-    icon: Printer,
-    title: "Native Print Spooler",
-    body: "The Windows Agent speaks directly to thermal, laser, and color printers. No browser dialogs.",
-    tag: "Zero Delay",
+    title: "Native Windows Spooler",
+    body: "A lightweight desktop agent talks straight to Windows printer drivers—no browser Ctrl+P dialogs.",
+    tag: "Desktop Agent",
   },
   {
-    icon: Zap,
-    title: "Auto-Routing",
-    body: "Color pages route to color printers; monochrome jobs to high-speed lasers — automatically.",
-    tag: "Intelligent",
+    title: "Dual-Printer Routing",
+    body: "Color pages route automatically to color printers while B&W sheets route to fast laser machines.",
+    tag: "Smart Routing",
   },
 ];
 
@@ -218,26 +194,17 @@ export const featureItems = [
 export function FeatureGrid({ limit }: { limit?: number }) {
   const items = limit ? featureItems.slice(0, limit) : featureItems;
   return (
-    <div className="grid gap-5 md:grid-cols-2 lg:grid-cols-3">
-      {items.map(({ icon: Icon, title, body, tag }) => (
+    <div className="grid gap-px rounded-2xl border border-line bg-line overflow-hidden md:grid-cols-2 lg:grid-cols-3">
+      {items.map(({ title, body, tag }) => (
         <div
           key={title}
-          className="group relative rounded-2xl border border-line bg-white p-7 transition-all duration-300 hover:-translate-y-1 hover:border-brand-300/60 hover:shadow-xl hover:shadow-emerald-950/[0.04]"
+          className="group bg-white p-7 sm:p-8 transition-colors duration-200 hover:bg-slate-50/70"
         >
-          {/* Hover accent line */}
-          <div className="absolute inset-x-0 top-0 h-px rounded-t-2xl bg-gradient-to-r from-transparent via-brand-500 to-transparent opacity-0 transition-opacity group-hover:opacity-100" />
-
-          <div className="flex items-center justify-between">
-            <div className="flex size-11 items-center justify-center rounded-xl bg-brand-50 text-brand-600 transition-all duration-300 group-hover:bg-brand-600 group-hover:text-white group-hover:shadow-md group-hover:shadow-brand-600/25">
-              <Icon className="size-5" />
-            </div>
-            <span className="rounded-full bg-brand-50 px-2.5 py-0.5 text-[11px] font-medium text-brand-700 border border-brand-100">
-              {tag}
-            </span>
-          </div>
-
-          <h3 className="mt-5 text-lg font-semibold tracking-tight text-brand-950">{title}</h3>
-          <p className="mt-2 text-sm leading-6 text-muted">{body}</p>
+          <p className="font-mono text-[11px] font-medium uppercase tracking-[0.14em] text-brand-700">
+            {tag}
+          </p>
+          <h3 className="mt-3 text-lg font-semibold tracking-tight text-brand-950">{title}</h3>
+          <p className="mt-2 text-sm leading-relaxed text-slate-600">{body}</p>
         </div>
       ))}
     </div>
@@ -247,36 +214,30 @@ export function FeatureGrid({ limit }: { limit?: number }) {
 /* ─── Trial callout ─── */
 export function TrialCallout() {
   return (
-    <section className="relative overflow-hidden py-16 px-6 lg:px-8">
-      <div className="mx-auto max-w-7xl rounded-3xl bg-brand-950 p-8 sm:p-12 lg:p-16 text-white shadow-2xl relative overflow-hidden">
-        <div className="absolute top-0 right-0 size-96 rounded-full bg-emerald-500/15 blur-3xl pointer-events-none" />
-        <div className="absolute bottom-0 left-0 size-96 rounded-full bg-emerald-400/8 blur-3xl pointer-events-none" />
-        <div className="absolute inset-0 bg-[radial-gradient(#22c55e_0.5px,transparent_0.5px)] [background-size:24px_24px] opacity-[0.04]" />
-
-        <div className="relative z-10 flex flex-col gap-8 lg:flex-row lg:items-center lg:justify-between">
+    <section className="py-16 px-6 lg:px-8">
+      <div className="mx-auto max-w-7xl rounded-3xl bg-brand-950 p-8 sm:p-12 lg:p-14 text-white shadow-lg border border-brand-900 relative">
+        <div className="flex flex-col gap-8 lg:flex-row lg:items-center lg:justify-between">
           <div className="max-w-2xl">
-            <p className="text-xs font-semibold uppercase tracking-[0.2em] text-emerald-400">For print shop owners</p>
-            <h2 className="mt-4 text-3xl font-semibold tracking-tight sm:text-4xl text-white">
-              End counter chaos in <span className="font-display italic text-emerald-400">under 5 minutes.</span>
+            <p className="text-xs font-semibold uppercase tracking-[0.18em] text-brand-400">For print shop owners</p>
+            <h2 className="mt-3 text-3xl font-bold tracking-tight sm:text-4xl text-white">
+              End counter chaos in under 5 minutes.
             </h2>
-            <p className="mt-4 text-base leading-7 text-white/60 sm:text-lg">
-              Start with our ₹100 for 7 days trial. Install the agent, print your QR sticker, and watch customer queues
-              flow hands-free.
+            <p className="mt-3 text-base leading-relaxed text-slate-300 sm:text-lg">
+              Start with our ₹100 for 7 days trial. Install the agent, print your QR counter sticker, and automate your queue today.
             </p>
           </div>
 
-          <div className="flex flex-col sm:flex-row gap-4 shrink-0">
-            <Button asChild size="lg" variant="secondary" className="shadow-lg">
-              <Link href="/register" className="group">
-                ₹100 for 7 Days Trial
-                <ArrowRight className="size-4 transition-transform group-hover:translate-x-1" />
+          <div className="flex flex-col sm:flex-row gap-3.5 shrink-0">
+            <Button asChild size="lg" variant="primary">
+              <Link href="/register">
+                Start ₹100 for 7 Days Trial
               </Link>
             </Button>
             <Link
               href="/download"
-              className="inline-flex items-center justify-center gap-2 rounded-xl border border-white/15 bg-white/5 px-6 py-3 text-sm font-medium text-white/80 transition-all hover:bg-white/10 hover:text-white"
+              className="inline-flex items-center justify-center gap-2 rounded-xl border border-white/20 bg-white/10 px-6 py-3 text-sm font-semibold text-white transition-all hover:bg-white/15"
             >
-              Download Agent
+              Download Windows Agent
             </Link>
           </div>
         </div>
@@ -292,56 +253,55 @@ export function FaqList({ items = faqItems }: { items?: ReadonlyArray<FaqItem> }
   return (
     <div className="divide-y divide-line rounded-2xl border border-line bg-white">
       {items.map(([question, answer]) => (
-        <details key={question} className="group p-6 transition-colors hover:bg-brand-50/30">
-          <summary className="flex cursor-pointer list-none items-center justify-between gap-4 text-base font-semibold text-brand-950 sm:text-lg">
+        <details key={question} className="group p-6 transition-colors hover:bg-slate-50/50">
+          <summary className="flex cursor-pointer list-none items-center justify-between gap-4 text-base font-bold text-brand-950 sm:text-lg">
             <span>{question}</span>
-            <ChevronDown className="size-5 shrink-0 text-brand-400 transition-transform duration-300 group-open:rotate-180" />
+            <ChevronDown className="size-5 shrink-0 text-slate-400 transition-transform duration-200 group-open:rotate-180" />
           </summary>
-          <p className="mt-3 max-w-3xl text-sm leading-7 text-muted sm:text-base">{answer}</p>
+          <p className="mt-3 max-w-3xl text-sm leading-relaxed text-muted sm:text-base">{answer}</p>
         </details>
       ))}
     </div>
   );
 }
 
-// Exported so pages can emit FAQPage structured data that matches the visible answers.
 export const faqItems: FaqItem[] = [
-    [
-      "What is Printiva print automation software?",
-      "Printiva is India's leading print automation software and photocopy management system for xerox shops, cyber cafes, and commercial printers. It automates customer document upload via mobile QR code, auto-prices pages, verifies online UPI or counter payments, and prints directly on your physical Windows printer without manual clicks.",
-    ],
-    [
-      "Can I use Printiva as photocopy software in my xerox shop?",
-      "Yes. Printiva is purpose-built as photocopy software for xerox centers. Customers scan your counter QR code, configure color (B&W or Color), paper size (A4/A3), copies, and single or double-sided printing, eliminating manual page-counting and WhatsApp file chaos completely.",
-    ],
-    [
-      "Which printers are compatible with Printiva printing software?",
-      "Printiva works seamlessly with any standard monochrome or color laser/inkjet printer from HP, Canon, Epson, Brother, Ricoh, or Konica Minolta connected to a 64-bit Windows 10 or 11 PC via USB, Wi-Fi, Ethernet, or WSD network protocols.",
-    ],
-    [
-      "How does automatic printing work?",
-      "Customers scan your counter QR, upload documents, and pay online or at the counter. Once confirmed, the Windows Desktop Agent picks up the job and commands the Windows Print Spooler to feed paper in ~300ms–500ms.",
-    ],
-    [
-      "How does Printiva solve the WhatsApp printing problem?",
-      "Traditional print shops waste 60% of their time downloading files from WhatsApp, clogging phone memory, checking fake payment screenshots, and opening print dialogs manually. Printiva replaces WhatsApp with a clean browser QR workflow with zero app installation needed.",
-    ],
-    [
-      "Do I need a separate machine?",
-      "No. The agent runs silently on any Windows 10/11 PC connected to your printers. It uses less than 48MB RAM and stays in your system tray.",
-    ],
-    [
-      "How are payments handled?",
-      "Payments go through Razorpay directly to your account. Each transaction is validated cryptographically before any print payload is sent. Offline counter cash payments with token queue management are also fully supported.",
-    ],
-    [
-      "What file formats work?",
-      "PDF is fully supported with native rendering and page extraction. Word documents (DOCX), images (JPEG, PNG, WEBP), and presentations are converted into print-ready streams.",
-    ],
-    [
-      "What does it cost after the trial?",
-      "₹100 for 7 days trial. Then ₹699/month or ₹7,499/year with full support, unlimited orders, and automatic agent updates.",
-    ],
+  [
+    "What is Printiva print automation software?",
+    "Printiva is India's leading print automation software and photocopy management system for xerox shops, cyber cafes, and commercial printers. It automates customer document upload via mobile QR code, auto-prices pages, verifies online UPI or counter payments, and prints directly on your physical Windows printer without manual clicks.",
+  ],
+  [
+    "Can I use Printiva as photocopy software in my xerox shop?",
+    "Yes. Printiva is purpose-built as photocopy software for xerox centers. Customers scan your counter QR code, configure color (B&W or Color), paper size (A4/A3), copies, and single or double-sided printing, eliminating manual page-counting and WhatsApp file chaos completely.",
+  ],
+  [
+    "Which printers are compatible with Printiva printing software?",
+    "Printiva works seamlessly with any standard monochrome or color laser/inkjet printer from HP, Canon, Epson, Brother, Ricoh, or Konica Minolta connected to a 64-bit Windows 10 or 11 PC via USB, Wi-Fi, Ethernet, or WSD network protocols.",
+  ],
+  [
+    "How does automatic printing work?",
+    "Customers scan your counter QR, upload documents, and pay online or at the counter. Once confirmed, the Windows Desktop Agent picks up the job and commands the Windows Print Spooler to feed paper in ~300ms–500ms.",
+  ],
+  [
+    "How does Printiva solve the WhatsApp printing problem?",
+    "Traditional print shops waste 60% of their time downloading files from WhatsApp, clogging phone memory, checking fake payment screenshots, and opening print dialogs manually. Printiva replaces WhatsApp with a clean browser QR workflow with zero app installation needed.",
+  ],
+  [
+    "Do I need a separate machine?",
+    "No. The agent runs silently on any Windows 10/11 PC connected to your printers. It uses less than 48MB RAM and stays in your system tray.",
+  ],
+  [
+    "How are payments handled?",
+    "Payments go through Razorpay directly to your account. Each transaction is validated cryptographically before any print payload is sent. Offline counter cash payments with token queue management are also fully supported.",
+  ],
+  [
+    "What file formats work?",
+    "PDF is fully supported with native rendering and page extraction. Word documents (DOCX), images (JPEG, PNG, WEBP), and presentations are converted into print-ready streams.",
+  ],
+  [
+    "What does it cost after the trial?",
+    "₹100 for 7 days trial. Then ₹699/month or ₹7,499/year with full support, unlimited orders, and automatic agent updates.",
+  ],
 ];
 
 /* ─── 4-Step workflow ─── */
@@ -349,59 +309,49 @@ export function Steps() {
   const steps = workflowSteps;
 
   return (
-    <div className="grid gap-5 sm:grid-cols-2 lg:grid-cols-4">
-      {steps.map(({ num, title, desc, icon: Icon }, idx) => (
+    <div className="grid gap-px rounded-2xl border border-line bg-line overflow-hidden sm:grid-cols-2 lg:grid-cols-4">
+      {steps.map(({ num, title, desc }) => (
         <div
           key={num}
-          className="group relative rounded-2xl border border-line bg-white p-6 transition-all duration-300 hover:-translate-y-1 hover:shadow-lg hover:border-brand-300/50"
+          className="group bg-white p-7 sm:p-8 flex flex-col justify-between transition-colors duration-200 hover:bg-slate-50/70"
         >
-          <div className="flex items-center justify-between">
-            <span className="font-mono text-3xl font-semibold text-brand-200 group-hover:text-brand-400 transition-colors">
-              {num}
-            </span>
-            <div className="flex size-10 items-center justify-center rounded-xl bg-brand-50 text-brand-600 group-hover:bg-brand-600 group-hover:text-white transition-all">
-              <Icon className="size-5" />
+          <div>
+            <div className="flex items-center justify-between">
+              <span className="font-mono text-xs font-semibold tracking-[0.16em] text-brand-700">
+                STEP {num}
+              </span>
+              <span className="h-0.5 w-5 rounded-full bg-brand-600/30 transition-all duration-200 group-hover:w-9 group-hover:bg-brand-600" />
             </div>
+            <h3 className="mt-5 text-base font-semibold tracking-tight text-brand-950">{title}</h3>
+            <p className="mt-2 text-sm leading-relaxed text-slate-600">{desc}</p>
           </div>
-          <h3 className="mt-5 text-lg font-semibold text-brand-950">{title}</h3>
-          <p className="mt-2 text-sm leading-6 text-muted">{desc}</p>
-          {idx < steps.length - 1 ? (
-            <div className="hidden lg:block absolute -right-3 top-1/2 -translate-y-1/2 z-10">
-              <ArrowRight className="size-5 text-brand-200" />
-            </div>
-          ) : null}
         </div>
       ))}
     </div>
   );
 }
 
-// Exported so the how-it-works page can emit HowTo structured data from the same steps.
 export const workflowSteps = [
-    {
-      num: "01",
-      title: "Scan Counter QR",
-      desc: "Customer scans your shop sticker with any smartphone camera. No app needed.",
-      icon: QrCode,
-    },
-    {
-      num: "02",
-      title: "Upload & Preview",
-      desc: "Upload PDFs or images. Auto page-count and color options display instantly.",
-      icon: FileStack,
-    },
-    {
-      num: "03",
-      title: "Confirm & Pay",
-      desc: "Automated pricing based on your rates. Instant UPI or card via Razorpay.",
-      icon: ShieldCheck,
-    },
-    {
-      num: "04",
-      title: "Agent Auto-Prints",
-      desc: "Agent fetches the job in 2 seconds and triggers your local printer spooler.",
-      icon: Printer,
-    },
+  {
+    num: "01",
+    title: "Scan Counter QR",
+    desc: "Customer scans your desk QR sticker with any phone camera. No app to download.",
+  },
+  {
+    num: "02",
+    title: "Upload & Preview",
+    desc: "They upload PDFs or images, inspect page counts, and pick B&W or color options.",
+  },
+  {
+    num: "03",
+    title: "Pay Upfront",
+    desc: "Per-page total calculates live. Paid via verified Razorpay UPI or counter cash.",
+  },
+  {
+    num: "04",
+    title: "Print Automatically",
+    desc: "Windows Desktop Agent spools paid files straight to your printer in under 2 seconds.",
+  },
 ];
 
 export function CheckList({ items }: { items: string[] }) {
@@ -409,7 +359,7 @@ export function CheckList({ items }: { items: string[] }) {
     <ul className="space-y-3">
       {items.map((item) => (
         <li key={item} className="flex gap-3 text-sm leading-6 text-muted">
-          <Check className="mt-0.5 size-4 shrink-0 text-brand-600" />
+          <Check className="mt-0.5 size-4 shrink-0 text-brand-700" />
           {item}
         </li>
       ))}

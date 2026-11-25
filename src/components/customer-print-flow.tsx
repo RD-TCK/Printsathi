@@ -3302,8 +3302,8 @@ function ConfigureAndCropStep({
               className="w-full flex items-center justify-between gap-3 rounded-2xl border-2 border-dashed border-amber-300 bg-gradient-to-r from-amber-50 to-orange-50/60 p-3.5 text-xs font-bold text-amber-950 hover:from-amber-100 hover:to-orange-100 transition active:scale-[0.99] cursor-pointer shadow-2xs"
             >
               <div className="flex items-center gap-3">
-                <div className="flex size-9 shrink-0 items-center justify-center rounded-xl bg-amber-200/80 text-lg shadow-inner">
-                  🎨
+                <div className="flex size-9 shrink-0 items-center justify-center rounded-xl bg-amber-200/80 text-amber-900 shadow-inner">
+                  <Palette className="size-4.5" />
                 </div>
                 <div className="text-left">
                   <div className="font-extrabold text-amber-950 text-sm">Pehla page color chahiye?</div>
@@ -3623,42 +3623,34 @@ function ConfigureAndCropStep({
 
 const TURBO_PRINT_FACTS = [
   {
-    icon: "⚡",
     tag: "ZERO-DELAY PRINT ENGINE",
     text: "The shop's local engine is pre-caching your document into high-speed memory right now. When approved at counter, printing kicks off in 0.0 seconds!",
   },
   {
-    icon: "🖨️",
     tag: "HIGH-SPEED PRINTING",
     text: "Modern laser printers use polygon mirror scanners spinning at over 30,000 RPM to draw your pages with microsecond precision!",
   },
   {
-    icon: "🎨",
     tag: "CAMPUS HACK",
     text: "Printing a project report? Use 'Pehla page color chahiye?' to print the cover page in vibrant color while keeping body pages low-cost B&W!",
   },
   {
-    icon: "🌲",
     tag: "SAVE PAPER & TREES",
     text: "Selecting double-sided printing saves up to 50% paper, cuts report weight in half, and is better for the planet!",
   },
   {
-    icon: "📸",
     tag: "SCREENSHOT READY",
     text: "Once your token appears, take a quick screenshot so you can flash it at the counter even without mobile internet!",
   },
   {
-    icon: "📜",
     tag: "HISTORICAL FACT",
     text: "The word 'paper' comes from the ancient Egyptian 'papyrus', but true papermaking was invented in 105 AD by Cai Lun in China!",
   },
   {
-    icon: "🔥",
     tag: "INSTANT ROLLER HEAT",
     text: "Laser printers use ceramic fuser rollers heated to 200°C to permanently melt toner polymer particles directly into the paper fibers!",
   },
   {
-    icon: "⚡",
     tag: "NO MORE WAITING",
     text: "Printiva eliminates the pen-and-paper queue: your exact pages and settings are securely transmitted directly to the physical tray!",
   },
@@ -4042,7 +4034,7 @@ function CounterTokenStep({
           </div>
           <div>
             <p className="text-xs sm:text-base font-black tracking-tight text-amber-950">
-              📸 Please take a screenshot of your token number!
+              Please take a screenshot of your token number!
             </p>
             <p className="text-[11px] sm:text-xs text-amber-800 leading-snug sm:leading-relaxed mt-0.5">
               Take a screenshot now or save Token <b>#{tokenDetails.tokenNumber}</b> to show at the counter.
@@ -4130,8 +4122,9 @@ function CounterTokenStep({
           </div>
           <div className="mt-1.5 flex items-baseline gap-2">
             {isCompleted ? (
-              <span className="font-mono text-xl sm:text-2xl font-black text-emerald-700">
-                Printed ✓
+              <span className="font-mono text-xl sm:text-2xl font-black text-emerald-700 inline-flex items-center gap-1.5">
+                <CheckCircle2 className="size-5 text-emerald-600 inline" />
+                <span>Printed</span>
               </span>
             ) : (
               <>
@@ -4816,8 +4809,9 @@ function RecentTokensModal({
                         </div>
 
                         {token.documentNames && token.documentNames.length > 0 && (
-                          <p className="mt-2 text-[11px] text-slate-500 truncate border-t border-emerald-200/60 pt-2">
-                            📄 {token.documentNames.join(", ")}
+                          <p className="mt-2 text-[11px] text-slate-500 truncate border-t border-emerald-200/60 pt-2 inline-flex items-center gap-1 w-full">
+                            <FileText className="size-3 text-slate-400 shrink-0" />
+                            <span className="truncate">{token.documentNames.join(", ")}</span>
                           </p>
                         )}
 
@@ -5031,21 +5025,23 @@ function PriceChartModal({
               type="button"
               onClick={() => setFilterMode("black_and_white")}
               className={cn(
-                "flex-1 py-1.5 text-xs font-bold rounded-lg transition text-center cursor-pointer",
+                "flex-1 py-1.5 text-xs font-bold rounded-lg transition text-center cursor-pointer inline-flex items-center justify-center gap-1.5",
                 filterMode === "black_and_white" ? "bg-white text-emerald-800 shadow-2xs" : "text-slate-600 hover:text-slate-900",
               )}
             >
-              📄 B&amp;W ({bwRules.length})
+              <FileText className="size-3 text-slate-500" />
+              <span>B&amp;W ({bwRules.length})</span>
             </button>
             <button
               type="button"
               onClick={() => setFilterMode("color")}
               className={cn(
-                "flex-1 py-1.5 text-xs font-bold rounded-lg transition text-center cursor-pointer",
+                "flex-1 py-1.5 text-xs font-bold rounded-lg transition text-center cursor-pointer inline-flex items-center justify-center gap-1.5",
                 filterMode === "color" ? "bg-white text-amber-900 shadow-2xs" : "text-slate-600 hover:text-slate-900",
               )}
             >
-              🎨 Color ({colorRules.length})
+              <Palette className="size-3 text-amber-600" />
+              <span>Color ({colorRules.length})</span>
             </button>
           </div>
         </div>
@@ -5069,7 +5065,7 @@ function PriceChartModal({
                         isColor ? "bg-amber-100 text-amber-800" : "bg-slate-100 text-slate-800",
                       )}
                     >
-                      {isColor ? "🎨" : "📄"}
+                      {isColor ? <Palette className="size-4 text-amber-700" /> : <FileText className="size-4 text-slate-600" />}
                     </div>
                     <div className="min-w-0">
                       <div className="flex items-center gap-1.5 flex-wrap">

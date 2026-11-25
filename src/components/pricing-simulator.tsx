@@ -107,8 +107,8 @@ export function PricingSimulator({ rules }: { rules: Rule[] }) {
               value={side}
               onChange={(e) => setSide(e.target.value as "single_sided" | "double_sided")}
             >
-              <option value="single_sided">📄 Single-Sided</option>
-              <option value="double_sided">📑 Double-Sided</option>
+              <option value="single_sided">Single-Sided (1-Side)</option>
+              <option value="double_sided">Double-Sided (Duplex / 2-Side)</option>
             </select>
           </div>
           <div>
@@ -193,7 +193,7 @@ export function PricingSimulator({ rules }: { rules: Rule[] }) {
               ))}
               {!matchedRule ? (
                 <div className="rounded border border-amber-300 bg-amber-50 px-2.5 py-1.5 text-amber-800 font-medium">
-                  ⚠️ {pages} pages not covered by any active tier rule.
+                  Notice: {pages} pages not covered by any active tier rule.
                 </div>
               ) : null}
             </div>

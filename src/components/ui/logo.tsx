@@ -56,8 +56,7 @@ export function Logo({ size = 36, className = "", ...props }: LogoProps) {
         {/* Inner cutout of the "P" - transparent negative space */}
         <path
           d="M44 28H56C61.5228 28 66 32.4772 66 38C66 43.5228 61.5228 48 56 48H44V28Z"
-          fill="var(--canvas, #ffffff)"
-          className="fill-white"
+          fill="var(--canvas, #fafcfa)"
         />
 
         {/* Elegant modern print-line / paper corner micro-accent inside the loop */}

@@ -24,12 +24,12 @@ type AspectRatioOption = {
 };
 
 const ASPECT_RATIOS: AspectRatioOption[] = [
-  { id: "a4_portrait", label: "📄 A4 Portrait (Standard Page)", ratio: 1 / 1.414 },
-  { id: "a4_landscape", label: "📑 A4 Landscape (Wide Page)", ratio: 1.414 },
-  { id: "original", label: "🖼️ Original Photo Ratio", ratio: null },
-  { id: "square", label: "🔲 1:1 Square", ratio: 1 },
-  { id: "standard_4_3", label: "📺 4:3 Standard", ratio: 4 / 3 },
-  { id: "widescreen_16_9", label: "🖥️ 16:9 Widescreen", ratio: 16 / 9 },
+  { id: "a4_portrait", label: "A4 Portrait (Standard)", ratio: 1 / 1.414 },
+  { id: "a4_landscape", label: "A4 Landscape (Wide)", ratio: 1.414 },
+  { id: "original", label: "Original Aspect Ratio", ratio: null },
+  { id: "square", label: "1:1 Square", ratio: 1 },
+  { id: "standard_4_3", label: "4:3 Standard Photo", ratio: 4 / 3 },
+  { id: "widescreen_16_9", label: "16:9 Widescreen", ratio: 16 / 9 },
 ];
 
 type CropMode = "page_preset" | "portion_select";
@@ -534,7 +534,7 @@ export function ImageCropperModal({ isOpen, imageUrl, filename, onClose, onApply
             )}
           >
             <BoxSelect className="size-4 text-emerald-600" />
-            <span>✂️ Select Portion / Snippet</span>
+            <span>Select Portion / Snippet</span>
           </button>
 
           <button

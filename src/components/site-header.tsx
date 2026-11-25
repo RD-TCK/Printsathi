@@ -1,112 +1,180 @@
 "use client";
 
 import Link from "next/link";
-import { ArrowRight, Download, Menu, X } from "lucide-react";
-import { useState } from "react";
-import { Button } from "@/components/ui/button";
+import { Menu, X } from "lucide-react";
+import { useEffect, useState } from "react";
 import { Logo } from "@/components/ui/logo";
+import { cn } from "@/lib/utils";
 
 export function SiteHeader() {
   const [open, setOpen] = useState(false);
+  const [scrolled, setScrolled] = useState(false);
+
+  useEffect(() => {
+    let rafId = 0;
+    const updateScrollState = () => {
+      rafId = 0;
+      const y = window.scrollY;
+      setScrolled((prev) => (prev ? y > 10 : y > 24));
+    };
+
+    const handleScroll = () => {
+      if (!rafId) {
+        rafId = window.requestAnimationFrame(updateScrollState);
+      }
+    };
+
+    updateScrollState();
+    window.addEventListener("scroll", handleScroll, { passive: true });
+    return () => {
+      window.removeEventListener("scroll", handleScroll);
+      if (rafId) window.cancelAnimationFrame(rafId);
+    };
+  }, []);
 
   return (
-    <header className="sticky top-0 z-50 border-b border-line/80 bg-white/80 backdrop-blur-xl transition-all duration-200 shadow-[0_1px_8px_-2px_rgba(0,0,0,0.06)]">
-      <div className="mx-auto flex h-16 max-w-7xl items-center justify-between px-6 lg:px-8">
-        {/* Brand */}
-        <Link href="/" className="group flex items-center gap-2.5 outline-none">
-          <div className="relative flex items-center justify-center transition-transform duration-300 group-hover:scale-105 group-active:scale-95">
-            <Logo size={32} className="shrink-0" />
-          </div>
-          <span className="text-lg font-semibold tracking-tight text-brand-950">
-            Print<span className="text-brand-600">iva</span>
-          </span>
-        </Link>
+    <>
+      {/* Invisible spacer in flow (exactly 64px / h-16) so page content never jumps */}
+      <div className="h-16 w-full shrink-0" aria-hidden="true" />
 
-        {/* Desktop nav */}
-        <nav className="hidden items-center gap-1 md:flex">
-          {[
-            { label: "Features", href: "/features" },
-            { label: "How it works", href: "/how-it-works" },
-            { label: "Pricing", href: "/pricing" },
-            { label: "Download Agent", href: "/download" },
-          ].map((item) => (
+      {/* Header Shell: interpolates padding & width smoothly instead of snapping max-w-none <-> max-w-6xl */}
+      <header
+        className={cn(
+          "fixed top-0 inset-x-0 z-50 pointer-events-none transition-[padding] duration-[420ms] ease-[cubic-bezier(0.22,1,0.36,1)]",
+          scrolled
+            ? "pt-3 px-3 sm:pt-4 sm:px-6 lg:px-10 xl:px-[calc(50%-560px)]"
+            : "pt-0 px-0"
+        )}
+      >
+        <div
+          className={cn(
+            "w-full flex items-center justify-between pointer-events-auto select-none backdrop-blur-xl border transition-[height,padding,border-radius,background-color,border-color,box-shadow] duration-[420ms] ease-[cubic-bezier(0.22,1,0.36,1)]",
+            scrolled
+              ? "h-14 px-4 sm:px-6 rounded-[28px] bg-white/92 border-slate-200/80 shadow-[0_12px_36px_rgba(15,26,18,0.1)]"
+              : "h-16 px-6 lg:px-10 xl:px-12 rounded-none bg-[#fafaf8]/95 border-t-transparent border-x-transparent border-b-[#e7e3dc]/80 shadow-[0_1px_8px_-3px_rgba(15,26,18,0.04)]"
+          )}
+        >
+          {/* ━━━ Left: Brand / Logo (Completely to the left) ━━━ */}
+          <Link href="/" className="group flex items-center gap-2.5 outline-none shrink-0">
+            <div className="relative flex items-center justify-center transition-transform duration-300 group-hover:scale-105 group-active:scale-95">
+              <Logo size={28} className="shrink-0" />
+            </div>
+            <div className="flex items-baseline gap-1.5">
+              <span className="text-lg font-bold tracking-tight text-brand-950">
+                Print<span className="text-brand-600">iva</span>
+              </span>
+              <span className="hidden sm:inline-block font-display text-xs text-muted/75 tracking-normal select-none">
+                press &amp; counter
+              </span>
+            </div>
+          </Link>
+
+          {/* ━━━ Right: Everything else (Nav Links + Divider + Login + Right-Most ₹100 Trial) ━━━ */}
+          <div className="hidden items-center gap-3 lg:gap-5 md:flex">
+            {/* Navigation Links */}
+            <nav className="flex items-center gap-0.5 lg:gap-1">
+              {[
+                { label: "Features", href: "/features" },
+                { label: "How it works", href: "/how-it-works" },
+                { label: "Pricing", href: "/pricing" },
+              ].map((item) => (
+                <Link
+                  key={item.label}
+                  className="rounded-lg px-3 py-1.5 text-[13px] font-medium text-slate-600 transition-colors hover:bg-black/[0.04] hover:text-brand-950"
+                  href={item.href}
+                  prefetch={true}
+                >
+                  {item.label}
+                </Link>
+              ))}
+
+              {/* Windows Agent with micro-badge */}
+              <Link
+                className="group flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-[13px] font-medium text-slate-600 transition-colors hover:bg-black/[0.04] hover:text-brand-950"
+                href="/download"
+                prefetch={true}
+              >
+                <span>Windows Agent</span>
+                <span className="rounded bg-brand-100/70 px-1.5 py-0.5 text-[10px] font-mono font-medium text-brand-800 border border-brand-200/60 transition-colors group-hover:bg-brand-200/70">
+                  v1.8
+                </span>
+              </Link>
+            </nav>
+
+            {/* Clean Vertical Divider */}
+            <div className="h-4 w-px bg-slate-300/70" />
+
+            {/* Shop Login */}
             <Link
-              key={item.label}
-              className="rounded-lg px-3.5 py-2 text-[13px] font-medium text-muted transition-colors hover:bg-brand-50 hover:text-brand-950"
-              href={item.href}
+              className="px-2.5 py-1.5 text-[13px] font-medium text-slate-600 transition-colors hover:text-brand-950"
+              href="/login"
               prefetch={true}
             >
-              {item.label}
+              Shop login
             </Link>
-          ))}
-        </nav>
 
-        {/* Desktop CTA */}
-        <div className="hidden items-center gap-3 md:flex">
-          <Link
-            className="inline-flex items-center gap-1.5 rounded-lg border border-brand-200 bg-brand-50/70 px-3 py-1.5 text-[13px] font-semibold text-brand-800 transition hover:bg-brand-100 hover:text-brand-950"
-            href="/download"
-            prefetch={true}
-          >
-            <Download className="size-3.5 text-brand-600" />
-            Download
-          </Link>
-          <Link
-            className="px-3 py-2 text-[13px] font-medium text-muted transition-colors hover:text-brand-950"
-            href="/login"
-            prefetch={true}
-          >
-            Sign in
-          </Link>
-          <Button asChild size="sm" variant="primary">
-            <Link href="/register" prefetch={true} className="group">
-              ₹100 for 7 Days Trial
-              <ArrowRight className="size-3.5 transition-transform group-hover:translate-x-0.5" />
+            {/* ━━━ Right-Most: ₹100 for 7 Days Trial CTA Button ━━━ */}
+            <Link
+              href="/register"
+              prefetch={true}
+              className="group relative inline-flex items-center justify-center overflow-hidden rounded-full bg-brand-950 px-3.5 py-1.5 text-xs font-semibold text-brand-50 shadow-xs hover:bg-brand-900 active:scale-[0.98] transition-all border border-brand-800/80 shrink-0"
+            >
+              <span>₹100 for 7 Days Trial</span>
             </Link>
-          </Button>
+          </div>
+
+          {/* ━━━ Mobile Menu Toggle ━━━ */}
+          <button
+            className="flex size-9 items-center justify-center rounded-lg border border-[#e7e3dc] bg-white/90 text-brand-900 transition-colors hover:bg-[#f2eee6] active:scale-95 md:hidden pointer-events-auto"
+            aria-label={open ? "Close menu" : "Open menu"}
+            onClick={() => setOpen(!open)}
+          >
+            {open ? <X className="size-4" /> : <Menu className="size-4" />}
+          </button>
         </div>
 
-        {/* Mobile toggle */}
-        <button
-          className="flex size-9 items-center justify-center rounded-lg border border-line bg-white text-brand-900 transition-colors hover:bg-brand-50 active:scale-95 md:hidden"
-          aria-label={open ? "Close menu" : "Open menu"}
-          onClick={() => setOpen(!open)}
-        >
-          {open ? <X className="size-4" /> : <Menu className="size-4" />}
-        </button>
-      </div>
-
-      {/* Mobile menu */}
-      {open ? (
-        <div className="border-t border-line bg-white px-6 py-6 md:hidden">
-          <nav className="flex flex-col gap-1">
-            {[
-              ["Features", "/features"],
-              ["How it works", "/how-it-works"],
-              ["Pricing", "/pricing"],
-              ["Download Windows Agent", "/download"],
-              ["Sign in", "/login"],
-            ].map(([label, href]) => (
-              <Link
-                key={label}
-                href={href}
-                prefetch={true}
-                onClick={() => setOpen(false)}
-                className="rounded-lg p-3 text-sm font-medium text-brand-950 hover:bg-brand-50"
-              >
-                {label}
-              </Link>
-            ))}
-            <div className="pt-3">
-              <Button asChild className="w-full">
-                <Link href="/register" prefetch={true} onClick={() => setOpen(false)}>
-                  ₹100 for 7 Days Trial
+        {/* ━━━ Mobile Menu Dropdown ━━━ */}
+        {open ? (
+          <div
+            className={cn(
+              "md:hidden transition-all duration-[420ms] ease-[cubic-bezier(0.22,1,0.36,1)] pointer-events-auto",
+              scrolled
+                ? "mt-2 w-full rounded-2xl border border-slate-200/80 bg-white/95 backdrop-blur-xl p-5 shadow-2xl"
+                : "w-full border-b border-[#e7e3dc] bg-[#fafaf8]/98 backdrop-blur-xl px-6 py-5 shadow-lg"
+            )}
+          >
+            <nav className="flex flex-col gap-1">
+              {[
+                ["Features", "/features"],
+                ["How it works", "/how-it-works"],
+                ["Pricing", "/pricing"],
+                ["Download Windows Agent", "/download"],
+                ["Shopkeeper Login", "/login"],
+              ].map(([label, href]) => (
+                <Link
+                  key={label}
+                  href={href}
+                  prefetch={true}
+                  onClick={() => setOpen(false)}
+                  className="rounded-lg p-3 text-sm font-medium text-brand-950 hover:bg-[#f2eee6] transition-colors"
+                >
+                  {label}
                 </Link>
-              </Button>
-            </div>
-          </nav>
-        </div>
-      ) : null}
-    </header>
+              ))}
+              <div className="pt-3">
+                <Link
+                  href="/register"
+                  prefetch={true}
+                  onClick={() => setOpen(false)}
+                  className="flex items-center justify-center rounded-full bg-brand-950 px-4 py-3 text-sm font-semibold text-brand-50 shadow-xs active:scale-[0.98] transition-all"
+                >
+                  <span>₹100 for 7 Days Trial</span>
+                </Link>
+              </div>
+            </nav>
+          </div>
+        ) : null}
+      </header>
+    </>
   );
 }

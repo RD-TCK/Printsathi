@@ -357,9 +357,9 @@ function SingleDocPreviewSection({
               <p className="text-[10px] sm:text-[11px] text-slate-500 flex items-center gap-1.5 flex-wrap">
                 <span>{totalCopies} {totalCopies === 1 ? "Copy" : "Copies"}</span>
                 <span>•</span>
-                <span>{doc.ranges[0]?.colorMode === "color" ? "🎨 Color" : "📄 Black & White"}</span>
+                <span>{doc.ranges[0]?.colorMode === "color" ? "Color" : "Black & White"}</span>
                 <span>•</span>
-                <span>{doc.ranges[0]?.sideMode === "double_sided" ? "📑 2-Sided" : "📄 1-Sided"}</span>
+                <span>{doc.ranges[0]?.sideMode === "double_sided" ? "2-Sided" : "1-Sided"}</span>
                 <span>•</span>
                 <span className="text-emerald-700 font-semibold flex items-center gap-0.5">
                   <CheckCircle2 className="size-3" /> Ready for Printing
@@ -558,7 +558,7 @@ function SingleDocPreviewSection({
                             : "bg-slate-100 text-slate-700 border border-slate-200/60",
                         )}
                       >
-                        {isColor ? "🎨 Color" : "📄 B&W"}
+                        {isColor ? "Color" : "B&W"}
                       </span>
                     ) : (
                       <span className="text-[8.5px] font-bold text-slate-400">Skipped</span>
@@ -615,7 +615,7 @@ function SingleDocPreviewSection({
                   {/* Sheet Footer Details */}
                   <div className="flex items-center justify-between border-t border-slate-100 pt-1 text-[8.5px] sm:text-[9px]">
                     <span className="font-semibold text-slate-500 truncate">
-                      {isDuplex ? "📑 2-Side" : "📄 1-Side"}
+                      {isDuplex ? "2-Sided" : "1-Sided"}
                     </span>
                     {isIncluded ? (
                       <span className="font-extrabold text-emerald-700 flex items-center gap-0.5 shrink-0">
@@ -812,7 +812,7 @@ function AllDocsSideBySidePreviewSection({
                         isColor ? "bg-emerald-50 text-emerald-800 border border-emerald-200/80" : "bg-slate-100 text-slate-700 border border-slate-200"
                       )}
                     >
-                      {isColor ? "🎨 Color" : "📄 B&W"}
+                      {isColor ? "Color" : "B&W"}
                     </span>
                     <span className="rounded-md bg-slate-100 border border-slate-200 px-1.5 py-0.5 font-bold text-slate-600 text-[8.5px]">
                       {totalCopies}x copy
@@ -1276,16 +1276,16 @@ export function PrintPreviewStep({
                           : "bg-white text-slate-500 border border-slate-200",
                       )}
                     >
-                      {isIncluded ? "🟢 Included in Print" : "⚪ Excluded (Skipped)"}
+                      {isIncluded ? "Included in Print" : "Excluded (Skipped)"}
                     </span>
                     {isIncluded && (
                       <span className="rounded-full bg-emerald-50 text-emerald-800 border border-emerald-200/90 px-3 py-1 font-bold shadow-2xs">
-                        {isColor ? "🎨 Full Color" : "📄 B&W Grayscale"}
+                        {isColor ? "Full Color" : "B&W Grayscale"}
                       </span>
                     )}
                     {isIncluded && (
                       <span className="rounded-full bg-white text-slate-700 border border-slate-200 px-3 py-1 font-semibold shadow-2xs">
-                        {isDuplex ? "📑 Double Sided" : "📄 Single Sided"}
+                        {isDuplex ? "Double Sided" : "Single Sided"}
                       </span>
                     )}
                   </div>

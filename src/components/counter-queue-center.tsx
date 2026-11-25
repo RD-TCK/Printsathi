@@ -13,6 +13,8 @@ import {
   RotateCw,
   Layers,
   Trash2,
+  FileText,
+  AlertTriangle,
 } from "lucide-react";
 
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
@@ -396,14 +398,18 @@ export function CounterQueueCenter({ shopName }: { shopName: string }) {
                       </div>
 
                       {/* Total pages and side details */}
-                      <p className="mt-1 text-sm font-bold text-slate-900">
-                        📄 {item.totalPages} Pages ({totalSheets} Sheets) · {item.blackAndWhitePages} B&amp;W,{" "}
-                        {item.colorPages} Color
+                      <p className="mt-1 text-sm font-bold text-slate-900 inline-flex items-center gap-1.5 flex-wrap">
+                        <FileText className="size-4 text-slate-500 shrink-0" />
+                        <span>
+                          {item.totalPages} Pages ({totalSheets} Sheets) · {item.blackAndWhitePages} B&amp;W,{" "}
+                          {item.colorPages} Color
+                        </span>
                       </p>
 
                       {item.copiesSummary && (
-                        <p className="mt-1 text-xs font-bold text-emerald-800 bg-emerald-50 border border-emerald-200 px-2.5 py-1 rounded-lg inline-block">
-                          📋 {item.copiesSummary}
+                        <p className="mt-1 text-xs font-bold text-emerald-800 bg-emerald-50 border border-emerald-200 px-2.5 py-1 rounded-lg inline-flex items-center gap-1.5">
+                          <Layers className="size-3.5 text-emerald-700 shrink-0" />
+                          <span>{item.copiesSummary}</span>
                         </p>
                       )}
 
@@ -709,17 +715,23 @@ export function CounterQueueCenter({ shopName }: { shopName: string }) {
                           </div>
 
                           {/* Pages breakdown */}
-                          <p className="mt-0.5 text-xs font-bold text-slate-700">
-                            📄 {item.totalPages} Pages{" "}
-                            {isDouble ? `(${totalSheets} Sheets: ${oddPages} Front, ${evenPages} Back)` : ""} ·{" "}
-                            {item.blackAndWhitePages} B&amp;W, {item.colorPages} Color
-                            <span className="text-slate-900 font-extrabold font-mono ml-2">
+                          <p className="mt-0.5 text-xs font-bold text-slate-700 inline-flex items-center gap-1.5 flex-wrap">
+                            <FileText className="size-3 text-slate-500 shrink-0" />
+                            <span>
+                              {item.totalPages} Pages{" "}
+                              {isDouble ? `(${totalSheets} Sheets: ${oddPages} Front, ${evenPages} Back)` : ""} ·{" "}
+                              {item.blackAndWhitePages} B&amp;W, {item.colorPages} Color
+                            </span>
+                            <span className="text-slate-900 font-extrabold font-mono ml-1">
                               · ₹{item.totalAmount.toFixed(2)}
                             </span>
                           </p>
 
                           {item.copiesSummary && (
-                            <p className="mt-0.5 text-[11px] font-bold text-emerald-800">📋 {item.copiesSummary}</p>
+                            <p className="mt-0.5 text-[11px] font-bold text-emerald-800 inline-flex items-center gap-1">
+                              <Layers className="size-3 text-emerald-700 shrink-0" />
+                              <span>{item.copiesSummary}</span>
+                            </p>
                           )}
 
                           <div className="mt-0.5 flex flex-wrap items-center gap-1.5 text-[11px] text-muted truncate max-w-lg">
@@ -802,8 +814,9 @@ export function CounterQueueCenter({ shopName }: { shopName: string }) {
                           </>
                         ) : !isDouble && isPartiallyPrinted && !isProcessing && !isPrinting ? (
                           <div className="flex flex-wrap items-center gap-2">
-                            <span className="inline-flex items-center gap-1 rounded-lg bg-amber-50 border border-amber-200 px-2.5 py-1 text-[11px] font-bold text-amber-800 shadow-2xs">
-                              ⚠️ Partially Printed
+                            <span className="inline-flex items-center gap-1.5 rounded-lg bg-amber-50 border border-amber-200 px-2.5 py-1 text-[11px] font-bold text-amber-800 shadow-2xs">
+                              <AlertTriangle className="size-3 text-amber-600 shrink-0" />
+                              <span>Partially Printed</span>
                             </span>
                             <button
                               type="button"
@@ -910,7 +923,7 @@ export function CounterQueueCenter({ shopName }: { shopName: string }) {
                           <RotateCw className="size-4 shrink-0 text-amber-700" />
                           <span>
                             <b>Step 1 Complete:</b> {oddPages} Odd Pages printed on Front.{" "}
-                            <b>👉 Turn/flip sheets &amp; reload them in the printer tray</b>, then click{" "}
+                            <b>Turn/flip sheets &amp; reload them in the printer tray</b>, then click{" "}
                             <b>Print Next Side ({evenPages}p)</b>.
                           </span>
                         </div>

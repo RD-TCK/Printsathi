@@ -20,18 +20,18 @@ type LinkButtonProps = {
 
 const variants: Record<ButtonVariant, string> = {
   primary:
-    "bg-gradient-to-b from-brand-600 to-brand-700 text-white border-t border-emerald-400/40 btn-tactile-primary hover:from-brand-500 hover:to-brand-600 focus-visible:ring-brand-500",
+    "bg-emerald-600 text-white border border-emerald-700 shadow-md shadow-emerald-900/15 btn-tactile-primary hover:bg-emerald-700 focus-visible:ring-emerald-500 active:scale-[0.985]",
   secondary:
-    "border border-line bg-white text-brand-950 btn-tactile-secondary hover:bg-brand-50/80 hover:border-brand-300 focus-visible:ring-brand-500",
+    "border border-slate-200 bg-white text-slate-900 shadow-xs btn-tactile-secondary hover:bg-slate-50 hover:border-slate-300 focus-visible:ring-emerald-500 active:scale-[0.985]",
   ghost:
-    "text-brand-900 hover:bg-brand-50/80 hover:text-brand-950 focus-visible:ring-brand-500 active:scale-[0.98] transition-transform",
+    "text-slate-900 hover:bg-black/[0.04] hover:text-black focus-visible:ring-emerald-500 active:scale-[0.985] transition-colors",
   danger:
-    "bg-gradient-to-b from-red-500 to-red-600 text-white border-t border-red-300/40 shadow-[0_4px_0_#991b1b,0_8px_16px_-2px_rgba(239,68,68,0.35)] hover:from-red-400 hover:to-red-500 active:translate-y-1 active:shadow-[0_1px_0_#991b1b] focus-visible:ring-red-500",
+    "bg-rose-600 text-white border border-rose-700 shadow-xs hover:bg-rose-700 active:scale-[0.985] focus-visible:ring-rose-500",
 };
 const sizes: Record<ButtonSize, string> = {
-  sm: "h-9 px-3.5 text-xs font-semibold rounded-lg",
-  md: "h-11 px-5 text-sm font-semibold rounded-xl",
-  lg: "h-12 px-6 text-base font-semibold rounded-xl",
+  sm: "h-8 px-3 text-xs font-semibold rounded-lg",
+  md: "h-10 px-4 text-sm font-semibold rounded-xl",
+  lg: "h-12 px-6 text-base font-bold rounded-xl",
 };
 const base =
   "inline-flex items-center justify-center gap-2 font-semibold cursor-pointer select-none transition-all outline-none focus-visible:ring-2 focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 tracking-tight";

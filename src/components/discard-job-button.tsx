@@ -95,9 +95,10 @@ export function DiscardJobButton({ jobId, orderId, status, failureReason, amount
               </button>
             </div>
 
-            <div className="mt-4 rounded-2xl bg-amber-50 border border-amber-200 p-3.5 text-xs text-amber-950">
+            <div className="mt-4 rounded-2xl bg-amber-50 border border-amber-200 p-3.5 text-xs text-amber-950 flex items-start gap-2.5">
+              <AlertTriangle className="size-4 text-amber-600 shrink-0 mt-0.5" />
               <p className="font-bold">
-                ⚠️ This will mark the print as discarded and <u>exclude</u>{" "}
+                This will mark the print as discarded and <u>exclude</u>{" "}
                 {amount != null ? `₹${amount.toFixed(2)}` : "the amount"} from today&apos;s and weekly shop revenue
                 calculation.
               </p>

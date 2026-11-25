@@ -643,7 +643,7 @@ export function AdminDashboard({ data }: { data: AdminData }) {
                 setClearResult(null);
               }}
             >
-              <option value="all">⚠️ ALL SHOPS (Entire Platform Data)</option>
+              <option value="all">[DANGER] ALL SHOPS (Entire Platform Data)</option>
               {data.shops.map((s) => (
                 <option key={s.id} value={s.id}>
                   {s.name} ({s.public_id})

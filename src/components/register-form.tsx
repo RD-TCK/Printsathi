@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { ArrowRight } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { SubmitButton } from "@/components/ui/submit-button";
 import { signUpShopOwner } from "@/app/actions/auth";
@@ -91,8 +92,13 @@ export function RegisterForm() {
         />
       </div>
 
-      <SubmitButton className="w-full mt-2" pendingLabel="Creating your shop...">
-        Create Shop Account
+      <SubmitButton
+        size="lg"
+        className="w-full mt-5 bg-emerald-600 hover:bg-emerald-700 text-white font-bold h-12 text-sm rounded-xl shadow-md shadow-emerald-700/20 active:scale-[0.99] flex items-center justify-center gap-2 cursor-pointer"
+        pendingLabel="Creating your shop..."
+      >
+        <span>Create Shop Account</span>
+        <ArrowRight className="size-4" />
       </SubmitButton>
     </form>
   );
