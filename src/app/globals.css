@@ -20,10 +20,10 @@
 }
 
 html.dark {
-  --ink: #f3f4f6;
-  --muted: #9ca3af;
-  --line: #232732;
-  --canvas: #090b0f;
+  --ink: #f3f6fb;
+  --muted: #a8b3c4;
+  --line: #2e374b;
+  --canvas: #121722;
   color-scheme: dark;
 }
 
@@ -94,6 +94,7 @@ textarea {
   background: none;
   -webkit-text-fill-color: initial;
 }
+
 html.dark .gradient-text {
   color: var(--color-brand-400);
 }
@@ -104,15 +105,19 @@ html.dark .gradient-text {
   transform: translateY(16px);
   animation: revealUp 0.6s cubic-bezier(0.16, 1, 0.3, 1) forwards;
 }
+
 .reveal-d1 {
   animation-delay: 0.08s;
 }
+
 .reveal-d2 {
   animation-delay: 0.15s;
 }
+
 .reveal-d3 {
   animation-delay: 0.22s;
 }
+
 .reveal-d4 {
   animation-delay: 0.3s;
 }
@@ -130,39 +135,53 @@ html.dark .gradient-text {
     transform: translateY(-16px);
     opacity: 0.2;
   }
+
   30% {
     opacity: 1;
   }
+
   100% {
     transform: translateY(6px);
     opacity: 1;
   }
 }
+
 .animate-paper-feed {
   animation: feedPaper 1.2s cubic-bezier(0.4, 0, 0.2, 1) infinite;
 }
 
 /* ─── Translucent Floating Ambient Elements ─── */
 @keyframes floatGentle {
-  0%, 100% {
+
+  0%,
+  100% {
     transform: translateY(0px) rotate(0deg);
   }
+
   50% {
     transform: translateY(-12px) rotate(4deg);
   }
 }
+
 @keyframes floatReverseGentle {
-  0%, 100% {
+
+  0%,
+  100% {
     transform: translateY(0px) rotate(0deg);
   }
+
   50% {
     transform: translateY(10px) rotate(-4deg);
   }
 }
+
 @keyframes floatDrift {
-  0%, 100% {
+
+  0%,
+  100% {
     transform: translate(0px, 0px) rotate(0deg);
   }
+
   50% {
     transform: translate(6px, -14px) rotate(2deg);
   }
@@ -171,24 +190,30 @@ html.dark .gradient-text {
 .animate-float-gentle {
   animation: floatGentle 6s ease-in-out infinite;
 }
+
 .animate-float-reverse-gentle {
   animation: floatReverseGentle 7s ease-in-out 1s infinite;
 }
+
 .animate-float-drift {
   animation: floatDrift 8s ease-in-out 2s infinite;
 }
 
 /* ─── Minimal Scroll Indicator ─── */
 @keyframes scrollDown {
-  0%, 100% {
+
+  0%,
+  100% {
     transform: translateY(0);
     opacity: 0.85;
   }
+
   50% {
     transform: translateY(6px);
     opacity: 0.25;
   }
 }
+
 .animate-scroll-down {
   animation: scrollDown 2s ease-in-out infinite;
 }
@@ -198,10 +223,12 @@ html.dark .gradient-text {
   box-shadow: 0 1px 2px 0 rgba(0, 0, 0, 0.06), inset 0 1px 0 0 rgba(255, 255, 255, 0.15);
   transition: all 0.15s cubic-bezier(0.16, 1, 0.3, 1);
 }
+
 .btn-tactile-primary:hover {
   box-shadow: 0 4px 12px -2px rgba(18, 77, 44, 0.22), inset 0 1px 0 0 rgba(255, 255, 255, 0.2);
   transform: translateY(-1px);
 }
+
 .btn-tactile-primary:active {
   box-shadow: 0 1px 2px 0 rgba(0, 0, 0, 0.08);
   transform: translateY(0) scale(0.985);
@@ -211,10 +238,12 @@ html.dark .gradient-text {
   box-shadow: 0 1px 2px 0 rgba(14, 23, 19, 0.04);
   transition: all 0.15s cubic-bezier(0.16, 1, 0.3, 1);
 }
+
 .btn-tactile-secondary:hover {
   box-shadow: 0 4px 12px -2px rgba(14, 23, 19, 0.08);
   transform: translateY(-1px);
 }
+
 .btn-tactile-secondary:active {
   box-shadow: 0 1px 1px 0 rgba(14, 23, 19, 0.04);
   transform: translateY(0) scale(0.985);
@@ -226,11 +255,13 @@ html.dark .gradient-text {
   box-shadow: 0 1px 2px 0 rgba(0, 0, 0, 0.06);
   transition: all 0.15s cubic-bezier(0.16, 1, 0.3, 1);
 }
+
 .btn-tactile-emerald:hover {
   background: var(--color-brand-600);
   transform: translateY(-1px);
   box-shadow: 0 4px 12px -2px rgba(21, 102, 59, 0.25);
 }
+
 .btn-tactile-emerald:active {
   transform: translateY(0) scale(0.985);
 }
@@ -246,35 +277,56 @@ html.dark .gradient-text {
   -ms-overflow-style: none;
   scrollbar-width: none;
 }
+
 .no-scrollbar::-webkit-scrollbar {
   display: none;
 }
 
 /* ─── Seamless Site-Wide Dark Mode Baseline for Subpages ─── */
 html.dark :where(.bg-white):not([class*="dark:bg-"]) {
-  background-color: #11141b;
+  background-color: #1a2132;
 }
+
+html.dark :where(.rounded-2xl.bg-white, .rounded-xl.bg-white):not([class*="dark:shadow-"]) {
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.08), 0 18px 40px -16px rgba(0, 0, 0, 0.55);
+}
+
+html.dark .btn-tactile-primary {
+  box-shadow: 0 8px 22px -6px rgba(16, 185, 129, 0.35), inset 0 1px 0 0 rgba(255, 255, 255, 0.32);
+}
+
+html.dark .btn-tactile-secondary {
+  box-shadow: inset 0 1px 0 0 rgba(255, 255, 255, 0.08), 0 8px 20px -8px rgba(0, 0, 0, 0.5);
+}
+
 html.dark :where(.bg-slate-50):not([class*="dark:bg-"]) {
-  background-color: #0d1016;
+  background-color: #161d2b;
 }
+
 html.dark :where(.bg-slate-100):not([class*="dark:bg-"]) {
-  background-color: #171b24;
+  background-color: #21293c;
 }
+
 html.dark :where(.bg-brand-50):not([class*="dark:bg-"]) {
-  background-color: rgba(16, 185, 129, 0.1);
+  background-color: rgba(16, 185, 129, 0.12);
 }
+
 html.dark :where(.text-brand-950, .text-slate-950, .text-slate-900):not([class*="dark:text-"]) {
-  color: #f3f4f6;
+  color: #f3f6fb;
 }
+
 html.dark :where(.text-slate-800, .text-slate-700):not([class*="dark:text-"]) {
-  color: #d1d5db;
+  color: #dbe2ee;
 }
+
 html.dark :where(.text-slate-600, .text-slate-500, .text-slate-400):not([class*="dark:text-"]) {
-  color: #9ca3af;
+  color: #a8b3c4;
 }
+
 html.dark :where(.text-brand-700):not([class*="dark:text-"]) {
   color: #34d399;
 }
+
 html.dark :where(.border-slate-100, .border-slate-200):not([class*="dark:border-"]) {
-  border-color: #232732;
+  border-color: #2e374b;
 }

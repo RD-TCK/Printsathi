@@ -282,7 +282,11 @@ export function LandingScrollStage() {
         ref={heroSectionRef}
         className="relative sm:min-h-[calc(100svh-4rem)] flex flex-col justify-between sm:justify-center overflow-x-clip border-b border-line dark:border-white/[0.08]"
       >
-        <div className="absolute inset-0 -z-20 bg-gradient-to-b from-[#e8f6ee] via-[#f7fbf9] to-sky-50/75 dark:from-[#0c141c] dark:via-[#090b0f] dark:to-[#0f1722]" />
+        <div className="absolute inset-0 -z-20 bg-gradient-to-b from-[#e8f6ee] via-[#f7fbf9] to-sky-50/75 dark:from-[#17232e] dark:via-[#121722] dark:to-[#172030]" />
+        <div
+          className="hidden dark:block absolute inset-0 -z-10 pointer-events-none bg-[radial-gradient(ellipse_78%_54%_at_50%_18%,rgba(16,185,129,0.14),rgba(56,189,248,0.08)_48%,transparent_76%)]"
+          aria-hidden="true"
+        />
 
         {/* Centered Headline & CTAs (always crisp z-20 above 3D canvas z-10) */}
         <div className="relative z-20 mx-auto max-w-2xl px-5 sm:px-6 pt-8 pb-2 sm:pb-24 sm:pt-12 lg:px-8 w-full flex flex-col items-center text-center">
@@ -296,14 +300,14 @@ export function LandingScrollStage() {
             <div className="flex flex-col sm:flex-row items-center justify-center gap-3 w-full">
               <Link
                 href="/register"
-                className="inline-flex items-center justify-center w-[240px] sm:w-auto h-11 px-6 rounded-full bg-emerald-600 text-white hover:bg-emerald-700 dark:bg-emerald-500 dark:text-slate-950 dark:hover:bg-emerald-400 text-sm font-semibold shadow-sm shadow-emerald-600/15 transition-all active:scale-[0.98] whitespace-nowrap"
+                className="inline-flex items-center justify-center w-[240px] sm:w-auto h-11 px-6 rounded-full bg-emerald-600 text-white hover:bg-emerald-700 dark:bg-emerald-500 dark:text-slate-950 dark:hover:bg-emerald-400 text-sm font-semibold shadow-sm shadow-emerald-600/15 dark:shadow-[inset_0_1px_0_rgba(255,255,255,0.38),0_12px_28px_-8px_rgba(16,185,129,0.42)] transition-all active:scale-[0.98] whitespace-nowrap"
               >
                 Start ₹100 for 7 Days Trial
               </Link>
 
               <a
                 href="#how-it-works-simulation"
-                className="inline-flex items-center justify-center gap-2 w-[240px] sm:w-auto h-11 px-6 rounded-full border border-slate-300/85 bg-white/95 text-slate-800 hover:text-slate-950 hover:bg-white hover:border-slate-400 shadow-2xs transition-all active:scale-[0.98] dark:border-white/[0.14] dark:bg-[#131720]/95 dark:text-slate-100 dark:hover:text-white dark:hover:bg-[#1b202c] dark:hover:border-white/25 text-sm font-medium whitespace-nowrap"
+                className="inline-flex items-center justify-center gap-2 w-[240px] sm:w-auto h-11 px-6 rounded-full border border-slate-300/85 bg-white/95 text-slate-800 hover:text-slate-950 hover:bg-white hover:border-slate-400 shadow-2xs transition-all active:scale-[0.98] dark:border-white/[0.15] dark:bg-[#1c2435] dark:bg-gradient-to-b dark:from-[#232c40] dark:to-[#192030] dark:text-slate-100 dark:hover:text-white dark:hover:from-[#29344b] dark:hover:to-[#1f283b] dark:hover:border-white/25 dark:shadow-[inset_0_1px_0_rgba(255,255,255,0.09),0_10px_24px_-10px_rgba(0,0,0,0.55)] text-sm font-medium whitespace-nowrap"
               >
                 <Play className="size-3.5 fill-slate-800 text-slate-800 dark:fill-emerald-400 dark:text-emerald-400 shrink-0" />
                 <span>See how it works</span>
@@ -360,7 +364,11 @@ export function LandingScrollStage() {
         className="relative py-8 sm:py-14 lg:py-16 border-b border-line dark:border-white/[0.08]"
       >
         <div
-          className="absolute inset-0 -z-20 bg-gradient-to-b from-sky-50/75 via-[#f9fcfb] to-emerald-50/55 dark:from-[#0f1722] dark:via-[#090b0f] dark:to-[#0e151d]"
+          className="absolute inset-0 -z-20 bg-gradient-to-b from-sky-50/75 via-[#f9fcfb] to-emerald-50/55 dark:from-[#172030] dark:via-[#121722] dark:to-[#162129]"
+          aria-hidden="true"
+        />
+        <div
+          className="hidden dark:block absolute inset-0 -z-10 pointer-events-none bg-[radial-gradient(ellipse_62%_55%_at_32%_46%,rgba(56,189,248,0.11),rgba(16,185,129,0.08)_52%,transparent_78%)]"
           aria-hidden="true"
         />
         <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
@@ -424,7 +432,7 @@ export function LandingScrollStage() {
               </div>
 
               {/* RIGHT SIDE: Single Dynamic Scroll Step (z-20 always stays above Three.js z-10!) */}
-              <div className="relative z-20 flex flex-col justify-center space-y-3.5 sm:space-y-5 lg:pl-6 rounded-2xl border border-slate-200/80 bg-white/95 dark:border-white/[0.08] dark:bg-[#090b0f]/95 backdrop-blur-xs p-4 sm:p-0 sm:border-0 sm:bg-transparent sm:dark:bg-transparent">
+              <div className="relative z-20 flex flex-col justify-center space-y-3.5 sm:space-y-5 lg:pl-6 rounded-2xl border border-slate-200/80 bg-white/95 dark:border-white/[0.11] dark:bg-[#192131]/92 dark:shadow-[inset_0_1px_0_rgba(255,255,255,0.08),0_20px_48px_-16px_rgba(0,0,0,0.6)] backdrop-blur-sm p-4 sm:p-0 sm:border-0 sm:bg-transparent sm:dark:bg-transparent sm:dark:shadow-none sm:dark:backdrop-blur-none">
                 <div className="flex items-center justify-between text-xs font-medium text-slate-500 dark:text-slate-400">
                   <span>Step {currentStep.step} of 04</span>
                   <span className={cn("font-mono font-semibold", stepAccent.eyebrow)}>{stageProgressPct}%</span>
@@ -466,7 +474,7 @@ export function LandingScrollStage() {
                         "py-2 sm:px-3 sm:py-1.5 rounded-lg font-mono text-xs font-semibold border transition-all cursor-pointer text-center",
                         idx === activeStep
                           ? stepAccent.activeBtn
-                          : "bg-white text-slate-600 border-slate-200 hover:border-slate-400 dark:bg-[#11141b] dark:text-slate-400 dark:border-white/[0.09] dark:hover:border-white/25 dark:hover:text-white",
+                          : "bg-white text-slate-600 border-slate-200 hover:border-slate-400 dark:bg-[#1d2536] dark:text-slate-300 dark:border-white/[0.12] dark:shadow-[inset_0_1px_0_rgba(255,255,255,0.07)] dark:hover:border-white/25 dark:hover:text-white",
                       )}
                     >
                       {st.step}

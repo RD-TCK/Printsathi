@@ -303,7 +303,7 @@ export function SupportedPrinters() {
 
   return (
     <section
-      className="bg-[#f8f9fb] border-t border-line py-14 sm:py-16 dark:bg-[#0d1016] dark:border-white/[0.08]"
+      className="bg-[#f8f9fb] border-t border-line py-14 sm:py-16 dark:bg-[#161d2b] dark:border-white/[0.09]"
       onMouseEnter={() => {
         isPausedRef.current = true;
       }}
@@ -329,7 +329,7 @@ export function SupportedPrinters() {
               type="button"
               onClick={() => scrollByStep("left")}
               aria-label="Scroll supported printers left"
-              className="inline-flex size-9 items-center justify-center rounded-lg border border-slate-200 bg-white text-slate-600 shadow-2xs transition-colors hover:border-slate-300 hover:text-slate-950 active:scale-95 cursor-pointer dark:border-white/[0.1] dark:bg-[#151922] dark:text-slate-300 dark:hover:border-white/20 dark:hover:text-white"
+              className="inline-flex size-9 items-center justify-center rounded-lg border border-slate-200 bg-white text-slate-600 shadow-2xs transition-colors hover:border-slate-300 hover:text-slate-950 active:scale-95 cursor-pointer dark:border-white/[0.12] dark:bg-[#1d2536] dark:text-slate-300 dark:hover:border-white/25 dark:hover:text-white"
             >
               <ArrowLeft className="size-4" />
             </button>
@@ -337,7 +337,7 @@ export function SupportedPrinters() {
               type="button"
               onClick={() => scrollByStep("right")}
               aria-label="Scroll supported printers right"
-              className="inline-flex size-9 items-center justify-center rounded-lg border border-slate-200 bg-white text-slate-600 shadow-2xs transition-colors hover:border-slate-300 hover:text-slate-950 active:scale-95 cursor-pointer dark:border-white/[0.1] dark:bg-[#151922] dark:text-slate-300 dark:hover:border-white/20 dark:hover:text-white"
+              className="inline-flex size-9 items-center justify-center rounded-lg border border-slate-200 bg-white text-slate-600 shadow-2xs transition-colors hover:border-slate-300 hover:text-slate-950 active:scale-95 cursor-pointer dark:border-white/[0.12] dark:bg-[#1d2536] dark:text-slate-300 dark:hover:border-white/25 dark:hover:text-white"
             >
               <ArrowRight className="size-4" />
             </button>
@@ -356,7 +356,7 @@ export function SupportedPrinters() {
               key={`${brand.name}-${idx}`}
               aria-hidden={idx >= PRINTER_BRANDS.length ? true : undefined}
               title={`${brand.name} Printers Supported`}
-              className="flex h-[84px] sm:h-[90px] w-[188px] sm:w-[208px] shrink-0 items-center justify-center rounded-xl border border-slate-200/80 bg-white px-5 shadow-2xs transition-all duration-200 hover:border-slate-300 hover:shadow-xs select-none dark:border-white/[0.08] dark:bg-[#131720] dark:hover:border-white/[0.16]"
+              className="flex h-[84px] sm:h-[90px] w-[188px] sm:w-[208px] shrink-0 items-center justify-center rounded-xl border border-slate-200/80 bg-white px-5 shadow-2xs transition-all duration-200 hover:border-slate-300 hover:shadow-xs select-none dark:border-white/[0.1] dark:bg-[#1c2334] dark:shadow-[inset_0_1px_0_rgba(255,255,255,0.06)] dark:hover:border-white/[0.18]"
             >
               {brand.renderLogo()}
             </div>

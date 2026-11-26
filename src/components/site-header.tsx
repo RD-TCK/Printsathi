@@ -51,8 +51,8 @@ export function SiteHeader() {
           className={cn(
             "w-full flex items-center justify-between pointer-events-auto select-none backdrop-blur-xl border transition-[height,padding,border-radius,background-color,border-color,box-shadow] duration-[420ms] ease-[cubic-bezier(0.22,1,0.36,1)]",
             scrolled
-              ? "h-14 px-4 sm:px-6 rounded-[28px] bg-white/92 border-slate-200/80 shadow-[0_12px_36px_rgba(15,26,18,0.1)] dark:bg-[#11141b]/92 dark:border-white/[0.08] dark:shadow-[0_14px_38px_rgba(0,0,0,0.55)]"
-              : "h-16 px-6 lg:px-10 xl:px-12 rounded-none bg-[#fafaf8]/95 border-t-transparent border-x-transparent border-b-[#e7e3dc]/80 shadow-[0_1px_8px_-3px_rgba(15,26,18,0.04)] dark:bg-[#090b0f]/92 dark:border-b-white/[0.08] dark:shadow-[0_1px_12px_-3px_rgba(0,0,0,0.5)]"
+              ? "h-14 px-4 sm:px-6 rounded-[28px] bg-white/92 border-slate-200/80 shadow-[0_12px_36px_rgba(15,26,18,0.1)] dark:bg-[#1a2232]/94 dark:border-white/[0.1] dark:shadow-[0_14px_38px_rgba(0,0,0,0.45)]"
+              : "h-16 px-6 lg:px-10 xl:px-12 rounded-none bg-[#fafaf8]/95 border-t-transparent border-x-transparent border-b-[#e7e3dc]/80 shadow-[0_1px_8px_-3px_rgba(15,26,18,0.04)] dark:bg-[#121722]/92 dark:border-b-white/[0.1] dark:shadow-[0_1px_12px_-3px_rgba(0,0,0,0.35)]"
           )}
         >
           {/* ━━━ Left: Brand / Logo ━━━ */}
@@ -125,7 +125,7 @@ export function SiteHeader() {
           <div className="flex items-center gap-2 md:hidden pointer-events-auto">
             <ThemeToggle />
             <button
-              className="flex size-9 items-center justify-center rounded-lg border border-[#e7e3dc] bg-white/90 text-brand-900 transition-colors hover:bg-[#f2eee6] active:scale-95 dark:border-white/[0.1] dark:bg-[#151922] dark:text-slate-200 dark:hover:bg-[#1d222e]"
+              className="flex size-9 items-center justify-center rounded-lg border border-[#e7e3dc] bg-white/90 text-brand-900 transition-colors hover:bg-[#f2eee6] active:scale-95 dark:border-white/[0.12] dark:bg-[#1b2233] dark:text-slate-200 dark:hover:bg-[#232c41]"
               aria-label={open ? "Close menu" : "Open menu"}
               onClick={() => setOpen(!open)}
             >
@@ -140,8 +140,8 @@ export function SiteHeader() {
             className={cn(
               "md:hidden transition-all duration-[420ms] ease-[cubic-bezier(0.22,1,0.36,1)] pointer-events-auto",
               scrolled
-                ? "mt-2 w-full rounded-2xl border border-slate-200/80 bg-white/95 backdrop-blur-xl p-5 shadow-2xl dark:border-white/[0.08] dark:bg-[#11141b]/96"
-                : "w-full border-b border-[#e7e3dc] bg-[#fafaf8]/98 backdrop-blur-xl px-6 py-5 shadow-lg dark:border-white/[0.08] dark:bg-[#090b0f]/98"
+                ? "mt-2 w-full rounded-2xl border border-slate-200/80 bg-white/95 backdrop-blur-xl p-5 shadow-2xl dark:border-white/[0.1] dark:bg-[#1a2232]/96"
+                : "w-full border-b border-[#e7e3dc] bg-[#fafaf8]/98 backdrop-blur-xl px-6 py-5 shadow-lg dark:border-white/[0.1] dark:bg-[#121722]/98"
             )}
           >
             <nav className="flex flex-col gap-1">

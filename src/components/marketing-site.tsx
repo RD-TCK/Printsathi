@@ -41,7 +41,7 @@ export function SectionHeading({
 /* ─── Footer (Clean & Focused) ─── */
 export function MarketingFooter() {
   return (
-    <footer className="border-t border-line bg-[#fafaf8] text-ink relative dark:border-white/[0.08] dark:bg-[#090b0f] dark:text-slate-200">
+    <footer className="border-t border-line bg-[#fafaf8] text-ink relative dark:border-white/[0.09] dark:bg-[#111622] dark:text-slate-200">
       <div className="mx-auto grid max-w-7xl gap-10 px-6 py-12 sm:py-14 sm:grid-cols-2 lg:grid-cols-[1.5fr_1fr_1fr] lg:px-8">
         <div>
           <Link href="/" className="group inline-flex items-center gap-2.5">
@@ -197,7 +197,7 @@ export function FeatureGrid({ limit }: { limit?: number }) {
 export function TrialCallout() {
   return (
     <section className="py-12 sm:py-16 px-5 sm:px-6 lg:px-8">
-      <div className="mx-auto max-w-7xl rounded-2xl bg-brand-950 p-6 sm:p-12 lg:p-14 text-white border border-emerald-900/60 dark:bg-[#11141b] dark:border-white/[0.09] relative">
+      <div className="mx-auto max-w-7xl rounded-2xl bg-brand-950 p-6 sm:p-12 lg:p-14 text-white border border-emerald-900/60 dark:bg-[#182030] dark:bg-gradient-to-br dark:from-[#1f293d] dark:via-[#182030] dark:to-[#132220] dark:border-white/[0.12] dark:shadow-[inset_0_1px_0_rgba(255,255,255,0.09),0_22px_54px_-16px_rgba(0,0,0,0.58)] relative">
         <div className="flex flex-col gap-6 sm:gap-8 lg:flex-row lg:items-center lg:justify-between">
           <div className="max-w-2xl">
             <h2 className="text-2xl font-bold tracking-tight sm:text-4xl text-white">
@@ -232,9 +232,9 @@ export type FaqItem = readonly [question: string, answer: string];
 
 export function FaqList({ items = faqItems }: { items?: ReadonlyArray<FaqItem> }) {
   return (
-    <div className="divide-y divide-line rounded-2xl border border-line bg-white dark:divide-white/[0.08] dark:border-white/[0.08] dark:bg-[#11141b]">
+    <div className="divide-y divide-line rounded-2xl border border-line bg-white dark:divide-white/[0.08] dark:border-white/[0.11] dark:bg-[#192030] dark:shadow-[inset_0_1px_0_rgba(255,255,255,0.07),0_20px_44px_-16px_rgba(0,0,0,0.55)] overflow-hidden">
       {items.map(([question, answer]) => (
-        <details key={question} className="group p-4 sm:p-6 transition-colors hover:bg-slate-50/50 dark:hover:bg-[#161a23]">
+        <details key={question} className="group p-4 sm:p-6 transition-colors hover:bg-slate-50/50 dark:hover:bg-[#1f283b]">
           <summary className="flex cursor-pointer list-none items-center justify-between gap-4 text-[15px] sm:text-base font-semibold text-brand-950 dark:text-white">
             <span>{question}</span>
             <ChevronDown className="size-4 sm:size-5 shrink-0 text-slate-400 dark:text-slate-500 transition-transform duration-200 group-open:rotate-180" />

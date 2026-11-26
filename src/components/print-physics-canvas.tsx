@@ -656,6 +656,10 @@ export function PrintPhysicsCanvas({
     rimLight.position.set(-7, 2.5, -5);
     scene.add(rimLight);
 
+    const skyRimLight = new THREE.DirectionalLight(0x38bdf8, 0.22);
+    skyRimLight.position.set(6, 5, -6);
+    scene.add(skyRimLight);
+
     const pageTextures = [0, 1, 2].map((i) => {
       const tx = createPrintedPageTexture(i);
       pool.textures.push(tx);
@@ -872,10 +876,11 @@ export function PrintPhysicsCanvas({
     let isDarkTheme = document.documentElement.classList.contains("dark");
     const applyThemeToScene = (dark: boolean) => {
       if (!renderer) return;
-      renderer.toneMappingExposure = dark ? 0.96 : 0.86;
-      keyLight.intensity = dark ? 1.65 : 1.45;
-      rimLight.intensity = dark ? 1.15 : 0.55;
-      scene.environmentIntensity = dark ? 0.56 : 0.45;
+      renderer.toneMappingExposure = dark ? 1.02 : 0.86;
+      keyLight.intensity = dark ? 1.75 : 1.45;
+      rimLight.intensity = dark ? 1.35 : 0.55;
+      skyRimLight.intensity = dark ? 0.72 : 0.22;
+      scene.environmentIntensity = dark ? 0.62 : 0.45;
     };
     applyThemeToScene(isDarkTheme);
 

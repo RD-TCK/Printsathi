@@ -28,7 +28,7 @@ export const metadata = pageMetadata({
 
 export default function Home() {
   return (
-    <div className="min-h-screen bg-white text-ink overflow-x-clip dark:bg-[#090b0f] dark:text-slate-100">
+    <div className="min-h-screen bg-white text-ink overflow-x-clip dark:bg-[#121722] dark:text-slate-100">
       <JsonLd
         data={[
           softwareJsonLd(),
@@ -48,9 +48,9 @@ export default function Home() {
         <LandingScrollStage />
 
         {/* Solid Foreground Sections sit at z-20 above PrintPhysicsCanvas (z-10) */}
-        <div className="relative z-20 bg-white dark:bg-[#090b0f]">
+        <div className="relative z-20 bg-white dark:bg-[#121722]">
           {/* ━━━ SPECS STRIP ━━━ */}
-          <section id="stats-strip" className="border-b border-line dark:border-white/[0.08]">
+          <section id="stats-strip" className="border-b border-line dark:border-white/[0.09] dark:bg-[#161c2a]">
             <div className="mx-auto max-w-7xl">
               <div className="grid grid-cols-2 md:grid-cols-4 divide-x divide-y md:divide-y-0 divide-line dark:divide-white/[0.08]">
                 {[
@@ -87,16 +87,16 @@ export default function Home() {
                 </p>
               </div>
 
-              <div className="mt-8 sm:mt-10 rounded-2xl border border-line dark:border-white/[0.08] bg-white dark:bg-[#11141b] overflow-hidden">
+              <div className="mt-8 sm:mt-10 rounded-2xl border border-line dark:border-white/[0.11] bg-white dark:bg-[#192030] dark:shadow-[inset_0_1px_0_rgba(255,255,255,0.07),0_22px_50px_-18px_rgba(0,0,0,0.55)] overflow-hidden">
                 {/* Desktop Column Header */}
-                <div className="hidden md:grid md:grid-cols-[180px_1fr_1.05fr] border-b border-line dark:border-white/[0.08] text-xs font-semibold">
-                  <div className="px-6 py-3.5 text-slate-500 dark:text-slate-400 bg-slate-50/70 dark:bg-white/[0.02]">
+                <div className="hidden md:grid md:grid-cols-[180px_1fr_1.05fr] border-b border-line dark:border-white/[0.09] text-xs font-semibold">
+                  <div className="px-6 py-3.5 text-slate-500 dark:text-slate-300 bg-slate-50/70 dark:bg-[#141a28]">
                     Stage
                   </div>
-                  <div className="px-6 py-3.5 text-slate-500 dark:text-slate-400 bg-slate-50/70 dark:bg-white/[0.02]">
+                  <div className="px-6 py-3.5 text-slate-500 dark:text-slate-300 bg-slate-50/70 dark:bg-[#141a28]">
                     Manual counter
                   </div>
-                  <div className="px-6 py-3.5 border-l border-emerald-200/80 dark:border-emerald-500/20 bg-emerald-50/85 dark:bg-emerald-500/[0.11] text-emerald-800 dark:text-emerald-300 flex items-center justify-between">
+                  <div className="px-6 py-3.5 border-l border-emerald-200/80 dark:border-emerald-500/25 bg-emerald-50/85 dark:bg-[#152824] dark:bg-gradient-to-b dark:from-emerald-500/[0.16] dark:to-emerald-500/[0.07] text-emerald-800 dark:text-emerald-300 flex items-center justify-between">
                     <span>With Printiva</span>
                     <span className="font-mono text-[11px] font-medium text-emerald-700/80 dark:text-emerald-400/80">
                       Automated
@@ -159,7 +159,7 @@ export default function Home() {
 
                       {/* With Printiva */}
                       <div className="px-4 pb-4 md:p-0">
-                        <div className="h-full rounded-xl md:rounded-none border border-emerald-200/80 md:border-0 md:border-l md:border-emerald-200/80 dark:border-emerald-500/20 dark:md:border-emerald-500/20 bg-emerald-50/70 dark:bg-emerald-500/[0.09] px-4 py-3 md:px-6 md:py-5 flex flex-col justify-between gap-2">
+                        <div className="h-full rounded-xl md:rounded-none border border-emerald-200/80 md:border-0 md:border-l md:border-emerald-200/80 dark:border-emerald-500/25 dark:md:border-emerald-500/25 bg-emerald-50/70 dark:bg-emerald-500/[0.10] dark:shadow-[inset_1px_0_0_rgba(52,211,153,0.14)] px-4 py-3 md:px-6 md:py-5 flex flex-col justify-between gap-2">
                           <div>
                             <span className="md:hidden text-[11px] font-mono font-semibold uppercase tracking-wider text-emerald-700 dark:text-emerald-400 block mb-1">
                               With Printiva
@@ -168,7 +168,7 @@ export default function Home() {
                               {row.after}
                             </p>
                           </div>
-                          <span className="inline-flex w-fit items-center rounded border border-emerald-200/90 bg-white/80 px-2 py-0.5 font-mono text-[11px] font-medium text-emerald-800 dark:border-emerald-500/25 dark:bg-emerald-950/50 dark:text-emerald-300">
+                          <span className="inline-flex w-fit items-center rounded border border-emerald-200/90 bg-white/80 px-2 py-0.5 font-mono text-[11px] font-medium text-emerald-800 dark:border-emerald-400/25 dark:bg-[#121926]/90 dark:shadow-[inset_0_1px_0_rgba(255,255,255,0.06)] dark:text-emerald-300">
                             {row.result}
                           </span>
                         </div>
@@ -210,7 +210,11 @@ export default function Home() {
           <SupportedPrinters />
 
           {/* ━━━ WINDOWS AGENT ━━━ */}
-          <section className="bg-slate-50/75 dark:bg-[#0d1016] py-14 sm:py-20 lg:py-24 relative text-ink dark:text-slate-100 border-y border-line dark:border-white/[0.08]">
+          <section className="bg-slate-50/75 dark:bg-[#161d2b] py-14 sm:py-20 lg:py-24 relative overflow-hidden text-ink dark:text-slate-100 border-y border-line dark:border-white/[0.09]">
+            <div
+              className="hidden dark:block pointer-events-none absolute inset-0 bg-[radial-gradient(ellipse_55%_60%_at_75%_50%,rgba(16,185,129,0.09),transparent_72%)]"
+              aria-hidden="true"
+            />
             <div className="relative mx-auto max-w-7xl px-5 sm:px-6 lg:px-8">
               <div className="grid lg:grid-cols-[1.2fr_0.8fr] gap-10 lg:gap-12 items-center">
                 <div>
@@ -229,7 +233,7 @@ export default function Home() {
                     </Button>
                     <Link
                       href="/shop/printer"
-                      className="inline-flex w-full sm:w-auto items-center justify-center gap-2 rounded-xl border border-line bg-white px-5 py-2.5 text-sm font-semibold text-brand-950 shadow-2xs transition-all hover:bg-slate-50 hover:border-slate-300 dark:border-white/[0.12] dark:bg-[#131720] dark:text-slate-100 dark:hover:bg-[#1a1f2b] dark:hover:border-white/20"
+                      className="inline-flex w-full sm:w-auto items-center justify-center gap-2 rounded-xl border border-line bg-white px-5 py-2.5 text-sm font-semibold text-brand-950 shadow-2xs transition-all hover:bg-slate-50 hover:border-slate-300 dark:border-white/[0.14] dark:bg-[#1d2536] dark:text-slate-100 dark:hover:bg-[#242e42] dark:hover:border-white/25"
                     >
                       Setup Guide
                     </Link>
@@ -237,7 +241,7 @@ export default function Home() {
                 </div>
 
                 {/* Technical Spec Card */}
-                <div className="rounded-2xl border border-line bg-white p-5 sm:p-7 shadow-2xs space-y-3.5 dark:border-white/[0.08] dark:bg-[#11141b]">
+                <div className="rounded-2xl border border-line bg-white p-5 sm:p-7 shadow-2xs space-y-3.5 dark:border-white/[0.12] dark:bg-[#1a2232] dark:bg-gradient-to-b dark:from-[#212a3e] dark:to-[#182030] dark:shadow-[inset_0_1px_0_rgba(255,255,255,0.09),0_20px_48px_-16px_rgba(0,0,0,0.55)]">
                   <div className="flex items-center justify-between border-b border-slate-100 dark:border-white/[0.08] pb-3 text-xs">
                     <span className="font-semibold text-brand-950 dark:text-white">System Specification</span>
                     <span className="font-medium text-emerald-700 dark:text-emerald-400 font-mono">

@@ -9,8 +9,8 @@ export function AuthBackgroundDecoration({ showOrbs = true }: { showOrbs?: boole
       <div
         className={
           showOrbs
-            ? "absolute inset-0 bg-gradient-to-b from-slate-50/90 via-white to-slate-50/70 dark:from-[#0b0e14] dark:via-[#090b0f] dark:to-[#0d1016]"
-            : "absolute inset-0 bg-white dark:bg-[#090b0f]"
+            ? "absolute inset-0 bg-gradient-to-b from-slate-50/90 via-white to-slate-50/70 dark:from-[#161d2b] dark:via-[#121722] dark:to-[#171f2f]"
+            : "absolute inset-0 bg-white dark:bg-[#121722]"
         }
       />
     </div>
