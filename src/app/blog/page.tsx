@@ -27,7 +27,7 @@ export default function BlogIndexPage() {
   const hindiPosts = BLOG_POSTS.filter((p) => p.language === "hi");
 
   return (
-    <div className="min-h-screen bg-white text-ink overflow-x-clip">
+    <div className="min-h-screen bg-white text-ink overflow-x-clip dark:bg-[#090b0f] dark:text-slate-100">
       <JsonLd
         data={[
           breadcrumbJsonLd([
@@ -39,7 +39,7 @@ export default function BlogIndexPage() {
       <SiteHeader />
 
       <main>
-        <section className="border-b border-line bg-[#fafaf8] py-16 lg:py-20 px-6 lg:px-8">
+        <section className="border-b border-line bg-[#fafaf8] dark:border-white/[0.08] dark:bg-[#0d1016] py-16 lg:py-20 px-6 lg:px-8">
           <div className="mx-auto max-w-4xl text-center">
             <p className="text-xs font-semibold uppercase tracking-[0.16em] text-brand-700">
               Printiva Resources • English &amp; हिंदी
@@ -110,7 +110,7 @@ export default function BlogIndexPage() {
         </section>
 
         {/* Hindi Guides */}
-        <section id="hindi-guides" lang="hi" className="border-t border-line bg-[#fafaf8]/70 py-16 lg:py-20 px-6 lg:px-8">
+        <section id="hindi-guides" lang="hi" className="border-t border-line bg-[#fafaf8]/70 dark:border-white/[0.08] dark:bg-[#0d1016] py-16 lg:py-20 px-6 lg:px-8">
           <div className="mx-auto max-w-6xl">
             <h2 className="text-xl font-bold tracking-tight text-brand-950 mb-6">
               हिंदी गाइड — प्रिंट शॉप और प्रिंटर जानकारी

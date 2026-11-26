@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { ArrowRight, CheckCircle2, Cpu, Download, HardDrive, KeyRound, Printer, ShieldCheck, Usb, Zap } from "lucide-react";
+import { ArrowRight, Cpu, Download, KeyRound, Printer, ShieldCheck, Usb, Zap } from "lucide-react";
 import { SiteHeader } from "@/components/site-header";
 import { MarketingFooter } from "@/components/marketing-site";
 import { JsonLd } from "@/components/json-ld";
@@ -22,7 +22,7 @@ export const metadata = pageMetadata({
 
 export default function DownloadPage() {
   return (
-    <div className="min-h-screen bg-white text-ink">
+    <div className="min-h-screen bg-white text-ink dark:bg-[#090b0f] dark:text-slate-100">
       <JsonLd
         data={breadcrumbJsonLd([
           ["Home", "/"],
@@ -33,17 +33,16 @@ export default function DownloadPage() {
 
       <main>
         {/* Header Hero */}
-        <section className="border-b border-line bg-slate-50/60 py-16 lg:py-20">
+        <section className="border-b border-line bg-gradient-to-b from-emerald-50/50 via-white to-sky-50/30 dark:border-white/[0.08] dark:from-[#0e151a] dark:via-[#0d1016] dark:to-[#0c1218] py-16 lg:py-20">
           <div className="mx-auto max-w-4xl px-6 text-center lg:px-8">
-            <div className="inline-flex items-center gap-2 rounded-full border border-emerald-200 bg-emerald-50 px-3 py-1 text-xs font-semibold text-emerald-800 mb-4">
-              <span className="size-1.5 rounded-full bg-emerald-600 animate-pulse" />
-              Official Production Release v1.8.36
-            </div>
-            <h1 className="text-3xl font-bold tracking-tight text-brand-950 sm:text-5xl">
+            <p className="text-xs font-semibold text-emerald-700 dark:text-emerald-400 mb-3">
+              Release v1.8.36 for Windows
+            </p>
+            <h1 className="text-3xl font-bold tracking-tight text-brand-950 dark:text-white sm:text-5xl">
               Printiva Desktop Agent for Windows
             </h1>
             <p className="mt-4 text-base leading-relaxed text-muted sm:text-lg">
-              The high-speed Windows service that pairs your physical laser or inkjet printer directly with customer QR uploads and instant UPI payments.
+              Background Windows service that pairs your laser or inkjet printer with QR customer uploads and UPI checkout.
             </p>
 
             <div className="mt-8 flex flex-col sm:flex-row items-center justify-center gap-4">
@@ -61,7 +60,7 @@ export default function DownloadPage() {
             </div>
 
             <p className="mt-4 text-xs font-mono text-slate-500">
-              64-bit Windows 10 &amp; 11 &bull; Lightweight &lt;48MB RAM &bull; Standalone executable
+              Windows 10 &amp; 11 (64-bit) | &lt; 48 MB RAM | Standalone executable
             </p>
           </div>
         </section>
@@ -71,7 +70,7 @@ export default function DownloadPage() {
           <div className="mx-auto max-w-5xl">
             <div className="grid gap-8 lg:grid-cols-3">
               <div className="rounded-2xl border border-line bg-white p-6 shadow-2xs">
-                <div className="flex size-10 items-center justify-center rounded-xl bg-brand-50 text-brand-700 mb-4">
+                <div className="flex size-10 items-center justify-center rounded-xl bg-emerald-50 text-emerald-700 dark:bg-emerald-500/12 dark:text-emerald-400 mb-4">
                   <Cpu className="size-5" />
                 </div>
                 <h2 className="text-base font-bold text-brand-950">System Requirements</h2>
@@ -96,7 +95,7 @@ export default function DownloadPage() {
               </div>
 
               <div className="rounded-2xl border border-line bg-white p-6 shadow-2xs">
-                <div className="flex size-10 items-center justify-center rounded-xl bg-brand-50 text-brand-700 mb-4">
+                <div className="flex size-10 items-center justify-center rounded-xl bg-cyan-50 text-cyan-700 dark:bg-cyan-500/12 dark:text-cyan-400 mb-4">
                   <Usb className="size-5" />
                 </div>
                 <h2 className="text-base font-bold text-brand-950">Supported Printers</h2>
@@ -121,7 +120,7 @@ export default function DownloadPage() {
               </div>
 
               <div className="rounded-2xl border border-line bg-white p-6 shadow-2xs">
-                <div className="flex size-10 items-center justify-center rounded-xl bg-brand-50 text-brand-700 mb-4">
+                <div className="flex size-10 items-center justify-center rounded-xl bg-blue-50 text-blue-700 dark:bg-blue-500/12 dark:text-blue-400 mb-4">
                   <ShieldCheck className="size-5" />
                 </div>
                 <h2 className="text-base font-bold text-brand-950">Security &amp; Privacy</h2>

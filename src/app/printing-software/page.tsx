@@ -44,7 +44,7 @@ const printingSoftwareFaqs: ReadonlyArray<readonly [string, string]> = [
 
 export default function PrintingSoftwarePage() {
   return (
-    <div className="min-h-screen bg-white text-ink overflow-x-clip">
+    <div className="min-h-screen bg-white text-ink overflow-x-clip dark:bg-[#090b0f] dark:text-slate-100">
       <JsonLd
         data={[
           softwareJsonLd(),
@@ -59,16 +59,13 @@ export default function PrintingSoftwarePage() {
 
       <main>
         {/* Hero */}
-        <section className="border-b border-line bg-gradient-to-b from-[#f2fbf6]/60 via-white to-white py-16 lg:py-24 px-6 lg:px-8">
+        <section className="border-b border-line bg-gradient-to-b from-[#f2fbf6]/60 via-white to-white dark:border-white/[0.08] dark:from-[#0d1016] dark:via-[#090b0f] dark:to-[#090b0f] py-16 lg:py-24 px-6 lg:px-8">
           <div className="mx-auto max-w-4xl text-center">
-            <p className="text-xs font-semibold uppercase tracking-[0.16em] text-brand-700">
-              Windows 10 &amp; 11 Print Automation
-            </p>
-            <h1 className="mt-3 text-4xl font-bold tracking-tight text-brand-950 sm:text-5xl lg:text-6xl">
+            <h1 className="text-4xl font-bold tracking-tight text-brand-950 dark:text-white sm:text-5xl lg:text-6xl">
               Automated Printing Software for Shops &amp; Counters
             </h1>
-            <p className="mt-5 text-base leading-relaxed text-slate-600 sm:text-lg max-w-2xl mx-auto">
-              Replace WhatsApp Web downloads and infected USB pen drives with dedicated Windows printing software. Customers scan your counter QR, pay via UPI, and prints start automatically in under 2 seconds.
+            <p className="mt-5 text-base leading-relaxed text-slate-600 dark:text-slate-300 sm:text-lg max-w-2xl mx-auto">
+              Replace WhatsApp Web downloads and customer USB pen drives with Windows printing software. Customers scan your counter QR, pay via UPI, and print automatically in under 2 seconds.
             </p>
             <div className="mt-8 flex flex-wrap items-center justify-center gap-3.5">
               <Button asChild size="lg" variant="primary" className="rounded-full px-7">
@@ -76,7 +73,7 @@ export default function PrintingSoftwarePage() {
               </Button>
               <Link
                 href="/download"
-                className="inline-flex items-center justify-center rounded-full border border-line bg-white px-6 py-3 text-sm font-semibold text-brand-950 shadow-2xs transition hover:bg-slate-50"
+                className="inline-flex items-center justify-center rounded-full border border-line bg-white px-6 py-3 text-sm font-semibold text-brand-950 shadow-2xs transition hover:bg-slate-50 dark:border-white/[0.12] dark:bg-[#131720] dark:text-slate-100 dark:hover:bg-[#1a1f2b]"
               >
                 Download Windows Agent
               </Link>
@@ -88,53 +85,44 @@ export default function PrintingSoftwarePage() {
         <section className="py-16 lg:py-24 px-6 lg:px-8">
           <div className="mx-auto max-w-7xl">
             <div className="mx-auto max-w-2xl text-center">
-              <h2 className="text-3xl font-bold tracking-tight text-brand-950 sm:text-4xl">
-                Built specifically as commercial shop printing software
+              <h2 className="text-3xl font-bold tracking-tight text-brand-950 dark:text-white sm:text-4xl">
+                Built for shop counters
               </h2>
-              <p className="mt-3 text-base text-slate-600">
-                Every workflow in Printiva is tuned to cut counter bottlenecks and protect your printers.
+              <p className="mt-3 text-base text-slate-600 dark:text-slate-400">
+                Direct browser-to-printer automation designed to keep counter queues moving.
               </p>
             </div>
 
-            <div className="mt-12 grid gap-px rounded-2xl border border-line bg-line overflow-hidden md:grid-cols-2 lg:grid-cols-3">
+            <div className="mt-12 grid gap-px rounded-2xl border border-line dark:border-white/[0.08] bg-line dark:bg-white/[0.08] overflow-hidden md:grid-cols-2 lg:grid-cols-3">
               {[
                 {
-                  tag: "Zero-USB Intake",
                   title: "QR Upload Instead of WhatsApp",
-                  desc: "Customers upload PDFs, DOCX, PPTX, XLSX, and images from their own phone browser with zero app downloads.",
+                  desc: "Customers upload PDFs, DOCX, PPTX, XLSX, and images straight from a mobile browser without installing an app.",
                 },
                 {
-                  tag: "Live Per-Page Billing",
                   title: "Automatic Page Counting",
-                  desc: "Counts total pages, detects color vs. B&W page ranges, and calculates single or double-sided totals automatically.",
+                  desc: "Counts total pages, detects color vs. B&W page ranges, and calculates single or double-sided totals live.",
                 },
                 {
-                  tag: "Direct Win32 Spooler",
                   title: "Silent Native Windows Printing",
-                  desc: "Under-48MB system tray agent talks directly to Windows printer drivers—no slow Chrome print popups.",
+                  desc: "Under-48 MB system tray agent sends paid jobs straight to Windows printer drivers without browser popups.",
                 },
                 {
-                  tag: "Hardware Isolation",
                   title: "Dual-Printer Smart Routing",
-                  desc: "Sends B&W pages strictly to laser printers and color pages strictly to color tank printers.",
+                  desc: "Sends B&W pages to monochrome laser printers and color pages to color ink-tank printers automatically.",
                 },
                 {
-                  tag: "Verified Settlement",
                   title: "Razorpay UPI & Counter Cash",
-                  desc: "Online payments are cryptographically verified before spooling, with instant token approval for cash orders.",
+                  desc: "Online payments are confirmed via Razorpay webhooks before spooling, with one-click token approval for cash.",
                 },
                 {
-                  tag: "USB & Network Ready",
                   title: "Sleep Wake-Up & Queue Control",
-                  desc: "Distinguishes deep-sleep printers from unplugged cables so your counter queue stays moving during rush hour.",
+                  desc: "Distinguishes deep-sleep printers from unplugged cables so print queues stay responsive.",
                 },
               ].map((item) => (
-                <div key={item.title} className="bg-white p-7 sm:p-8 hover:bg-slate-50/70 transition-colors">
-                  <p className="font-mono text-[11px] font-medium uppercase tracking-[0.14em] text-brand-700">
-                    {item.tag}
-                  </p>
-                  <h3 className="mt-3 text-lg font-semibold text-brand-950">{item.title}</h3>
-                  <p className="mt-2 text-sm leading-relaxed text-slate-600">{item.desc}</p>
+                <div key={item.title} className="bg-white dark:bg-[#11141b] p-7 sm:p-8 hover:bg-slate-50/70 dark:hover:bg-[#161a23] transition-colors">
+                  <h3 className="text-lg font-semibold text-brand-950 dark:text-white">{item.title}</h3>
+                  <p className="mt-2.5 text-sm leading-relaxed text-slate-600 dark:text-slate-400">{item.desc}</p>
                 </div>
               ))}
             </div>
@@ -146,8 +134,7 @@ export default function PrintingSoftwarePage() {
         {/* FAQ */}
         <section className="mx-auto max-w-4xl px-6 py-20 lg:py-24 lg:px-8">
           <div className="mx-auto max-w-2xl text-center mb-12">
-            <p className="text-xs font-semibold uppercase tracking-[0.16em] text-brand-700">FAQ</p>
-            <h2 className="mt-3 text-3xl font-bold tracking-tight text-brand-950 sm:text-4xl">
+            <h2 className="text-3xl font-bold tracking-tight text-brand-950 dark:text-white sm:text-4xl">
               Printing software questions, answered.
             </h2>
           </div>

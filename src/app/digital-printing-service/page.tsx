@@ -2,19 +2,12 @@ import Link from "next/link";
 import {
   ArrowRight,
   CheckCircle2,
-  FileCheck2,
-  FileText,
-  Layers,
   MapPin,
   Printer,
-  QrCode,
-  ShieldCheck,
   Smartphone,
-  Sparkles,
-  Zap,
 } from "lucide-react";
 import { SiteHeader } from "@/components/site-header";
-import { MarketingFooter, SectionHeading, TrialCallout } from "@/components/marketing-site";
+import { MarketingFooter, TrialCallout } from "@/components/marketing-site";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { JsonLd } from "@/components/json-ld";
@@ -58,7 +51,7 @@ const serviceFaqs: ReadonlyArray<readonly [string, string]> = [
 
 export default function DigitalPrintingServicePage() {
   return (
-    <div className="min-h-screen bg-white text-ink overflow-x-hidden">
+    <div className="min-h-screen bg-white text-ink overflow-x-hidden dark:bg-[#090b0f] dark:text-slate-100">
       <JsonLd
         data={[
           serviceJsonLd(),
@@ -73,28 +66,23 @@ export default function DigitalPrintingServicePage() {
 
       <main>
         {/* ━━━ HERO SECTION ━━━ */}
-        <section className="relative isolate overflow-hidden bg-gradient-to-b from-brand-50/60 via-white to-white pb-20 pt-16 lg:pb-28 lg:pt-24">
-          <div className="absolute inset-0 -z-10 bg-[radial-gradient(#16a34a_0.5px,transparent_0.5px)] [background-size:32px_32px] opacity-[0.03]" />
+        <section className="relative isolate overflow-hidden bg-gradient-to-b from-brand-50/50 via-white to-white dark:from-[#0d1016] dark:via-[#090b0f] dark:to-[#090b0f] pb-20 pt-16 lg:pb-28 lg:pt-24">
           <div className="mx-auto max-w-7xl px-6 lg:px-8">
             <div className="mx-auto max-w-3xl text-center">
-              <div className="inline-flex items-center gap-2 rounded-full border border-brand-200 bg-brand-100/60 px-4 py-1.5 text-xs font-semibold text-brand-800 mb-6">
-                <Sparkles className="size-3.5 text-brand-600" />
-                Next-Generation Digital Printing &amp; Photocopy Automation
-              </div>
-              <h1 className="text-4xl font-extrabold tracking-tight text-brand-950 sm:text-5xl lg:text-6xl lg:leading-[1.1]">
-                High-Speed <span className="font-display gradient-text">Digital Printing Service</span> &amp; Print Automation
+              <h1 className="text-4xl font-bold tracking-tight text-brand-950 dark:text-white sm:text-5xl lg:text-6xl lg:leading-[1.1]">
+                Digital Printing Service for Local Shops
               </h1>
               <p className="mt-6 text-lg leading-8 text-muted sm:text-xl">
-                The modern printing software platform bridging mobile customers and local xerox shops. Scan a QR code, upload documents from your phone, pay securely, and collect crisp prints in seconds.
+                Scan a counter QR code, upload documents from your phone, pay online or at the counter, and pick up your prints in seconds.
               </p>
               <div className="mt-10 flex flex-wrap items-center justify-center gap-4">
-                <Button asChild variant="primary" className="h-12 px-7 text-base shadow-lg shadow-brand-700/20">
+                <Button asChild variant="primary" className="h-12 px-7 text-base shadow-sm">
                   <Link href="/shops">
                     <MapPin className="size-4 mr-1.5" />
                     Find a Print Shop Near You
                   </Link>
                 </Button>
-                <Button asChild variant="secondary" className="h-12 px-6 text-base border-brand-200 hover:bg-brand-50">
+                <Button asChild variant="secondary" className="h-12 px-6 text-base">
                   <Link href="/pricing">
                     For Shop Owners: Try for ₹100
                     <ArrowRight className="size-4 ml-1.5" />
@@ -106,74 +94,73 @@ export default function DigitalPrintingServicePage() {
         </section>
 
         {/* ━━━ DUAL AUDIENCE VALUE PROPOSITION ━━━ */}
-        <section className="py-20 lg:py-28 px-6 lg:px-8 bg-slate-50/70 border-y border-line">
+        <section className="py-20 lg:py-28 px-6 lg:px-8 bg-slate-50/70 dark:bg-[#0d1016] border-y border-line dark:border-white/[0.08]">
           <div className="mx-auto max-w-7xl">
             <div className="mx-auto max-w-2xl text-center mb-16">
-              <p className="text-xs font-semibold uppercase tracking-[0.2em] text-brand-600">Dual Ecosystem</p>
-              <h2 className="mt-3 text-3xl font-bold tracking-tight text-brand-950 sm:text-4xl">
-                Engineered for Both Customers &amp; Print Shop Owners
+              <h2 className="text-3xl font-bold tracking-tight text-brand-950 dark:text-white sm:text-4xl">
+                Built for Customers &amp; Print Shop Owners
               </h2>
               <p className="mt-4 text-base text-muted sm:text-lg">
-                Whether you need urgent document printouts or run a busy xerox counter, Printiva simplifies every step.
+                Simple browser ordering for walk-in customers and direct Windows spooling for shops.
               </p>
             </div>
 
             <div className="grid gap-8 lg:grid-cols-2">
               {/* Customer Journey Card */}
-              <Card className="rounded-3xl border-brand-200/80 bg-white p-8 sm:p-10 shadow-sm transition hover:shadow-md">
-                <div className="flex size-12 items-center justify-center rounded-2xl bg-brand-50 text-brand-700 mb-6">
+              <Card className="rounded-2xl border-brand-200/80 dark:border-white/[0.08] bg-white dark:bg-[#11141b] p-8 sm:p-10 shadow-2xs">
+                <div className="flex size-12 items-center justify-center rounded-xl bg-brand-50 dark:bg-white/[0.06] text-brand-700 dark:text-emerald-400 mb-6">
                   <Smartphone className="size-6" />
                 </div>
-                <h3 className="text-2xl font-bold text-brand-950">For Customers &amp; Students</h3>
+                <h3 className="text-2xl font-bold text-brand-950 dark:text-white">For Customers &amp; Students</h3>
                 <p className="mt-3 text-muted text-sm sm:text-base leading-relaxed">
-                  Never stand in long queues or hand over your phone to strangers. Print documents privately and instantly.
+                  Print directly from your mobile browser without waiting in chat queues or passing over USB drives.
                 </p>
-                <ul className="mt-6 space-y-3.5 text-sm text-slate-700">
+                <ul className="mt-6 space-y-3.5 text-sm text-slate-700 dark:text-slate-300">
                   {[
-                    "Zero app installation required — works straight from your mobile browser.",
-                    "Live per-page price calculator before you pay; no hidden surprises.",
-                    "Flexible options: Colour vs B&W, A4/A3, page ranges, and double-sided duplex.",
-                    "Pay securely via UPI (Google Pay, PhonePe, Paytm) or at the counter with Cash.",
-                    "Real-time order tracking from upload to physical print completion.",
+                    "No app installation needed — works straight from your phone browser.",
+                    "Live per-page price calculation before checkout.",
+                    "Flexible options: Colour vs B&W, A4/A3, page ranges, and duplexing.",
+                    "Pay via UPI (Google Pay, PhonePe, Paytm) or counter cash.",
+                    "Live order status tracking from upload to print completion.",
                   ].map((feat) => (
                     <li key={feat} className="flex items-start gap-3">
-                      <CheckCircle2 className="size-5 shrink-0 text-emerald-600 mt-0.5" />
+                      <CheckCircle2 className="size-5 shrink-0 text-emerald-600 dark:text-emerald-400 mt-0.5" />
                       <span>{feat}</span>
                     </li>
                   ))}
                 </ul>
-                <div className="mt-8 pt-6 border-t border-slate-100">
-                  <Link href="/shops" className="inline-flex items-center text-sm font-semibold text-brand-700 hover:text-brand-900 gap-1.5">
+                <div className="mt-8 pt-6 border-t border-slate-100 dark:border-white/[0.08]">
+                  <Link href="/shops" className="inline-flex items-center text-sm font-semibold text-brand-700 dark:text-emerald-400 hover:text-brand-900 gap-1.5">
                     Browse active print shops <ArrowRight className="size-4" />
                   </Link>
                 </div>
               </Card>
 
               {/* Shop Owner Journey Card */}
-              <Card className="rounded-3xl border-brand-200/80 bg-white p-8 sm:p-10 shadow-sm transition hover:shadow-md">
-                <div className="flex size-12 items-center justify-center rounded-2xl bg-emerald-50 text-emerald-700 mb-6">
+              <Card className="rounded-2xl border-brand-200/80 dark:border-white/[0.08] bg-white dark:bg-[#11141b] p-8 sm:p-10 shadow-2xs">
+                <div className="flex size-12 items-center justify-center rounded-xl bg-emerald-50 dark:bg-white/[0.06] text-emerald-700 dark:text-emerald-400 mb-6">
                   <Printer className="size-6" />
                 </div>
-                <h3 className="text-2xl font-bold text-brand-950">For Photocopy &amp; Xerox Shops</h3>
+                <h3 className="text-2xl font-bold text-brand-950 dark:text-white">For Photocopy &amp; Xerox Shops</h3>
                 <p className="mt-3 text-muted text-sm sm:text-base leading-relaxed">
-                  Transform your counter with autonomous print automation software that operates silently in your system tray.
+                  Run print automation silently from your Windows system tray without changing your printers.
                 </p>
-                <ul className="mt-6 space-y-3.5 text-sm text-slate-700">
+                <ul className="mt-6 space-y-3.5 text-sm text-slate-700 dark:text-slate-300">
                   {[
-                    "Eliminate WhatsApp clutter and virus-infected customer USB pen drives.",
-                    "Automated page counting and split-queue hardware routing for color & mono printers.",
-                    "Razorpay-verified online payments prevent counterfeit UPI screenshots.",
-                    "Counter token queue system manages walk-in cash customers with zero friction.",
-                    "Native Windows Desktop Agent communicates directly with the print spooler in &lt; 500ms.",
+                    "Eliminate WhatsApp clutter and untrusted customer USB drives.",
+                    "Automatic page counting and split routing for color & mono printers.",
+                    "Razorpay-verified online payments prevent counterfeit screenshots.",
+                    "Counter token queue manages walk-in cash orders cleanly.",
+                    "Windows Desktop Agent communicates with the print spooler in < 500ms.",
                   ].map((feat) => (
                     <li key={feat} className="flex items-start gap-3">
-                      <CheckCircle2 className="size-5 shrink-0 text-emerald-600 mt-0.5" />
+                      <CheckCircle2 className="size-5 shrink-0 text-emerald-600 dark:text-emerald-400 mt-0.5" />
                       <span>{feat}</span>
                     </li>
                   ))}
                 </ul>
-                <div className="mt-8 pt-6 border-t border-slate-100">
-                  <Link href="/pricing" className="inline-flex items-center text-sm font-semibold text-brand-700 hover:text-brand-900 gap-1.5">
+                <div className="mt-8 pt-6 border-t border-slate-100 dark:border-white/[0.08]">
+                  <Link href="/pricing" className="inline-flex items-center text-sm font-semibold text-brand-700 dark:text-emerald-400 hover:text-brand-900 gap-1.5">
                     Start 7-day trial for ₹100 <ArrowRight className="size-4" />
                   </Link>
                 </div>
@@ -186,49 +173,48 @@ export default function DigitalPrintingServicePage() {
         <section className="py-20 lg:py-28 px-6 lg:px-8">
           <div className="mx-auto max-w-5xl">
             <div className="text-center mb-14">
-              <p className="text-xs font-semibold uppercase tracking-[0.2em] text-brand-600">Why It Matters</p>
-              <h2 className="mt-3 text-3xl font-bold tracking-tight text-brand-950 sm:text-4xl">
-                Traditional Xerox Counter vs. Printiva Digital Automation
+              <h2 className="text-3xl font-bold tracking-tight text-brand-950 dark:text-white sm:text-4xl">
+                Traditional Xerox Counter vs. Printiva Automation
               </h2>
               <p className="mt-4 text-base text-muted">
-                See how print automation software saves up to 4 hours per day for shopkeepers and cuts counter wait times by 75%.
+                Compare manual counter handling against direct QR intake and Windows spooling.
               </p>
             </div>
 
-            <div className="overflow-x-auto rounded-2xl border border-line bg-white shadow-sm">
+            <div className="overflow-x-auto rounded-2xl border border-line dark:border-white/[0.08] bg-white dark:bg-[#11141b] shadow-xs">
               <table className="w-full text-left text-sm">
-                <thead className="bg-slate-50 text-xs uppercase tracking-wider text-slate-500 border-b border-line">
+                <thead className="bg-slate-50 dark:bg-white/[0.04] text-xs uppercase tracking-wider text-slate-500 border-b border-line dark:border-white/[0.08]">
                   <tr>
-                    <th className="p-4 sm:p-5">Feature / Task</th>
-                    <th className="p-4 sm:p-5 text-red-600">Traditional WhatsApp Xerox</th>
-                    <th className="p-4 sm:p-5 text-emerald-700 bg-emerald-50/50">Printiva Print Automation</th>
+                    <th className="p-4 sm:p-5">Task</th>
+                    <th className="p-4 sm:p-5 text-red-600 dark:text-rose-400">Manual Counter</th>
+                    <th className="p-4 sm:p-5 text-emerald-700 dark:text-emerald-400 bg-emerald-50/50 dark:bg-emerald-500/10">Printiva</th>
                   </tr>
                 </thead>
-                <tbody className="divide-y divide-slate-100 text-slate-700">
+                <tbody className="divide-y divide-slate-100 dark:divide-white/[0.06] text-slate-700 dark:text-slate-300">
                   <tr>
-                    <td className="p-4 sm:p-5 font-semibold text-brand-950">Customer File Sharing</td>
-                    <td className="p-4 sm:p-5 text-red-700">WhatsApp / Bluetooth / Pen Drive (clogs memory)</td>
-                    <td className="p-4 sm:p-5 text-emerald-800 bg-emerald-50/30 font-medium">Instant Mobile Web QR Scan (Zero App)</td>
+                    <td className="p-4 sm:p-5 font-semibold text-brand-950 dark:text-white">File Sharing</td>
+                    <td className="p-4 sm:p-5 text-red-700 dark:text-rose-300">WhatsApp / Bluetooth / Pen Drive</td>
+                    <td className="p-4 sm:p-5 text-emerald-800 dark:text-emerald-300 bg-emerald-50/30 dark:bg-emerald-500/[0.06] font-medium">Mobile Web QR Scan (No App)</td>
                   </tr>
                   <tr>
-                    <td className="p-4 sm:p-5 font-semibold text-brand-950">Page Counting &amp; Rate Calculation</td>
-                    <td className="p-4 sm:p-5 text-red-700">Manual scrolling, counting, and mental math</td>
-                    <td className="p-4 sm:p-5 text-emerald-800 bg-emerald-50/30 font-medium">Instant automatic vector page &amp; color detection</td>
+                    <td className="p-4 sm:p-5 font-semibold text-brand-950 dark:text-white">Page Counting &amp; Pricing</td>
+                    <td className="p-4 sm:p-5 text-red-700 dark:text-rose-300">Manual scrolling, counting, and math</td>
+                    <td className="p-4 sm:p-5 text-emerald-800 dark:text-emerald-300 bg-emerald-50/30 dark:bg-emerald-500/[0.06] font-medium">Automatic page &amp; color detection</td>
                   </tr>
                   <tr>
-                    <td className="p-4 sm:p-5 font-semibold text-brand-950">Payment Verification</td>
-                    <td className="p-4 sm:p-5 text-red-700">Manual check of easily faked screenshot</td>
-                    <td className="p-4 sm:p-5 text-emerald-800 bg-emerald-50/30 font-medium">Cryptographically verified Razorpay UPI / Card</td>
+                    <td className="p-4 sm:p-5 font-semibold text-brand-950 dark:text-white">Payment Verification</td>
+                    <td className="p-4 sm:p-5 text-red-700 dark:text-rose-300">Manual check of phone screenshots</td>
+                    <td className="p-4 sm:p-5 text-emerald-800 dark:text-emerald-300 bg-emerald-50/30 dark:bg-emerald-500/[0.06] font-medium">Server-verified Razorpay UPI / Card</td>
                   </tr>
                   <tr>
-                    <td className="p-4 sm:p-5 font-semibold text-brand-950">Physical Printing Process</td>
-                    <td className="p-4 sm:p-5 text-red-700">Manual Ctrl+P, selecting trays, color dialogues</td>
-                    <td className="p-4 sm:p-5 text-emerald-800 bg-emerald-50/30 font-medium">Automatic background spooling in ~300ms–500ms</td>
+                    <td className="p-4 sm:p-5 font-semibold text-brand-950 dark:text-white">Physical Printing</td>
+                    <td className="p-4 sm:p-5 text-red-700 dark:text-rose-300">Manual Ctrl+P and tray selection</td>
+                    <td className="p-4 sm:p-5 text-emerald-800 dark:text-emerald-300 bg-emerald-50/30 dark:bg-emerald-500/[0.06] font-medium">Background spooling in ~300ms–500ms</td>
                   </tr>
                   <tr>
-                    <td className="p-4 sm:p-5 font-semibold text-brand-950">Multi-Printer Hardware Routing</td>
-                    <td className="p-4 sm:p-5 text-red-700">Operator manually splits B&amp;W and Color files</td>
-                    <td className="p-4 sm:p-5 text-emerald-800 bg-emerald-50/30 font-medium">Smart split-queue sends B&amp;W to mono, Color to color</td>
+                    <td className="p-4 sm:p-5 font-semibold text-brand-950 dark:text-white">Multi-Printer Routing</td>
+                    <td className="p-4 sm:p-5 text-red-700 dark:text-rose-300">Operator manually splits B&amp;W and Color files</td>
+                    <td className="p-4 sm:p-5 text-emerald-800 dark:text-emerald-300 bg-emerald-50/30 dark:bg-emerald-500/[0.06] font-medium">Auto-routes B&amp;W to laser, Color to tank</td>
                   </tr>
                 </tbody>
               </table>
@@ -237,16 +223,14 @@ export default function DigitalPrintingServicePage() {
         </section>
 
         {/* ━━━ SUPPORTED HARDWARE & STANDARDS ━━━ */}
-        <section className="bg-brand-950 text-white py-20 lg:py-28 px-6 lg:px-8 relative overflow-hidden">
-          <div className="absolute top-0 right-1/4 -z-10 size-96 rounded-full bg-emerald-600/10 blur-3xl pointer-events-none" />
+        <section className="bg-brand-950 dark:bg-[#0d1016] text-white py-20 lg:py-28 px-6 lg:px-8 border-y border-transparent dark:border-white/[0.08]">
           <div className="mx-auto max-w-7xl">
             <div className="mx-auto max-w-3xl text-center">
-              <p className="text-xs font-semibold uppercase tracking-[0.2em] text-emerald-400">Universal Compatibility</p>
-              <h2 className="mt-3 text-3xl font-bold tracking-tight sm:text-4xl">
-                Works With Any Printer Brand &amp; Windows PC
+              <h2 className="text-3xl font-bold tracking-tight sm:text-4xl">
+                Works With Your Existing Printer &amp; Windows PC
               </h2>
               <p className="mt-4 text-base text-white/60 sm:text-lg">
-                No expensive proprietary kiosks required. Printiva operates with your current hardware setup.
+                No dedicated kiosk hardware needed. Connect the printers already on your counter.
               </p>
             </div>
 
@@ -254,12 +238,12 @@ export default function DigitalPrintingServicePage() {
               {[
                 { title: "Printer Brands", desc: "HP, Canon, Epson, Brother, Ricoh, Konica Minolta, Xerox & more." },
                 { title: "Connection Types", desc: "USB Direct, Wi-Fi Wireless, Local Ethernet LAN, WSD Network." },
-                { title: "Operating Systems", desc: "Windows 10 and Windows 11 (64-bit). Ultra-lightweight (&lt; 48MB RAM)." },
+                { title: "Operating Systems", desc: "Windows 10 and Windows 11 (64-bit), under 48 MB RAM." },
                 { title: "Media Formats", desc: "A4, A3, Legal, Single-Sided & Hardware Double-Sided Duplex." },
               ].map((item) => (
-                <div key={item.title} className="rounded-2xl border border-white/10 bg-white/[0.04] p-6 backdrop-blur-sm">
+                <div key={item.title} className="rounded-2xl border border-white/10 bg-white/[0.04] p-6">
                   <h3 className="text-lg font-semibold text-white">{item.title}</h3>
-                  <p className="mt-2 text-sm text-white/55 leading-relaxed">{item.desc}</p>
+                  <p className="mt-2 text-sm text-white/60 leading-relaxed">{item.desc}</p>
                 </div>
               ))}
             </div>
@@ -269,9 +253,8 @@ export default function DigitalPrintingServicePage() {
         {/* ━━━ FAQS ━━━ */}
         <section className="py-20 lg:py-28 px-6 lg:px-8 mx-auto max-w-4xl">
           <div className="text-center mb-14">
-            <p className="text-xs font-semibold uppercase tracking-[0.2em] text-brand-600">Frequently Asked Questions</p>
-            <h2 className="mt-3 text-3xl font-bold tracking-tight text-brand-950 sm:text-4xl">
-              Everything You Need to Know About Digital Printing Software
+            <h2 className="text-3xl font-bold tracking-tight text-brand-950 dark:text-white sm:text-4xl">
+              Frequently Asked Questions
             </h2>
           </div>
 

@@ -1,76 +1,79 @@
-# Printiva — Comprehensive Platform Documentation & Technical Guide
+# Printiva — Platform Documentation, Architecture & FAQ Reference
 
-Printiva is an enterprise-grade print automation software and photocopy management system designed for Indian print shops, xerox centers, cyber cafes, universities, and commercial printing hubs.
+> Printiva (`https://printiva.co.in`) is print automation and photocopy shop management software built in India for xerox shops, cyber cafes, university print counters, and commercial printing hubs.
 
-## 1. What Problems Does Printiva Solve?
-Traditional xerox shops in India process hundreds of customer print requests daily using WhatsApp, Bluetooth, or USB flash drives. This manual process introduces severe inefficiencies:
-1. **WhatsApp Storage & Memory Bloat**: Shopkeeper phones are overwhelmed with gigabytes of customer files, PDFs, and personal photos.
-2. **Malware & Virus Risks**: Unsanitized customer USB drives infect counter computers.
-3. **Manual Page Counting & Pricing Friction**: Shopkeepers waste up to 4 hours per day opening files, counting total pages, checking which pages are color vs monochrome, and manually multiplying by rates.
-4. **Counterfeit UPI Payment Screenshots**: Customers show doctored or fake UPI payment screenshots while the counter operator is busy.
-5. **Slow Manual Print Dialogs**: Operators must manually press Ctrl+P, select paper trays, choose duplex modes, and confirm print dialogs for each file.
+## 1. Problems Solved at Traditional Print Counters
+Manual counter workflows relying on WhatsApp Web, email, or USB pen drives create five daily bottlenecks:
+1. **Storage & Chat Clutter**: Shopkeepers download hundreds of customer PDFs and personal images via WhatsApp onto personal or counter devices.
+2. **USB Malware Exposure**: Untrusted customer pen drives risk infecting counter Windows PCs.
+3. **Manual Page Counting**: Operators open PDFs individually to count monochrome vs. color pages before quoting a price.
+4. **Unverified UPI Screenshots**: Busy counters risk accepting doctored payment confirmation screenshots.
+5. **Repetitive Print Dialogs**: Operators manually select page ranges, duplex modes, and trays on every order.
 
-Printiva automates the entire flow:
-- The customer scans a QR code with their mobile camera.
-- The web app opens directly in the mobile browser without installing any app.
-- Files are parsed client-side and server-side to detect exact vector page counts, color modes, and dimensions.
-- The pricing engine applies custom shop slabs instantly.
-- Payment is executed via Razorpay UPI/cards or offline Counter Cash tokens.
-- The Printiva Windows Desktop Agent spools the print job directly to the physical printer in &lt; 500ms.
+Printiva replaces those steps with an automated pipeline:
+- Customer scans the shop counter QR code with any phone camera (no app install required).
+- Files are uploaded in the mobile browser and parsed for exact page counts and dimensions.
+- The shop's custom per-page rate card (B&W, color, A4/A3, duplex, copies) calculates the live total.
+- Customer pays via Razorpay (UPI, cards, netbanking) or selects Counter Cash with a queue token.
+- The Printiva Windows Desktop Agent spools paid jobs directly to the local printer in < 500ms.
 
-## 2. Key Product Capabilities
+## 2. Comparison: Manual Counter vs. Printiva
 
-### A. Print Automation Software (Desktop Agent)
-- Runs as a native background service on 64-bit Windows 10 and 11.
-- Operates in the Windows system tray using &lt; 48MB RAM.
-- Connects directly to the Windows Print Spooler (`winspool.drv`) via high-performance native wrappers.
-- Employs zero-delay real-time background pre-caching: documents download to local NVMe/SSD cache as soon as uploaded, allowing 0ms retrieval on print approval.
-- Employs atomic server-side job claims to guarantee zero duplicate prints even under high counter concurrency.
+| Workflow Step | Manual (WhatsApp / Pen Drive) | Printiva Automation |
+| --- | --- | --- |
+| File Intake | Customer sends via WhatsApp or plugs USB drive | Customer scans counter QR via mobile browser |
+| Page Counting | Manual opening and counting pages | Automatic PDF/DOCX/image page count detection |
+| Pricing | Operator computes B&W/color total manually | Live per-page rate engine with instant total |
+| Payment | Visual check of UPI screenshot or manual cash | Razorpay cryptographic webhook check or 1-click cash queue |
+| Printing | Manual Ctrl+P, tray choice, and duplex toggles | Silent Win32 Print Spooler dispatch (< 500ms) |
 
-### B. Split-Queue Hardware Routing
-- Evaluates multi-document orders or mixed color-mode documents.
-- Automatically routes monochrome pages to high-speed B&W laser printers (e.g. HP LaserJet M1005) and color pages to dedicated color printers (e.g. Canon/Epson EcoTank).
-- Prevents expensive color ink/toner wastage.
-- Allows shopkeepers to click "Force Print" to allow monochrome fallback on single-printer shops.
+## 3. Core Capabilities
 
-### C. Manual & Hardware Duplex Printing
-- Hardware Duplex: Automatically triggers two-sided printing in a single pass on supported duplex printers.
-- Manual Duplex: For simplex printers, Printiva prints odd pages first, pauses the queue, instructs the operator with a tray-reload visual guide, and completes even pages on the same reserved printer.
+### A. Windows Desktop Agent (v1.8.36)
+- Runs as a background service on 64-bit Windows 10 and Windows 11 with a < 48 MB RAM footprint.
+- Dispatches print streams directly through the Windows Print Spooler (`winspool.drv`), bypassing browser print dialogs.
+- Background pre-caching downloads uploaded files locally before checkout completes so printing starts immediately upon confirmation.
+- Atomic server job claims prevent duplicate printouts under concurrent customer load.
 
-### D. Multi-Image to Single-Page Smart Canvas
-- Customers uploading photos (e.g. Aadhaar cards, PAN cards, ID documents) can arrange multiple images onto a single A4 page with 1-click presets (Grid 2x2, Top/Bottom, ID Card Front & Back) or custom freeform drag-and-drop.
+### B. Dual-Printer Color / Monochrome Split Routing
+- Inspects mixed orders containing both Black & White and Color pages.
+- Automatically sends monochrome sheets to high-speed B&W laser printers (such as HP LaserJet M1005 / 1020) and color sheets to color ink-tank or color laser printers (such as Epson EcoTank or Canon imageCLASS).
+- Optional counter override allows fallback to single-printer B&W output when color hardware is offline.
 
-### E. Omni-Channel Payment Support
-- Online Mode: Integrated with Razorpay for instant UPI (GPay, PhonePe, Paytm, BHIM), NetBanking, and credit/debit cards. Cryptographically verified via webhook signatures.
-- Counter Cash Mode: Generates unique daily counter tokens (e.g. #1, #2, #3). Customers pay cash at the counter, and the operator approves with a single click.
+### C. Hardware & Manual Duplex Support
+- **Hardware Duplex**: Triggers automatic double-sided output on duplex-capable printers.
+- **Manual Duplex**: Prints odd pages first on simplex printers, holds the printer reservation, guides the operator to reload the stack, and prints even pages cleanly.
 
-## 3. Supported Printers & Hardware
-Printiva is 100% hardware-agnostic and functions with any printer that has a functioning Windows print driver:
-- **Brands**: HP, Canon, Epson, Brother, Ricoh, Konica Minolta, Xerox, Pantum, Kyocera.
-- **Interfaces**: USB 2.0/3.0, Wi-Fi Wireless, Ethernet LAN, WSD (Web Services for Devices).
-- **Paper Sizes**: A4, A3, Legal, Letter, Custom photo paper.
+### D. Multi-Image Sheet Builder
+- Allows customers uploading photos, ID cards, or multiple screenshots to arrange 2x2 grids, front/back ID pairs, or custom layouts on A4 before printing.
 
-## 4. Software Architecture & Security
-- **Frontend**: Next.js 15, React 19, Tailwind CSS.
-- **Backend**: Node.js, Next.js Server Components, Edge runtime.
-- **Database**: Supabase PostgreSQL with Row Level Security (RLS) policies.
-- **Storage**: Encrypted Supabase Storage with signed private URLs and ephemeral caching.
-- **Agent Service**: Node.js + TypeScript compiled executable, Windows Print Spooler integration via SumatraPDF/native PDF print streams.
-- **Privacy**: Customer files are purged automatically from agent caches and storage according to retention policies.
+### E. Payment & Payout Model
+- **Razorpay UPI / Cards**: Verified via server-side HMAC webhook signatures before releasing jobs to the spooler. Direct merchant routing with 0% platform commission per order.
+- **Counter Cash Tokens**: Issues sequential daily counter token numbers (`#1`, `#2`, etc.) released by one click in the desktop tray queue.
 
-## 5. Pricing Plans
-- **7-Day Trial**: ₹100 full-access trial for print shops.
-- **Monthly Subscription**: ₹699/month.
-- **Yearly Subscription**: ₹7,499/year (discounted annual rate).
+## 4. Supported Printers & Technical Stack
+- **Compatible Printer Brands**: HP, Canon, Epson, Brother, Ricoh, Konica Minolta, Xerox, Kyocera, Pantum.
+- **Interfaces**: USB 2.0/3.0, Wi-Fi, Ethernet LAN, and Windows WSD ports.
+- **Paper Sizes**: A4, A3, Legal, Letter, and custom photo paper.
+- **Accepted Customer File Formats**: PDF, DOCX, PPTX, XLSX, JPEG, PNG, WEBP.
+- **Platform Architecture**: Next.js 16 (App Router), React 19, TypeScript, Tailwind CSS v4, Supabase PostgreSQL with Row Level Security (RLS), Razorpay Payments, and compiled Node.js Windows Desktop Agent.
 
-## 6. Official Links & Resources
-- Website: https://printiva.co.in/
+## 5. Transparent Pricing (INR)
+- **7-Day Trial**: ₹100 one-time full-feature onboarding trial.
+- **Monthly Plan**: ₹699 / month — unlimited customer orders, dual-printer routing, automatic updates.
+- **Annual Plan**: ₹7,499 / year — discounted annual subscription.
+
+## 6. Official Pages & Resources
+- Homepage: https://printiva.co.in/
+- Printing Software for Windows: https://printiva.co.in/printing-software
+- Xerox & Photocopy Shop Software: https://printiva.co.in/xerox-shop-software
 - Digital Printing Service: https://printiva.co.in/digital-printing-service
-- Shop Directory: https://printiva.co.in/shops
-- Desktop Agent Installer: https://printiva.co.in/download
-- Pricing Details: https://printiva.co.in/pricing
-- Features Specification: https://printiva.co.in/features
-- How It Works Guide: https://printiva.co.in/how-it-works
-- Live Order Tracker: https://printiva.co.in/track
-- Contact & Customer Care: https://printiva.co.in/contact
-
+- Live Print Shop Directory: https://printiva.co.in/shops
+- Features & Technical Architecture: https://printiva.co.in/features
+- How It Works: https://printiva.co.in/how-it-works
+- Pricing & Trial Details: https://printiva.co.in/pricing
+- Windows Desktop Agent Download: https://printiva.co.in/download
+- Order Tracker: https://printiva.co.in/track
+- Printer & Shop Guides (English & Hindi): https://printiva.co.in/blog
+- Contact & Support: https://printiva.co.in/contact
+- Summary Feed: https://printiva.co.in/llms.txt

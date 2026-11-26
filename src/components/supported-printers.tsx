@@ -148,7 +148,8 @@ const PRINTER_BRANDS: PrinterBrand[] = [
         <text
           x="45"
           y="36"
-          fill="#475569"
+          fill="currentColor"
+          className="text-slate-600 dark:text-slate-400"
           fontFamily="Arial, Helvetica, sans-serif"
           fontWeight="500"
           fontSize="10.5"
@@ -172,7 +173,8 @@ const PRINTER_BRANDS: PrinterBrand[] = [
           x="70"
           y="48"
           textAnchor="middle"
-          fill="#1E293B"
+          fill="currentColor"
+          className="text-slate-800 dark:text-slate-200"
           fontFamily="Arial, Helvetica, sans-serif"
           fontWeight="800"
           fontSize="8.5"
@@ -301,7 +303,7 @@ export function SupportedPrinters() {
 
   return (
     <section
-      className="bg-[#f8f9fb] border-t border-line py-14 sm:py-16"
+      className="bg-[#f8f9fb] border-t border-line py-14 sm:py-16 dark:bg-[#0d1016] dark:border-white/[0.08]"
       onMouseEnter={() => {
         isPausedRef.current = true;
       }}
@@ -319,7 +321,7 @@ export function SupportedPrinters() {
       <div className="mx-auto max-w-7xl px-6 lg:px-8">
         {/* Centered Title + Right Arrow Controls */}
         <div className="relative flex items-center justify-between sm:justify-center mb-9 gap-4">
-          <h2 className="text-xl sm:text-2xl font-bold tracking-tight text-slate-900 sm:text-center">
+          <h2 className="text-xl sm:text-2xl font-bold tracking-tight text-slate-900 dark:text-white sm:text-center">
             Supported Printers
           </h2>
           <div className="sm:absolute sm:right-0 flex items-center gap-2 shrink-0">
@@ -327,7 +329,7 @@ export function SupportedPrinters() {
               type="button"
               onClick={() => scrollByStep("left")}
               aria-label="Scroll supported printers left"
-              className="inline-flex size-9 items-center justify-center rounded-lg border border-slate-200 bg-white text-slate-600 shadow-2xs transition-colors hover:border-slate-300 hover:text-slate-950 active:scale-95 cursor-pointer"
+              className="inline-flex size-9 items-center justify-center rounded-lg border border-slate-200 bg-white text-slate-600 shadow-2xs transition-colors hover:border-slate-300 hover:text-slate-950 active:scale-95 cursor-pointer dark:border-white/[0.1] dark:bg-[#151922] dark:text-slate-300 dark:hover:border-white/20 dark:hover:text-white"
             >
               <ArrowLeft className="size-4" />
             </button>
@@ -335,7 +337,7 @@ export function SupportedPrinters() {
               type="button"
               onClick={() => scrollByStep("right")}
               aria-label="Scroll supported printers right"
-              className="inline-flex size-9 items-center justify-center rounded-lg border border-slate-200 bg-white text-slate-600 shadow-2xs transition-colors hover:border-slate-300 hover:text-slate-950 active:scale-95 cursor-pointer"
+              className="inline-flex size-9 items-center justify-center rounded-lg border border-slate-200 bg-white text-slate-600 shadow-2xs transition-colors hover:border-slate-300 hover:text-slate-950 active:scale-95 cursor-pointer dark:border-white/[0.1] dark:bg-[#151922] dark:text-slate-300 dark:hover:border-white/20 dark:hover:text-white"
             >
               <ArrowRight className="size-4" />
             </button>
@@ -354,7 +356,7 @@ export function SupportedPrinters() {
               key={`${brand.name}-${idx}`}
               aria-hidden={idx >= PRINTER_BRANDS.length ? true : undefined}
               title={`${brand.name} Printers Supported`}
-              className="flex h-[84px] sm:h-[90px] w-[188px] sm:w-[208px] shrink-0 items-center justify-center rounded-xl border border-slate-200/80 bg-white px-5 shadow-2xs transition-all duration-200 hover:border-slate-300 hover:shadow-xs select-none"
+              className="flex h-[84px] sm:h-[90px] w-[188px] sm:w-[208px] shrink-0 items-center justify-center rounded-xl border border-slate-200/80 bg-white px-5 shadow-2xs transition-all duration-200 hover:border-slate-300 hover:shadow-xs select-none dark:border-white/[0.08] dark:bg-[#131720] dark:hover:border-white/[0.16]"
             >
               {brand.renderLogo()}
             </div>

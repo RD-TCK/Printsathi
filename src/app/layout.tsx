@@ -42,6 +42,12 @@ export const metadata: Metadata = {
   publisher: SITE_NAME,
   category: "business",
   formatDetection: { telephone: false, email: false, address: false },
+  alternates: {
+    canonical: "/",
+    types: {
+      "text/plain": "/llms.txt",
+    },
+  },
   openGraph: {
     type: "website",
     siteName: SITE_NAME,
@@ -49,11 +55,20 @@ export const metadata: Metadata = {
     url: "/",
     title: defaultTitle,
     description: SITE_DESCRIPTION,
+    images: [
+      {
+        url: "/opengraph-image",
+        width: 1200,
+        height: 630,
+        alt: `${SITE_NAME} — ${SITE_TAGLINE}`,
+      },
+    ],
   },
   twitter: {
     card: "summary_large_image",
     title: `${SITE_NAME} — ${SITE_TAGLINE}`,
     description: SITE_DESCRIPTION,
+    images: ["/opengraph-image"],
   },
   robots: {
     index: true,
@@ -75,8 +90,25 @@ export const metadata: Metadata = {
 };
 
 export const viewport: Viewport = {
-  themeColor: "#16a34a",
+  themeColor: [
+    { media: "(prefers-color-scheme: light)", color: "#16a34a" },
+    { media: "(prefers-color-scheme: dark)", color: "#090b0f" },
+  ],
 };
+
+const themeInitScript = `
+(function(){
+  try {
+    var saved = window.localStorage.getItem('printiva-theme');
+    var prefersDark = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
+    if (saved === 'dark' || (!saved && prefersDark)) {
+      document.documentElement.classList.add('dark');
+    } else {
+      document.documentElement.classList.remove('dark');
+    }
+  } catch (e) {}
+})();
+`;
 
 export default function RootLayout({
   children,
@@ -84,8 +116,9 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="en-IN" className={`${inter.variable} ${serif.variable}`}>
+    <html lang="en-IN" className={`${inter.variable} ${serif.variable}`} suppressHydrationWarning>
       <body className={inter.className}>
+        <script dangerouslySetInnerHTML={{ __html: themeInitScript }} />
         <JsonLd data={[organizationJsonLd(), websiteJsonLd()]} />
         {children}
       </body>

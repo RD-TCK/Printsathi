@@ -22,6 +22,15 @@ import QRCode from "qrcode";
 import { loadConfig, getConfigDirectory } from "./config";
 import { logger } from "./logger";
 import { processAndCacheDocument, type ProcessedLocalDocument } from "./local-doc-processor";
+import {
+  buildWhatsAppBatchFailureReply,
+  buildWhatsAppBatchSuccessReply,
+  buildWhatsAppDownloadErrorReply,
+  buildWhatsAppFallbackErrorReply,
+  buildWhatsAppFileRejectReply,
+  buildWhatsAppMediaRejectReply,
+  buildWhatsAppTextReply,
+} from "./whatsapp-replies";
 
 export interface WhatsAppEvent {
   id: string;
@@ -815,14 +824,7 @@ export class WhatsAppAgentService {
         `Rejected non-printable media (${audioMsg ? "audio" : videoMsg ? "video" : "sticker"}) from ${senderName} (+${senderPhone})`,
       );
 
-      const rejectText =
-        `❌ *Unsupported Format / अमान्य फाइल*\n\n` +
-        `Namaste ${senderName}! 🙏 We can only print *PDF, Word (.docx, .doc), or Photos/Images (JPG, PNG)*.\n\n` +
-        `📄 *Please send your document in a supported format:*\n` +
-        `• *PDF* (.pdf)\n` +
-        `• *Word Document* (.docx, .doc)\n` +
-        `• *Photos / Images* (JPG, PNG, JPEG)\n\n` +
-        `_कृपया अपनी फाइल को *PDF, Word या Photo* फॉर्मेट में भेजें।_ 🙏`;
+      const rejectText = buildWhatsAppMediaRejectReply();
 
       await this.sendOrQueueReply(remoteJid, senderPhone, rejectText, msg);
       return;
@@ -872,16 +874,7 @@ export class WhatsAppAgentService {
           "Unsupported format. Please send PDF, Word (.docx/.doc), PowerPoint (.pptx), Excel (.xlsx), or Photos (JPG/PNG).",
       });
 
-      const rejectText =
-        `❌ *Unsupported File Format / अमान्य फाइल*\n\n` +
-        `Namaste ${senderName}! 🙏 We cannot print this file format (*${filename}*).\n\n` +
-        `📄 *Please send your file in a supported format:*\n` +
-        `• *PDF* (.pdf)\n` +
-        `• *Word Document* (.docx, .doc)\n` +
-        `• *PowerPoint Presentation* (.pptx, .ppt)\n` +
-        `• *Excel Spreadsheet* (.xlsx, .xls)\n` +
-        `• *Photos / Images* (JPG, PNG, JPEG)\n\n` +
-        `_कृपया अपनी फाइल को *PDF, Word, PPT, Excel या Photo* फॉर्मेट में भेजें।_ 🙏`;
+      const rejectText = buildWhatsAppFileRejectReply(filename);
 
       await this.sendOrQueueReply(remoteJid, senderPhone, rejectText, msg);
       return;
@@ -1010,7 +1003,7 @@ export class WhatsAppAgentService {
       await this.sendOrQueueReply(
         remoteJid,
         senderPhone,
-        `⚠️ *Printiva Notice:* We couldn't download *${filename}* from WhatsApp (${errorMsg.slice(0, 80)}). Please send the file again.`,
+        buildWhatsAppDownloadErrorReply(filename),
         msg,
       );
     } finally {
@@ -1068,23 +1061,11 @@ export class WhatsAppAgentService {
       (ev) => ev.senderPhone === `+${senderPhone}` && ev.status === "success" && ev.configUrl,
     );
 
-    let replyText = "";
-    if (recentSuccess && recentSuccess.configUrl) {
-      replyText =
-        `Namaste ${senderName}! 🙏\n\n` +
-        `👉 *Here is your print setup link:*\n` +
-        `${recentSuccess.configUrl}\n\n` +
-        `_Tap the link to choose B&W or Color, set number of copies, and collect your token._\n\n` +
-        `🖨️ *To print more files:* Send the PDF, Word document, or photos directly in this chat!`;
-    } else {
-      const config = loadConfig();
-      const shopTitle = config.shopName ? `*${config.shopName}*` : "*Printiva Print Shop*";
-      replyText =
-        `Namaste ${senderName}! 🙏 Welcome to ${shopTitle}.\n\n` +
-        `🖨️ *To print your documents:*\n` +
-        `Please send your *PDF, Word document (.docx), or photos* directly in this chat.\n\n` +
-        `⚡ You'll instantly receive a link on your phone to configure copies, choose B&W/Color, preview your pages, and collect your prints!`;
-    }
+    const config = loadConfig();
+    const replyText = buildWhatsAppTextReply({
+      shopName: config.shopName,
+      activeConfigUrl: recentSuccess?.configUrl,
+    });
 
     await this.sendOrQueueReply(remoteJid, senderPhone, replyText, msg);
   }
@@ -1147,7 +1128,6 @@ export class WhatsAppAgentService {
         documents: Array<{ id: string; filename: string; pageCount: number }>;
       }> = [];
 
-      let globalDocNumber = 1;
       const skippedFiles: Array<{ filename: string; reason: string }> = [];
 
       for (let chunkIdx = 0; chunkIdx < chunks.length; chunkIdx++) {
@@ -1439,11 +1419,7 @@ export class WhatsAppAgentService {
 
       // If none of the files in any chunk succeeded:
       if (chunkResults.length === 0) {
-        let failureText = `⚠️ *Printiva Notice — Could not process your file(s):*\n\n`;
-        for (const f of skippedFiles) {
-          failureText += `• *${f.filename}*: ${f.reason}\n`;
-        }
-        failureText += `\n_Please send an unlocked PDF, photo (JPG/PNG), or Word file (.docx)._`;
+        const failureText = buildWhatsAppBatchFailureReply(skippedFiles);
         this.retryBatches.delete(remoteJid);
         this.deleteBatchFromDisk(remoteJid);
 
@@ -1469,85 +1445,25 @@ export class WhatsAppAgentService {
       this.retryBatches.delete(remoteJid);
       this.deleteBatchFromDisk(remoteJid);
 
-      // Build customer WhatsApp reply text
-      let replyText = "";
-      if (chunkResults.length === 1) {
-        const { configUrl, documents: docs } = chunkResults[0];
-        const totalPages = docs.reduce((sum, d) => sum + (d.pageCount || 1), 0);
-
-        if (docs.length === 1) {
-          replyText =
-            `🖨️ *Printiva — Document Received!*\n\n` +
-            `📄 *File:* ${docs[0].filename}\n` +
-            `📑 *Pages:* ${docs[0].pageCount} page(s)\n\n` +
-            `👉 *Click here to configure copies, color & print:*\n` +
-            `${configUrl}\n\n` +
-            `_Select B&W/Color, single/both sides, copies, and pay or collect your token directly from your phone._`;
-        } else {
-          const fileList = docs.map((d, i) => `📄 ${i + 1}. *${d.filename}* (${d.pageCount} pg)`).join("\n");
-          replyText =
-            `🖨️ *Printiva — ${docs.length} Documents Received!*\n\n` +
-            `${fileList}\n\n` +
-            `📑 *Total:* ${totalPages} page(s) across ${docs.length} file(s)\n\n` +
-            `👉 *Click here to configure copies, color & print all files:*\n` +
-            `${configUrl}\n\n` +
-            `_Select B&W/Color, single/both sides, copies, and pay or collect your token directly from your phone._`;
-        }
-      } else {
-        const totalDocsCount = chunkResults.reduce((sum, c) => sum + c.documents.length, 0);
-        const totalPagesCount = chunkResults.reduce(
-          (sum, c) => sum + c.documents.reduce((dSum, d) => dSum + (d.pageCount || 1), 0),
-          0,
-        );
-
-        let bodySections = "";
-        globalDocNumber = 1;
-
-        for (let i = 0; i < chunkResults.length; i++) {
-          const chunkRes = chunkResults[i];
-          const chunkDocs = chunkRes.documents;
-          const chunkPages = chunkDocs.reduce((sum, d) => sum + (d.pageCount || 1), 0);
-          const chunkFilesList = chunkDocs
-            .map((d) => `📄 ${globalDocNumber++}. *${d.filename}* (${d.pageCount} pg)`)
-            .join("\n");
-
-          bodySections +=
-            `📦 *Order ${i + 1} of ${chunkResults.length} (${chunkDocs.length} files, ${chunkPages} pages):*\n` +
-            `${chunkFilesList}\n` +
-            `👉 *Configure Order ${i + 1}:* ${chunkRes.configUrl}\n\n`;
-        }
-
-        replyText =
-          `🖨️ *Printiva — ${totalDocsCount} Documents Received!*\n` +
-          `_Your files have been organized into ${chunkResults.length} quick print orders (${totalPagesCount} total pages):_\n\n` +
-          bodySections.trim() +
-          `\n\n_Tap each link to customize copies/color and collect your tokens._`;
+      for (const f of skippedFiles) {
+        this.pushRecentEvent({
+          id: crypto.randomUUID(),
+          timestamp: new Date().toLocaleTimeString(),
+          senderPhone: `+${senderPhone}`,
+          senderName,
+          filename: f.filename,
+          pageCount: 0,
+          configUrl: "",
+          status: "error",
+          errorMessage: f.reason,
+        });
       }
 
-      if (skippedFiles.length > 0) {
-        replyText += `\n\n⚠️ *Notice:* ${skippedFiles.length} file(s) could not be included:\n`;
-        for (const f of skippedFiles) {
-          replyText += `• *${f.filename}* — ${f.reason}\n`;
-        }
-        replyText += `_You can still configure and print the other files via the link above!_`;
-
-        for (const f of skippedFiles) {
-          this.pushRecentEvent({
-            id: crypto.randomUUID(),
-            timestamp: new Date().toLocaleTimeString(),
-            senderPhone: `+${senderPhone}`,
-            senderName,
-            filename: f.filename,
-            pageCount: 0,
-            configUrl: "",
-            status: "error",
-            errorMessage: f.reason,
-          });
-        }
-      }
-
-      // Add mutual contact trust booster
-      replyText += `\n\n💡 _Tip: Save this number as "Print Shop" to send files anytime!_`;
+      const replyText = buildWhatsAppBatchSuccessReply({
+        shopName: config.shopName,
+        chunks: chunkResults,
+        skippedFiles,
+      });
 
       // Dispatch reply or queue it if socket is momentarily disconnected
       await this.sendOrQueueReply(remoteJid, senderPhone, replyText, lastMessage);
@@ -1627,18 +1543,7 @@ export class WhatsAppAgentService {
         }
       }
 
-      let fallbackText = `⚠️ *Printiva Notice:* We received your file(s), but could not process them. Please send a PDF, photo (JPG/PNG/HEIC), or Word document (.docx).`;
-      if (errorMsg.includes("password") || errorMsg.includes("encrypted") || errorMsg.includes("damaged")) {
-        fallbackText = `🔒 *Printiva Notice:* Your document is password-protected or encrypted. Please unlock/remove the password and send it again.`;
-      } else if (errorMsg.includes("unsupported file type")) {
-        fallbackText = `⚠️ *Printiva Notice:* This file type is not supported for printing. Please send a PDF, photo (JPG/PNG/HEIC), or Word document (.docx).`;
-      } else if (errorMsg.includes("413") || errorMsg.includes("Payload Too Large")) {
-        fallbackText = `⚠️ *Printiva Notice:* The file is too large for cloud transfer. Please send a file under 50 MB or a PDF/image.`;
-      } else if (errorMsg.includes("Word") || errorMsg.includes("DOCX") || errorMsg.includes("export your Word")) {
-        fallbackText = `⚠️ *Printiva Notice:* Could not convert this document. Please export your Word document as a PDF and send it again.`;
-      } else if (isTransientNetwork) {
-        fallbackText = `⚠️ *Printiva Notice:* Internet connection was temporarily interrupted while processing your document. Please re-send or inform the counter.`;
-      }
+      const fallbackText = buildWhatsAppFallbackErrorReply(errorMsg, isTransientNetwork);
 
       await this.sendOrQueueReply(remoteJid, senderPhone, fallbackText, lastMessage);
     } finally {

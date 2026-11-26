@@ -3,6 +3,12 @@ import os from "node:os";
 import fs from "node:fs";
 import { describe, expect, it } from "vitest";
 import { WhatsAppAgentService, isSupportedWhatsAppPrintFile } from "./whatsapp";
+import {
+  buildWhatsAppBatchFailureReply,
+  buildWhatsAppBatchSuccessReply,
+  buildWhatsAppFallbackErrorReply,
+  buildWhatsAppTextReply,
+} from "./whatsapp-replies";
 
 describe("WhatsApp Agent Service", () => {
   it("initializes in disconnected state with empty events", () => {
@@ -275,6 +281,76 @@ describe("WhatsApp Agent Service", () => {
       expect(replies[0].replyText).toContain("Unsupported Format");
 
       if (fs.existsSync(testDir)) fs.rmSync(testDir, { recursive: true, force: true });
+    });
+  });
+
+  describe("Clean Reply Formatting", () => {
+    it("formats single-file and multi-file replies cleanly without noisy emoji clutter", () => {
+      const single = buildWhatsAppBatchSuccessReply({
+        shopName: "Sharma Xerox",
+        chunks: [
+          {
+            configUrl: "https://printiva.co.in/c/abc",
+            documents: [{ filename: "notes.pdf", pageCount: 1 }],
+          },
+        ],
+      });
+      expect(single).toBe(
+        [
+          "*Sharma Xerox* · Printiva · Ready to print",
+          "",
+          "• notes.pdf (1 page)",
+          "",
+          "Configure color, copies & pay:",
+          "https://printiva.co.in/c/abc",
+        ].join("\n"),
+      );
+
+      const multi = buildWhatsAppBatchSuccessReply({
+        chunks: [
+          {
+            configUrl: "https://printiva.co.in/c/batch",
+            documents: [
+              { filename: "a.pdf", pageCount: 2 },
+              { filename: "b.jpg", pageCount: 1 },
+            ],
+          },
+        ],
+        skippedFiles: [{ filename: "bad.pdf", reason: "Password-protected" }],
+      });
+      expect(multi).toContain("*Printiva* · 2 files ready (3 pages)");
+      expect(multi).toContain("1. a.pdf (2 pages)");
+      expect(multi).toContain("2. b.jpg (1 page)");
+      expect(multi).toContain("Skipped 1 file:\n• bad.pdf — Password-protected");
+    });
+
+    it("formats multi-order split batches, text greetings, and concise errors", () => {
+      const split = buildWhatsAppBatchSuccessReply({
+        shopName: "Campus Print",
+        chunks: [
+          {
+            configUrl: "https://printiva.co.in/c/1",
+            documents: [{ filename: "doc1.pdf", pageCount: 4 }],
+          },
+          {
+            configUrl: "https://printiva.co.in/c/2",
+            documents: [{ filename: "doc2.pdf", pageCount: 5 }],
+          },
+        ],
+      });
+      expect(split).toContain("Organized into 2 orders:");
+      expect(split).toContain("*Order 1* (1 file · 4 pages)");
+      expect(split).toContain("Configure: https://printiva.co.in/c/2");
+
+      expect(buildWhatsAppTextReply({ shopName: "Campus Print", activeConfigUrl: "https://printiva.co.in/c/1" })).toContain(
+        "Your active print link:\nhttps://printiva.co.in/c/1",
+      );
+      expect(buildWhatsAppBatchFailureReply([{ filename: "locked.pdf", reason: "Encrypted" }])).toContain(
+        "• locked.pdf — Encrypted",
+      );
+      expect(buildWhatsAppFallbackErrorReply("document is password-protected", false)).toContain(
+        "password-protected or damaged",
+      );
     });
   });
 });

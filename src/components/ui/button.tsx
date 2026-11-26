@@ -20,11 +20,11 @@ type LinkButtonProps = {
 
 const variants: Record<ButtonVariant, string> = {
   primary:
-    "bg-emerald-600 text-white border border-emerald-700 shadow-md shadow-emerald-900/15 btn-tactile-primary hover:bg-emerald-700 focus-visible:ring-emerald-500 active:scale-[0.985]",
+    "bg-emerald-600 text-white border border-emerald-700 shadow-md shadow-emerald-900/15 btn-tactile-primary hover:bg-emerald-700 focus-visible:ring-emerald-500 active:scale-[0.985] dark:bg-emerald-500 dark:text-slate-950 dark:border-emerald-400 dark:hover:bg-emerald-400",
   secondary:
-    "border border-slate-200 bg-white text-slate-900 shadow-xs btn-tactile-secondary hover:bg-slate-50 hover:border-slate-300 focus-visible:ring-emerald-500 active:scale-[0.985]",
+    "border border-slate-200 bg-white text-slate-900 shadow-xs btn-tactile-secondary hover:bg-slate-50 hover:border-slate-300 focus-visible:ring-emerald-500 active:scale-[0.985] dark:border-white/[0.12] dark:bg-[#151922] dark:text-slate-100 dark:hover:bg-[#1d222e] dark:hover:border-white/20",
   ghost:
-    "text-slate-900 hover:bg-black/[0.04] hover:text-black focus-visible:ring-emerald-500 active:scale-[0.985] transition-colors",
+    "text-slate-900 hover:bg-black/[0.04] hover:text-black focus-visible:ring-emerald-500 active:scale-[0.985] transition-colors dark:text-slate-200 dark:hover:bg-white/[0.06] dark:hover:text-white",
   danger:
     "bg-rose-600 text-white border border-rose-700 shadow-xs hover:bg-rose-700 active:scale-[0.985] focus-visible:ring-rose-500",
 };

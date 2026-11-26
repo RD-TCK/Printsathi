@@ -1,4 +1,5 @@
 @import "tailwindcss";
+@custom-variant dark (&:where(.dark, .dark *));
 
 :root {
   --brand-950: #062313;
@@ -16,6 +17,14 @@
   --muted: #526357;
   --line: #e2e8e3;
   --canvas: #fafbfa;
+}
+
+html.dark {
+  --ink: #f3f4f6;
+  --muted: #9ca3af;
+  --line: #232732;
+  --canvas: #090b0f;
+  color-scheme: dark;
 }
 
 @theme inline {
@@ -84,6 +93,9 @@ textarea {
   color: var(--color-brand-700);
   background: none;
   -webkit-text-fill-color: initial;
+}
+html.dark .gradient-text {
+  color: var(--color-brand-400);
 }
 
 /* ─── Reveal on scroll ─── */
@@ -236,4 +248,33 @@ textarea {
 }
 .no-scrollbar::-webkit-scrollbar {
   display: none;
+}
+
+/* ─── Seamless Site-Wide Dark Mode Baseline for Subpages ─── */
+html.dark :where(.bg-white):not([class*="dark:bg-"]) {
+  background-color: #11141b;
+}
+html.dark :where(.bg-slate-50):not([class*="dark:bg-"]) {
+  background-color: #0d1016;
+}
+html.dark :where(.bg-slate-100):not([class*="dark:bg-"]) {
+  background-color: #171b24;
+}
+html.dark :where(.bg-brand-50):not([class*="dark:bg-"]) {
+  background-color: rgba(16, 185, 129, 0.1);
+}
+html.dark :where(.text-brand-950, .text-slate-950, .text-slate-900):not([class*="dark:text-"]) {
+  color: #f3f4f6;
+}
+html.dark :where(.text-slate-800, .text-slate-700):not([class*="dark:text-"]) {
+  color: #d1d5db;
+}
+html.dark :where(.text-slate-600, .text-slate-500, .text-slate-400):not([class*="dark:text-"]) {
+  color: #9ca3af;
+}
+html.dark :where(.text-brand-700):not([class*="dark:text-"]) {
+  color: #34d399;
+}
+html.dark :where(.border-slate-100, .border-slate-200):not([class*="dark:border-"]) {
+  border-color: #232732;
 }

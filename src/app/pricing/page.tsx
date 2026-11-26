@@ -23,7 +23,7 @@ export const metadata = pageMetadata({
 
 export default function PricingPage() {
   return (
-    <div className="min-h-screen bg-white text-ink">
+    <div className="min-h-screen bg-white text-ink dark:bg-[#090b0f] dark:text-slate-100">
       <JsonLd
         data={[
           softwareJsonLd(),
@@ -38,14 +38,13 @@ export default function PricingPage() {
 
       <main>
         {/* Header */}
-        <section className="border-b border-line bg-slate-50/60 py-16 lg:py-24">
+        <section className="border-b border-line bg-gradient-to-b from-emerald-50/50 via-white to-sky-50/30 dark:border-white/[0.08] dark:from-[#0e151a] dark:via-[#0d1016] dark:to-[#0c1218] py-16 lg:py-24">
           <div className="mx-auto max-w-4xl px-6 text-center lg:px-8">
-            <p className="text-xs font-semibold uppercase tracking-[0.18em] text-brand-700">Simple, Transparent Pricing</p>
-            <h1 className="mt-3 text-3xl font-bold tracking-tight text-brand-950 sm:text-5xl">
-              Automate your print counter for the price of two cups of tea a day.
+            <h1 className="text-3xl font-bold tracking-tight text-brand-950 dark:text-white sm:text-5xl">
+              Simple, Transparent Pricing
             </h1>
             <p className="mt-4 text-base leading-relaxed text-muted sm:text-lg">
-              Start with our ₹100 full-feature trial for 7 days. Test with your actual physical printers, counter QR code, and customer orders before committing.
+              Start with our ₹100 7-day trial. Test with your actual counter printers and customer orders before subscribing.
             </p>
           </div>
         </section>
@@ -57,9 +56,9 @@ export default function PricingPage() {
               {/* Card 1: 7-Day Trial */}
               <div className="rounded-2xl border border-line bg-white p-8 sm:p-10 shadow-xs flex flex-col justify-between">
                 <div>
-                  <div className="inline-flex items-center gap-1.5 rounded-full bg-slate-100 px-3 py-1 text-xs font-semibold text-slate-700">
-                    Risk-Free Onboarding
-                  </div>
+                  <span className="inline-block rounded-md bg-slate-100 px-2.5 py-1 text-xs font-semibold text-slate-700">
+                    7-Day Trial
+                  </span>
                   <h2 className="mt-4 text-2xl font-bold text-brand-950">7-Day Full Trial</h2>
                   <p className="mt-2 text-sm leading-relaxed text-muted">
                     Full access to the Windows desktop agent, counter QR generator, and customer upload queue.
@@ -77,7 +76,7 @@ export default function PricingPage() {
                         "Windows Desktop Agent (USB/Wi-Fi/Network printer)",
                         "Automatic per-page pricing (B&W and Color)",
                         "Integrated Razorpay UPI & cash counter queue",
-                        "Zero manual print dialogs or page counting",
+                        "No manual print dialogs or page counting",
                       ].map((item) => (
                         <li key={item} className="flex items-start gap-2.5 text-sm text-slate-700">
                           <Check className="size-4 text-brand-700 shrink-0 mt-0.5" />
@@ -98,40 +97,36 @@ export default function PricingPage() {
               </div>
 
               {/* Card 2: Production Subscription */}
-              <div className="rounded-2xl border-2 border-brand-700 bg-brand-50/30 p-8 sm:p-10 shadow-sm flex flex-col justify-between relative">
-                <div className="absolute -top-3.5 right-6 inline-flex items-center gap-1.5 rounded-full bg-brand-700 px-3 py-1 text-xs font-semibold text-white">
-                  Most Popular for Shops
-                </div>
-
+              <div className="rounded-2xl border-2 border-brand-700 bg-brand-50/30 dark:border-emerald-500/45 dark:bg-[#11141b] p-8 sm:p-10 shadow-sm flex flex-col justify-between relative">
                 <div>
-                  <div className="inline-flex items-center gap-1.5 rounded-full bg-brand-100 px-3 py-1 text-xs font-semibold text-brand-800">
+                  <span className="inline-block rounded-md bg-brand-100 dark:bg-emerald-500/15 px-2.5 py-1 text-xs font-semibold text-brand-800 dark:text-emerald-300">
                     Monthly or Annual
-                  </div>
-                  <h2 className="mt-4 text-2xl font-bold text-brand-950">Active Shop License</h2>
+                  </span>
+                  <h2 className="mt-4 text-2xl font-bold text-brand-950 dark:text-white">Active Shop License</h2>
                   <p className="mt-2 text-sm leading-relaxed text-muted">
-                    Continuous automated printing, live queue management, priority spool updates, and zero platform fees.
+                    Continuous printing automation, live queue management, and desktop agent updates.
                   </p>
 
                   <div className="mt-6 flex flex-wrap items-baseline gap-x-4 gap-y-1">
                     <div>
-                      <span className="text-4xl font-extrabold font-mono text-brand-950">₹699</span>
+                      <span className="text-4xl font-extrabold font-mono text-brand-950 dark:text-white">₹699</span>
                       <span className="text-sm font-medium text-muted"> / month</span>
                     </div>
-                    <span className="text-xs font-semibold text-emerald-700 bg-emerald-100/80 px-2.5 py-1 rounded-md">
+                    <span className="text-xs font-semibold text-emerald-700 bg-emerald-100/80 dark:text-emerald-300 dark:bg-emerald-500/15 px-2.5 py-1 rounded-md">
                       or ₹7,499/year (Save 10%+)
                     </span>
                   </div>
 
-                  <div className="mt-8 pt-6 border-t border-brand-200/60">
+                  <div className="mt-8 pt-6 border-t border-brand-200/60 dark:border-white/[0.08]">
                     <p className="text-xs font-semibold uppercase tracking-wider text-brand-950 mb-4">Everything in trial plus</p>
                     <ul className="space-y-3">
                       {[
                         "Unlimited customer orders and document pages",
-                        "Direct Razorpay payout routing with 0% platform take",
+                        "Direct Razorpay payout routing with no platform fee",
                         "Multi-printer auto-routing (Laser B&W + Inkjet Color)",
                         "Counter queue center with ticket number token print",
-                        "Real-time WhatsApp document upload webhook support",
-                        "Priority telephone and WhatsApp support",
+                        "Real-time WhatsApp document upload support",
+                        "Phone and WhatsApp support",
                       ].map((item) => (
                         <li key={item} className="flex items-start gap-2.5 text-sm text-slate-800">
                           <Check className="size-4 text-brand-700 shrink-0 mt-0.5" />
@@ -156,15 +151,15 @@ export default function PricingPage() {
             <div className="mt-12 rounded-xl border border-line bg-slate-50/80 p-6 flex flex-wrap items-center justify-around gap-6 text-xs font-medium text-slate-700">
               <span className="inline-flex items-center gap-2">
                 <ShieldCheck className="size-4 text-brand-700" />
-                Razorpay Verified Security
+                Razorpay Verified Checkout
               </span>
               <span className="inline-flex items-center gap-2">
                 <Zap className="size-4 text-brand-700" />
-                Instant Automatic Activation
+                Instant Activation
               </span>
               <span className="inline-flex items-center gap-2">
                 <Check className="size-4 text-brand-700" />
-                No Long-Term Lock-in
+                Cancel Anytime
               </span>
             </div>
           </div>
@@ -174,8 +169,7 @@ export default function PricingPage() {
         <section className="border-t border-line py-16 lg:py-24 px-6 lg:px-8">
           <div className="mx-auto max-w-3xl">
             <div className="text-center">
-              <p className="text-xs font-semibold uppercase tracking-[0.18em] text-brand-700">Frequently Asked Questions</p>
-              <h2 className="mt-3 text-3xl font-bold tracking-tight text-brand-950">Pricing &amp; Trial Details</h2>
+              <h2 className="text-3xl font-bold tracking-tight text-brand-950 dark:text-white">Pricing &amp; Trial Details</h2>
             </div>
             <div className="mt-10">
               <FaqList />

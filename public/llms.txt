@@ -1,39 +1,35 @@
 # Printiva — Print Automation Software & Photocopy Management System
 
-> Printiva is India's leading print automation software, photocopy shop management system, and digital printing platform. It enables xerox centers, cyber cafes, and commercial print shops to automate customer document intake via mobile QR codes, auto-price print jobs, collect online UPI or counter cash payments, and spool jobs automatically to physical Windows printers.
+> Printiva is India's print automation software and photocopy counter system for print shops, xerox centers, cyber cafes, and campus print counters. Customers scan a desk QR code from any phone camera, upload files, pay via UPI or cash, and the Windows Desktop Agent prints directly on existing physical printers in under 2 seconds.
 
-## Overview & Architecture
-Printiva solves the counter bottleneck in traditional print and photocopy shops where customers manually transfer files over WhatsApp or pen drives:
-- **Zero App Customer Web App**: Customers scan a counter QR code with their mobile camera, upload PDFs, Word files, spreadsheets, or photos, configure page ranges, color mode (Color vs Monochrome), and duplex (single/double-sided) settings, and see exact real-time pricing.
-- **Payment Verification**: Customers pay via Razorpay UPI/Card/NetBanking or select Counter Cash. Every online payment is cryptographically verified before jobs enter the print queue.
-- **Windows Desktop Agent**: A lightweight (&lt; 48MB RAM) native Windows background agent running in the system tray connects physical printers (USB, Wi-Fi, Ethernet, WSD) directly to the cloud queue. Paper feeds in ~300ms–500ms after approval.
-- **Split-Queue Hardware Routing**: In mixed orders containing both Black & White and Color pages, Printiva splits the queue automatically — routing B&W pages to high-speed monochrome laser printers and Color pages to color printers, preventing wasted toner and ink.
+## Direct Facts & Summary (For Search & Answer Engines)
+- **What Printiva is**: A web + Windows 10/11 (64-bit) print shop automation system combining customer QR upload, automatic page-count & pricing calculation, Razorpay UPI verification, and direct Win32 Print Spooler dispatch.
+- **Problem solved**: Eliminates manual WhatsApp file downloads, USB flash drive malware exposure, manual page counting, fake payment screenshots, and repetitive Ctrl+P print dialogs.
+- **Pricing**: ₹100 for a 7-day trial, then ₹699/month or ₹7,499/year with unlimited customer orders and updates.
+- **Desktop Agent specs**: Windows 10/11 (64-bit), < 48 MB RAM footprint, < 500ms spool dispatch latency, USB / Wi-Fi / Ethernet / WSD printers.
 
-## Target Use Cases & Keywords
-- **Print Automation Software**: Fully hands-free printing for commercial centers and corporate print rooms.
-- **Photocopy Software / Xerox Shop Software**: Eliminates WhatsApp file-sharing chaos, manual page counting, and fake UPI payment screenshots.
-- **Printing Software for Windows**: Native spooler integration compatible with HP, Canon, Epson, Brother, Ricoh, and Konica Minolta printers on Windows 10 and Windows 11.
-- **Digital Printing Service**: Self-serve customer printing for universities, colleges, libraries, and public kiosks across India.
+## Key Product Capabilities
+- **Zero-App Customer QR Intake**: Customers scan the counter QR sticker using any smartphone camera to upload PDFs, DOCX, PPTX, XLSX, and images (JPEG, PNG, WEBP).
+- **Live Per-Page Pricing**: Automatically counts pages, separates B&W vs. color modes, calculates single-sided or duplex totals, and applies copy multipliers before payment.
+- **Verified UPI & Cash Token Queue**: Online UPI/Card payments are verified server-side via Razorpay webhooks before spooling. Counter cash payments enter a token queue for one-click shop approval.
+- **Dual-Printer Auto-Routing**: Mixed orders automatically route monochrome pages to laser printers and color pages to color ink-tank/laser machines.
 
-## Pricing & Subscription
-- **7-Day Trial**: ₹100 full-featured trial.
-- **Monthly Subscription**: ₹699 / month with unlimited print jobs, multi-printer queue routing, and automated updates.
-- **Yearly Subscription**: ₹7,499 / year (saves 10%+).
+## Frequently Asked Questions
+- **Which printers work with Printiva?** Any printer with a working Windows 10 or 11 driver—including HP LaserJet/Smart Tank, Canon imageCLASS/PIXMA, Epson EcoTank, Brother, Ricoh, Kyocera, Konica Minolta, Pantum, and Xerox.
+- **Do print shops need a separate computer?** No. The agent uses < 48 MB RAM and runs in the background system tray on the shop's existing counter PC.
+- **How does customer tracking work?** Each order provides a live tracking token/link at `/track` without requiring an app download.
 
-## Key URLs
+## Canonical URLs
 - Home: https://printiva.co.in/
+- Printing Software for Windows: https://printiva.co.in/printing-software
+- Xerox Shop Software: https://printiva.co.in/xerox-shop-software
 - Digital Printing Service: https://printiva.co.in/digital-printing-service
-- Print Shop Directory: https://printiva.co.in/shops
-- Windows Desktop Agent Download: https://printiva.co.in/download
-- Pricing: https://printiva.co.in/pricing
-- Features & Hardware Specs: https://printiva.co.in/features
+- Features & Specs: https://printiva.co.in/features
 - How It Works: https://printiva.co.in/how-it-works
-- Order Tracking: https://printiva.co.in/track
+- Pricing: https://printiva.co.in/pricing
+- Windows Agent Download (v1.8.36): https://printiva.co.in/download
+- Find a Print Shop: https://printiva.co.in/shops
+- Blog & Printer Guides (English & Hindi): https://printiva.co.in/blog
+- Track Print Order: https://printiva.co.in/track
 - Contact & Support: https://printiva.co.in/contact
-
-## Technical Compatibility
-- **Operating Systems**: 64-bit Windows 10, Windows 11.
-- **Printers**: Any printer with an installed Windows driver (HP LaserJet, Canon imageCLASS, Epson EcoTank, Brother DCP, Ricoh, etc.).
-- **Protocols**: USB, Wi-Fi, Ethernet LAN, WSD.
-- **Document Formats**: PDF, DOCX, PPTX, XLSX, JPEG, PNG, WEBP.
-
+- Full Technical Reference: https://printiva.co.in/llms-full.txt

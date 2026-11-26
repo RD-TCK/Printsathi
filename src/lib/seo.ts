@@ -56,11 +56,29 @@ export function pageMetadata({
   locale?: string;
 }): Metadata {
   const socialTitle = absoluteTitle ? title : `${title} | ${SITE_NAME}`;
+  const ogImage = siteUrl("/opengraph-image");
   return {
     title: absoluteTitle ? { absolute: title } : title,
     description,
-    keywords: keywords ? [...keywords, ...SITE_KEYWORDS.slice(0, 10)] : SITE_KEYWORDS.slice(0, 10),
-    alternates: { canonical: path },
+    keywords: keywords ? [...keywords, ...SITE_KEYWORDS.slice(0, 12)] : SITE_KEYWORDS.slice(0, 12),
+    alternates: {
+      canonical: path,
+      languages: {
+        "en-IN": path,
+        "x-default": path,
+      },
+    },
+    robots: {
+      index: true,
+      follow: true,
+      googleBot: {
+        index: true,
+        follow: true,
+        "max-image-preview": "large",
+        "max-snippet": -1,
+        "max-video-preview": -1,
+      },
+    },
     openGraph: {
       title: socialTitle,
       description,
@@ -68,8 +86,21 @@ export function pageMetadata({
       siteName: SITE_NAME,
       locale,
       type: "website",
+      images: [
+        {
+          url: ogImage,
+          width: 1200,
+          height: 630,
+          alt: `${SITE_NAME} — ${SITE_TAGLINE}`,
+        },
+      ],
     },
-    twitter: { card: "summary_large_image", title: socialTitle, description },
+    twitter: {
+      card: "summary_large_image",
+      title: socialTitle,
+      description,
+      images: [ogImage],
+    },
   };
 }
 
@@ -85,10 +116,18 @@ export function organizationJsonLd() {
     "@type": "Organization",
     "@id": organizationId(),
     name: SITE_NAME,
+    legalName: "Printiva Inc.",
     url: siteUrl("/"),
     logo: siteUrl("/icon.png"),
     description: SITE_DESCRIPTION,
     areaServed: { "@type": "Country", name: "India" },
+    contactPoint: {
+      "@type": "ContactPoint",
+      contactType: "customer support",
+      url: siteUrl("/contact"),
+      areaServed: "IN",
+      availableLanguage: ["en", "hi"],
+    },
     knowsAbout: [
       "Print automation software",
       "Photocopy software",
@@ -99,6 +138,7 @@ export function organizationJsonLd() {
       "QR code ordering",
       "Online payments for print shops",
       "Automatic print spooling",
+      "Windows Print Spooler automation",
     ],
   };
 }
@@ -114,6 +154,15 @@ export function websiteJsonLd() {
     description: SITE_DESCRIPTION,
     inLanguage: "en-IN",
     publisher: { "@id": organizationId() },
+    speakable: {
+      "@type": "SpeakableSpecification",
+      cssSelector: ["h1", "#stats-strip", "#faq-section"],
+    },
+    potentialAction: {
+      "@type": "SearchAction",
+      target: `${siteUrl("/shops")}?q={search_term_string}`,
+      "query-input": "required name=search_term_string",
+    },
   };
 }
 
@@ -130,8 +179,15 @@ export function softwareJsonLd() {
       "Print Shop Management Software",
     ],
     applicationCategory: "BusinessApplication",
-    operatingSystem: "Web, Windows 10, Windows 11",
+    applicationSubCategory: "Print Shop Management & Windows Print Spooler Automation",
+    operatingSystem: "Web, Windows 10, Windows 11 (64-bit)",
     softwareVersion: "1.8.36",
+    memoryRequirements: "48 MB RAM",
+    downloadUrl: siteUrl("/api/agent/download"),
+    installUrl: siteUrl("/download"),
+    screenshot: [siteUrl("/opengraph-image"), siteUrl("/hero-printer.webp")],
+    softwareHelp: { "@type": "WebPage", url: siteUrl("/how-it-works") },
+    inLanguage: ["en-IN", "hi-IN"],
     url: siteUrl("/"),
     description:
       "India's #1 print automation software and photocopy management system. Automate customer QR document intake, instant per-page pricing, Razorpay UPI payments, and physical Windows printing.",
@@ -152,13 +208,15 @@ export function softwareJsonLd() {
         name: "7-day trial",
         price: "100",
         priceCurrency: "INR",
-        url: siteUrl("/pricing"),
+        availability: "https://schema.org/InStock",
+        url: siteUrl("/register"),
       },
       {
         "@type": "Offer",
         name: "Monthly plan",
         price: "699",
         priceCurrency: "INR",
+        availability: "https://schema.org/InStock",
         url: siteUrl("/pricing"),
       },
       {
@@ -166,6 +224,7 @@ export function softwareJsonLd() {
         name: "Yearly plan",
         price: "7499",
         priceCurrency: "INR",
+        availability: "https://schema.org/InStock",
         url: siteUrl("/pricing"),
       },
     ],

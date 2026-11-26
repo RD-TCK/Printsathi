@@ -39,7 +39,7 @@ const xeroxFaqs: ReadonlyArray<readonly [string, string]> = [
 
 export default function XeroxShopSoftwarePage() {
   return (
-    <div className="min-h-screen bg-white text-ink overflow-x-clip">
+    <div className="min-h-screen bg-white text-ink overflow-x-clip dark:bg-[#090b0f] dark:text-slate-100">
       <JsonLd
         data={[
           softwareJsonLd(),
@@ -53,15 +53,12 @@ export default function XeroxShopSoftwarePage() {
       <SiteHeader />
 
       <main>
-        <section className="border-b border-line bg-gradient-to-b from-[#fafaf8] via-white to-white py-16 lg:py-24 px-6 lg:px-8">
+        <section className="border-b border-line bg-gradient-to-b from-[#fafaf8] via-white to-white dark:border-white/[0.08] dark:from-[#0d1016] dark:via-[#090b0f] dark:to-[#090b0f] py-16 lg:py-24 px-6 lg:px-8">
           <div className="mx-auto max-w-4xl text-center">
-            <p className="text-xs font-semibold uppercase tracking-[0.16em] text-brand-700">
-              For Xerox Centers &amp; Cyber Cafes
-            </p>
-            <h1 className="mt-3 text-4xl font-bold tracking-tight text-brand-950 sm:text-5xl lg:text-6xl">
+            <h1 className="text-4xl font-bold tracking-tight text-brand-950 dark:text-white sm:text-5xl lg:text-6xl">
               Xerox Shop Software Built for High-Volume Counters
             </h1>
-            <p className="mt-5 text-base leading-relaxed text-slate-600 sm:text-lg max-w-2xl mx-auto">
+            <p className="mt-5 text-base leading-relaxed text-slate-600 dark:text-slate-300 sm:text-lg max-w-2xl mx-auto">
               Stop searching WhatsApp chats for student PDFs. Printiva turns any Windows PC and counter printer into a self-serve QR ordering, billing, and auto-printing station.
             </p>
             <div className="mt-8 flex flex-wrap items-center justify-center gap-3.5">
@@ -70,7 +67,7 @@ export default function XeroxShopSoftwarePage() {
               </Button>
               <Link
                 href="/printing-software"
-                className="inline-flex items-center justify-center rounded-full border border-line bg-white px-6 py-3 text-sm font-semibold text-brand-950 shadow-2xs transition hover:bg-slate-50"
+                className="inline-flex items-center justify-center rounded-full border border-line bg-white px-6 py-3 text-sm font-semibold text-brand-950 shadow-2xs transition hover:bg-slate-50 dark:border-white/[0.12] dark:bg-[#131720] dark:text-slate-100 dark:hover:bg-[#1a1f2b]"
               >
                 Explore Printing Software
               </Link>
@@ -80,35 +77,28 @@ export default function XeroxShopSoftwarePage() {
 
         <section className="py-16 lg:py-24 px-6 lg:px-8">
           <div className="mx-auto max-w-6xl">
-            <div className="grid gap-px rounded-2xl border border-line bg-line overflow-hidden md:grid-cols-2">
+            <div className="grid gap-px rounded-2xl border border-line dark:border-white/[0.08] bg-line dark:bg-white/[0.08] overflow-hidden md:grid-cols-2">
               {[
                 {
-                  label: "01 / College & Market Rush",
                   title: "Handle 10+ simultaneous uploads cleanly",
-                  desc: "Each customer scans your counter QR, uploads multiple documents, sets custom page ranges, and gets a unique token number—zero desktop clutter.",
+                  desc: "Each customer scans your counter QR, uploads multiple documents, picks custom page ranges, and gets a unique token number without desktop clutter.",
                 },
                 {
-                  label: "02 / Zero Payment Disputes",
                   title: "Exact per-page pricing before print",
-                  desc: "Set your shop's exact B&W, Color, A4, A3, and double-sided rates once. Customers pay the exact computed amount via UPI or cash.",
+                  desc: "Set your shop's exact B&W, Color, A4, A3, and double-sided rates once. Customers pay the computed amount via UPI or cash.",
                 },
                 {
-                  label: "03 / Ink & Paper Protection",
                   title: "Automatic B&W vs. Color split",
-                  desc: "Never accidentally print a 50-page B&W PDF on your color inkjet tank printer again. Color and B&W jobs route strictly to matching machines.",
+                  desc: "Color and monochrome pages route strictly to matching machines so B&W jobs stay off your color ink tanks.",
                 },
                 {
-                  label: "04 / Cyber Cafe Speed",
                   title: "WhatsApp Direct + QR Counter Sync",
-                  desc: "Even if customers message files on WhatsApp, the desktop agent auto-replies with a configuration & print link so you never open chats manually.",
+                  desc: "When customers send files on WhatsApp, the desktop agent replies with one clean configuration and print link.",
                 },
               ].map((card) => (
-                <div key={card.title} className="bg-white p-8 hover:bg-slate-50/70 transition-colors">
-                  <p className="font-mono text-[11px] font-semibold uppercase tracking-[0.14em] text-brand-700">
-                    {card.label}
-                  </p>
-                  <h2 className="mt-3 text-xl font-bold text-brand-950">{card.title}</h2>
-                  <p className="mt-2.5 text-sm leading-relaxed text-slate-600">{card.desc}</p>
+                <div key={card.title} className="bg-white dark:bg-[#11141b] p-8 hover:bg-slate-50/70 dark:hover:bg-[#161a23] transition-colors">
+                  <h2 className="text-xl font-bold text-brand-950 dark:text-white">{card.title}</h2>
+                  <p className="mt-2.5 text-sm leading-relaxed text-slate-600 dark:text-slate-400">{card.desc}</p>
                 </div>
               ))}
             </div>
