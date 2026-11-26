@@ -162,6 +162,35 @@ export function wakeWindowsPrinterOptimistic(printerName: string): void {
 
 const printerSpoolQueues = new Map<string, Promise<void>>();
 
+let activeBatchPdfBuilds = 0;
+const batchPdfBuildWaiters: Array<() => void> = [];
+
+function getMaxConcurrentBatchPdfBuilds(): number {
+  const cpuCount = os.cpus()?.length || 2;
+  const totalMemGb = os.totalmem() / (1024 * 1024 * 1024);
+  if (cpuCount <= 4 || totalMemGb < 6) {
+    return 2;
+  }
+  return 4;
+}
+
+async function withBatchPdfBuildSlot<T>(task: () => Promise<T>): Promise<T> {
+  const limit = getMaxConcurrentBatchPdfBuilds();
+  if (activeBatchPdfBuilds >= limit) {
+    await new Promise<void>((resolve) => {
+      batchPdfBuildWaiters.push(resolve);
+    });
+  }
+  activeBatchPdfBuilds += 1;
+  try {
+    return await task();
+  } finally {
+    activeBatchPdfBuilds -= 1;
+    const next = batchPdfBuildWaiters.shift();
+    if (next) next();
+  }
+}
+
 /**
  * Serializes physical print submissions to the same printer to protect
  * consumer GDI/PCL printer drivers from concurrent port lockups (RPC_S_SERVER_TOO_BUSY).
@@ -214,6 +243,99 @@ export async function getPrinterQueueCount(printerName: string): Promise<number>
   }
 }
 
+/**
+ * Queries live Windows Spooler job counts across all installed printers in a single PowerShell call.
+ * Returns a lowercase printerName -> active queued job count map.
+ */
+export async function getAllPrinterQueueCounts(): Promise<Record<string, number>> {
+  const isWindows = process.platform === "win32" || os.platform() === "win32";
+  if (!isWindows || process.env.NODE_ENV === "test") return {};
+
+  try {
+    const script = `
+[Console]::OutputEncoding = [System.Text.UTF8Encoding]::new()
+$jobs = Get-CimInstance Win32_PrintJob -ErrorAction SilentlyContinue
+if (-not $jobs) {
+  $jobs = Get-WmiObject Win32_PrintJob -ErrorAction SilentlyContinue
+}
+if ($jobs) {
+  $counts = @{}
+  foreach ($j in $jobs) {
+    if ($j.Name) {
+      $pName = ($j.Name -replace ',\\s*\\d+$', '').Trim().ToLower()
+      if ($pName) {
+        if ($counts.ContainsKey($pName)) { $counts[$pName] += 1 } else { $counts[$pName] = 1 }
+      }
+    }
+  }
+  $counts | ConvertTo-Json -Compress
+}
+`;
+    const out = (await runPowerShellInline(script, 3000)).trim();
+    if (!out) return {};
+    const parsed = JSON.parse(out) as Record<string, unknown>;
+    const normalized: Record<string, number> = {};
+    for (const [key, val] of Object.entries(parsed)) {
+      const n = Number(val);
+      if (Number.isFinite(n) && n > 0) {
+        normalized[key.trim().toLowerCase()] = n;
+      }
+    }
+    return normalized;
+  } catch {
+    return {};
+  }
+}
+
+interface SharedMonitorEntry {
+  printerName: string;
+  startedAt: number;
+  deadline: number;
+  resolves: Array<(result: { completed: boolean; durationMs: number }) => void>;
+}
+
+const activeQueueMonitors = new Map<string, SharedMonitorEntry>();
+let sharedMonitorTimer: NodeJS.Timeout | null = null;
+let sharedMonitorPolling = false;
+
+async function pollSharedQueueMonitors(): Promise<void> {
+  if (sharedMonitorPolling || activeQueueMonitors.size === 0) return;
+  sharedMonitorPolling = true;
+  try {
+    const counts = await getAllPrinterQueueCounts();
+    const now = Date.now();
+    for (const [key, entry] of Array.from(activeQueueMonitors.entries())) {
+      const remaining = counts[key] || 0;
+      if (remaining === 0) {
+        activeQueueMonitors.delete(key);
+        const durationMs = now - entry.startedAt;
+        logger.info(
+          `Printer "${entry.printerName}" queue cleared after ${Math.round(durationMs / 1000)}s. Physical pages completed.`,
+        );
+        for (const resolve of entry.resolves) resolve({ completed: true, durationMs });
+      } else if (now >= entry.deadline) {
+        activeQueueMonitors.delete(key);
+        const durationMs = now - entry.startedAt;
+        logger.warn(
+          `Printer "${entry.printerName}" queue wait timed out after ${Math.round(durationMs / 1000)}s (${remaining} remaining). Proceeding.`,
+        );
+        for (const resolve of entry.resolves) resolve({ completed: false, durationMs });
+      }
+    }
+  } catch {
+    // Non-fatal; retry on next tick
+  } finally {
+    sharedMonitorPolling = false;
+    if (activeQueueMonitors.size > 0) {
+      sharedMonitorTimer = setTimeout(() => {
+        void pollSharedQueueMonitors();
+      }, 1600);
+    } else {
+      sharedMonitorTimer = null;
+    }
+  }
+}
+
 export async function waitForPhysicalPrintCompletion(
   printerName: string,
   timeoutMs = 90000,
@@ -223,25 +345,30 @@ export async function waitForPhysicalPrintCompletion(
     return { completed: true, durationMs: 0 };
   }
 
-  const startTime = Date.now();
-  // Brief initial pause to allow Windows spooler to register the job from SumatraPDF
-  await new Promise((r) => setTimeout(r, 1000));
-
-  while (Date.now() - startTime < timeoutMs) {
-    const count = await getPrinterQueueCount(printerName);
-    if (count > 0) {
-      logger.info(`Printer "${printerName}" is printing (${count} job(s) in spooler queue)...`);
-      await new Promise((r) => setTimeout(r, 1200));
+  return new Promise((resolve) => {
+    const key = printerName.toLowerCase();
+    const now = Date.now();
+    const existing = activeQueueMonitors.get(key);
+    if (existing) {
+      existing.deadline = Math.max(existing.deadline, now + timeoutMs);
+      existing.resolves.push(resolve);
     } else {
-      logger.info(
-        `Printer "${printerName}" queue cleared after ${Math.round((Date.now() - startTime) / 1000)}s. Physical pages completed.`,
-      );
-      return { completed: true, durationMs: Date.now() - startTime };
+      activeQueueMonitors.set(key, {
+        printerName,
+        startedAt: now,
+        deadline: now + timeoutMs,
+        resolves: [resolve],
+      });
     }
-  }
 
-  logger.warn(`Printer "${printerName}" queue wait timed out after ${timeoutMs / 1000}s. Proceeding.`);
-  return { completed: false, durationMs: Date.now() - startTime };
+    if (!sharedMonitorTimer && !sharedMonitorPolling) {
+      // Brief initial pause to allow Windows Spooler to register the job from SumatraPDF,
+      // coalescing all active printers into ONE batched PowerShell query instead of N loops.
+      sharedMonitorTimer = setTimeout(() => {
+        void pollSharedQueueMonitors();
+      }, 1500);
+    }
+  });
 }
 
 export interface PrintDocumentOptions {
@@ -546,10 +673,11 @@ export async function prepareAndPrintDocument(
 
   try {
     if (!isWindows) throw new Error("Physical printing requires Windows; no job was submitted.");
+    const targetLower = targetPrinterName.trim().toLowerCase();
     const printer =
-      options?.discoveredPrinter && options.discoveredPrinter.name === targetPrinterName
+      options?.discoveredPrinter && options.discoveredPrinter.name.trim().toLowerCase() === targetLower
         ? options.discoveredPrinter
-        : (await discoverWindowsPrinters()).find((p) => p.name === targetPrinterName);
+        : (await discoverWindowsPrinters()).find((p) => p.name.trim().toLowerCase() === targetLower);
     if (!printer || !isPhysicalPrinter(printer)) {
       throw new Error(`Printer "${targetPrinterName}" is not an installed physical Windows printer.`);
     }
@@ -921,10 +1049,11 @@ export async function prepareAndPrintBatch(
 
   try {
     if (!isWindows) throw new Error("Physical printing requires Windows; no job was submitted.");
+    const targetLower = targetPrinterName.trim().toLowerCase();
     const printer =
-      options?.discoveredPrinter && options.discoveredPrinter.name === targetPrinterName
+      options?.discoveredPrinter && options.discoveredPrinter.name.trim().toLowerCase() === targetLower
         ? options.discoveredPrinter
-        : (await discoverWindowsPrinters()).find((p) => p.name === targetPrinterName);
+        : (await discoverWindowsPrinters()).find((p) => p.name.trim().toLowerCase() === targetLower);
     if (!printer || !isPhysicalPrinter(printer)) {
       throw new Error(`Printer "${targetPrinterName}" is not an installed physical Windows printer.`);
     }
@@ -967,62 +1096,94 @@ export async function prepareAndPrintBatch(
     }
 
     const isHardwareDuplex = hasDoubleSided && targetSupportsHardwareDuplex;
-    const outputPdf = await PDFDocument.create();
-    let totalCalculatedPages = 0;
-    let defaultPageSize: [number, number] = [595.28, 841.89];
+    const { totalCalculatedPages, batchSpoolPath } = await withBatchPdfBuildSlot(async () => {
+      const outputPdf = await PDFDocument.create();
+      let calcPages = 0;
+      let defaultPageSize: [number, number] = [595.28, 841.89];
 
-    for (const item of batchItems) {
-      const sourcePdf = await loadSourceAsPdfDocument(item.sourcePath);
-      const activeConfigs = item.pagesConfigOverride || item.job.pagesConfig;
-      const configsToProcess =
-        activeConfigs && activeConfigs.length > 0
-          ? activeConfigs
-          : [
-              {
-                startPage: 1,
-                endPage: sourcePdf.getPageCount(),
-                copies: 1,
-                sideMode: hasDoubleSided ? ("double_sided" as const) : ("single_sided" as const),
-                colorMode: "black_and_white" as const,
-                paperSize: "a4" as const,
-              },
-            ];
+      for (let itemIdx = 0; itemIdx < batchItems.length; itemIdx++) {
+        const item = batchItems[itemIdx];
+        let sourcePdf: PDFDocument | null = await loadSourceAsPdfDocument(item.sourcePath);
+        const activeConfigs = item.pagesConfigOverride || item.job.pagesConfig;
+        const configsToProcess =
+          activeConfigs && activeConfigs.length > 0
+            ? activeConfigs
+            : [
+                {
+                  startPage: 1,
+                  endPage: sourcePdf.getPageCount(),
+                  copies: 1,
+                  sideMode: hasDoubleSided ? ("double_sided" as const) : ("single_sided" as const),
+                  colorMode: "black_and_white" as const,
+                  paperSize: "a4" as const,
+                },
+              ];
 
-      if (sourcePdf.getPageCount() > 0) {
-        const firstP = sourcePdf.getPage(0);
-        defaultPageSize = [firstP.getWidth(), firstP.getHeight()];
-      }
-
-      for (const config of configsToProcess) {
-        const start = Math.max(1, config.startPage);
-        const end = Math.min(sourcePdf.getPageCount(), config.endPage);
-        const copies = Math.max(1, config.copies ?? 1);
-
-        const pageIndices: number[] = [];
-        for (let i = start; i <= end; i++) {
-          pageIndices.push(i - 1);
+        if (sourcePdf.getPageCount() > 0) {
+          const firstP = sourcePdf.getPage(0);
+          defaultPageSize = [firstP.getWidth(), firstP.getHeight()];
         }
 
-        const rangeCount = pageIndices.length;
-        if (rangeCount > 0) {
-          for (let c = 0; c < copies; c++) {
-            const copiedPages = await outputPdf.copyPages(sourcePdf, pageIndices);
-            copiedPages.forEach((p) => outputPdf.addPage(p));
-            totalCalculatedPages += rangeCount;
+        for (const config of configsToProcess) {
+          const start = Math.max(1, config.startPage);
+          const end = Math.min(sourcePdf.getPageCount(), config.endPage);
+          const copies = Math.max(1, config.copies ?? 1);
 
-            // In hardware duplex, if a document or copy has an odd number of pages,
-            // pad with an empty page so the next document doesn't print on the back side!
-            if (isHardwareDuplex && rangeCount % 2 === 1) {
-              const lastP = copiedPages[copiedPages.length - 1];
-              const { width, height } = lastP.getSize();
-              outputPdf.addPage([width, height]);
+          const pageIndices: number[] = [];
+          for (let i = start; i <= end; i++) {
+            pageIndices.push(i - 1);
+          }
+
+          const rangeCount = pageIndices.length;
+          if (rangeCount > 0) {
+            for (let c = 0; c < copies; c++) {
+              const copiedPages = await outputPdf.copyPages(sourcePdf, pageIndices);
+              copiedPages.forEach((p) => outputPdf.addPage(p));
+              calcPages += rangeCount;
+
+              // In hardware duplex, if a document or copy has an odd number of pages,
+              // pad with an empty page so the next document doesn't print on the back side!
+              if (isHardwareDuplex && rangeCount % 2 === 1) {
+                const lastP = copiedPages[copiedPages.length - 1];
+                const { width, height } = lastP.getSize();
+                outputPdf.addPage([width, height]);
+              }
             }
           }
         }
-      }
-    }
 
-    if (outputPdf.getPageCount() === 0) {
+        // Drop reference immediately for GC and yield between files on large batches so low-end CPUs keep UI & heartbeats responsive
+        sourcePdf = null;
+        if (batchItems.length >= 4 && itemIdx < batchItems.length - 1) {
+          await new Promise<void>((resolve) => setImmediate(resolve));
+        }
+      }
+
+      if (outputPdf.getPageCount() === 0) {
+        return { totalCalculatedPages: 0, batchSpoolPath: null as string | null };
+      }
+
+      // Append blank separator page only once at the end of the batch
+      if (shouldAddSeparatorPage) {
+        if (isHardwareDuplex) {
+          outputPdf.addPage(defaultPageSize);
+          outputPdf.addPage(defaultPageSize);
+        } else {
+          outputPdf.addPage(defaultPageSize);
+        }
+      }
+
+      const outputBytes = await outputPdf.save();
+      const tempDir = path.join(os.tmpdir(), "printsaathi_spool");
+      if (!fs.existsSync(tempDir)) {
+        fs.mkdirSync(tempDir, { recursive: true });
+      }
+      const spooledPath = path.join(tempDir, `batch_${firstJob.orderId || firstJob.id}_${Date.now()}_spooled.pdf`);
+      fs.writeFileSync(spooledPath, outputBytes);
+      return { totalCalculatedPages: calcPages, batchSpoolPath: spooledPath };
+    });
+
+    if (!batchSpoolPath || totalCalculatedPages === 0) {
       return {
         success: true,
         status: "PRINT_SUBMITTED",
@@ -1031,24 +1192,7 @@ export async function prepareAndPrintBatch(
         duplexModeUsed: isHardwareDuplex ? "hardware" : "simplex",
       };
     }
-
-    // Append blank separator page only once at the end of the batch
-    if (shouldAddSeparatorPage) {
-      if (isHardwareDuplex) {
-        outputPdf.addPage(defaultPageSize);
-        outputPdf.addPage(defaultPageSize);
-      } else {
-        outputPdf.addPage(defaultPageSize);
-      }
-    }
-
-    const outputBytes = await outputPdf.save();
-    const tempDir = path.join(os.tmpdir(), "printsaathi_spool");
-    if (!fs.existsSync(tempDir)) {
-      fs.mkdirSync(tempDir, { recursive: true });
-    }
-    tempExtractedPath = path.join(tempDir, `batch_${firstJob.orderId || firstJob.id}_${Date.now()}_spooled.pdf`);
-    fs.writeFileSync(tempExtractedPath, outputBytes);
+    tempExtractedPath = batchSpoolPath;
 
     const settings = ["shrink"];
     if (isHardwareDuplex) {
@@ -1073,11 +1217,6 @@ export async function prepareAndPrintBatch(
     if (printer.isSleeping || printer.status === "offline") {
       wakeWindowsPrinterOptimistic(targetPrinterName);
     }
-
-    if (!tempExtractedPath) {
-      throw new Error("Batch spool PDF was not generated.");
-    }
-    const batchSpoolPath = tempExtractedPath;
 
     await submitToPrinterSerialized(targetPrinterName, async () => {
       const preQueueCount = process.env.NODE_ENV === "test" ? 0 : await getPrinterQueueCount(targetPrinterName);

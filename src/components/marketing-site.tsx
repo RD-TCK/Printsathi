@@ -50,7 +50,7 @@ export function MarketingFooter() {
               className="inline-flex items-center gap-2 rounded-full border border-emerald-200/90 bg-white px-3.5 py-1.5 text-xs font-medium text-emerald-800 shadow-2xs transition hover:border-emerald-300 hover:bg-emerald-50/60"
             >
               <span className="size-1.5 rounded-full bg-emerald-600" />
-              Windows Agent v1.8.35 &rarr;
+              Windows Agent v1.8.36 &rarr;
             </Link>
           </div>
         </div>

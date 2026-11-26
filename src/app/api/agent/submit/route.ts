@@ -99,7 +99,7 @@ export async function POST(request: Request) {
       .eq("id", existingJob.order_id);
   }
 
-  // Audit log
+  // Audit log (includes exact physical printer_name so token inspection survives agent restarts)
   await adminClient.from("audit_logs").insert({
     shop_id: auth.shop.id,
     action: isOddStep ? "print_job_odd_pages_submitted" : "print_job_submitted",
@@ -108,6 +108,7 @@ export async function POST(request: Request) {
     metadata: {
       agent_id: auth.agent.id,
       duplex_step: targetDuplexStep,
+      printer_name: parsed.data.printerName || null,
       submitted_at: new Date().toISOString(),
     },
   });

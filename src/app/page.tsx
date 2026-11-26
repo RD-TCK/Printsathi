@@ -110,7 +110,7 @@ export default function Home() {
                   href="/download"
                   className="font-medium text-emerald-800 hover:text-emerald-950 hover:underline inline-flex items-center gap-1"
                 >
-                  Download v1.8.35 (.exe)
+                  Download v1.8.36 (.exe)
                   <Download className="size-3 text-emerald-800" />
                 </Link>
               </div>
@@ -334,7 +334,7 @@ export default function Home() {
                   <Button asChild variant="primary">
                     <Link href="/download">
                       <Download className="size-4" />
-                      Download v1.8.35 (.exe)
+                      Download v1.8.36 (.exe)
                     </Link>
                   </Button>
                   <Link

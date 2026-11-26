@@ -47,9 +47,11 @@ type QueueItem = {
   }>;
   jobs: Array<{
     id: string;
+    documentId?: string;
     status: string;
     totalPages: number;
     duplexStep?: string;
+    printerName?: string | null;
   }>;
 };
 
@@ -60,6 +62,7 @@ export function CounterQueueCenter({ shopName }: { shopName: string }) {
   const [actionLoading, setActionLoading] = useState<string | null>(null);
   const [dismissedPopups, setDismissedPopups] = useState<Set<string>>(new Set());
   const [statusMessage, setStatusMessage] = useState<{ text: string; type: "success" | "error" } | null>(null);
+  const [selectedTokenItem, setSelectedTokenItem] = useState<QueueItem | null>(null);
 
   // Audio chime notification for new requests
   const prevCountRef = useRef<number>(0);
@@ -637,9 +640,12 @@ export function CounterQueueCenter({ shopName }: { shopName: string }) {
                     <div className="flex flex-wrap items-center justify-between gap-4">
                       {/* Left: Enhanced Token Number Badge */}
                       <div className="flex items-center gap-3.5 min-w-0">
-                        <div
+                        <button
+                          type="button"
+                          onClick={() => setSelectedTokenItem(item)}
+                          title="Click to inspect printer & documents for this token"
                           className={cn(
-                            "flex size-14 shrink-0 items-center justify-center rounded-2xl font-mono text-xl font-black shadow-md",
+                            "flex flex-col items-center justify-center min-w-[3.75rem] px-2 py-1.5 shrink-0 rounded-2xl font-mono text-xl font-black shadow-md cursor-pointer transition-transform hover:scale-105",
                             isCompleted
                               ? "bg-emerald-100 text-emerald-800 border border-emerald-300"
                               : isPrinting
@@ -653,14 +659,58 @@ export function CounterQueueCenter({ shopName }: { shopName: string }) {
                                       : "bg-emerald-600 text-white shadow-emerald-700/25 ring-2 ring-emerald-300",
                           )}
                         >
-                          #{item.tokenNumber ?? item.publicId.slice(0, 4)}
-                        </div>
+                          <span>#{item.tokenNumber ?? item.publicId.slice(0, 4)}</span>
+                          {(() => {
+                            const pNames = Array.from(
+                              new Set(item.jobs.map((j) => j.printerName).filter((n): n is string => Boolean(n))),
+                            );
+                            if (pNames.length === 0) return null;
+                            return (
+                              <span className="mt-0.5 max-w-[92px] truncate rounded bg-white/90 px-1 py-0.5 text-[9px] font-bold text-slate-800">
+                                {pNames.length === 1 ? pNames[0] : `${pNames[0]} +${pNames.length - 1}`}
+                              </span>
+                            );
+                          })()}
+                        </button>
 
                         <div className="min-w-0">
                           <div className="flex flex-wrap items-center gap-2">
-                            <span className="text-base font-extrabold text-slate-900 tracking-tight">
+                            <button
+                              type="button"
+                              onClick={() => setSelectedTokenItem(item)}
+                              title="Click to see exact printer assignment & documents"
+                              className="text-base font-extrabold text-slate-900 tracking-tight hover:text-emerald-700 hover:underline underline-offset-2 cursor-pointer text-left"
+                            >
                               Token #{item.tokenNumber ?? item.publicId.slice(0, 8)}
-                            </span>
+                            </button>
+
+                            {(() => {
+                              const pNames = Array.from(
+                                new Set(item.jobs.map((j) => j.printerName).filter((n): n is string => Boolean(n))),
+                              );
+                              if (pNames.length > 0) {
+                                return (
+                                  <button
+                                    type="button"
+                                    onClick={() => setSelectedTokenItem(item)}
+                                    className="inline-flex items-center gap-1 rounded-full bg-emerald-50 px-2.5 py-0.5 text-[11px] font-bold text-emerald-800 border border-emerald-200 hover:bg-emerald-100 cursor-pointer"
+                                  >
+                                    <Printer className="size-3 shrink-0" />
+                                    <span className="max-w-[200px] truncate">{pNames.join(", ")}</span>
+                                  </button>
+                                );
+                              }
+                              return (
+                                <button
+                                  type="button"
+                                  onClick={() => setSelectedTokenItem(item)}
+                                  className="inline-flex items-center gap-1 rounded-full bg-slate-100 px-2 py-0.5 text-[11px] font-semibold text-slate-600 border border-slate-200 hover:bg-slate-200 cursor-pointer"
+                                >
+                                  <Printer className="size-3 shrink-0" />
+                                  <span>Auto Printer &middot; Info</span>
+                                </button>
+                              );
+                            })()}
 
                             <Badge
                               tone={
@@ -946,6 +996,105 @@ export function CounterQueueCenter({ shopName }: { shopName: string }) {
           )}
         </CardContent>
       </Card>
+
+      {selectedTokenItem && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 backdrop-blur-xs p-4"
+          onClick={() => setSelectedTokenItem(null)}
+        >
+          <div
+            className="w-full max-w-lg rounded-2xl border border-slate-200 bg-white shadow-2xl overflow-hidden"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between border-b border-slate-200 bg-slate-50 px-5 py-3.5">
+              <div className="flex items-center gap-2.5">
+                <span className="rounded-lg bg-emerald-100 border border-emerald-300 px-2.5 py-0.5 font-mono text-base font-black text-emerald-900">
+                  Token #{selectedTokenItem.tokenNumber ?? selectedTokenItem.publicId.slice(0, 4)}
+                </span>
+                <span className="text-xs font-bold text-slate-600">
+                  {selectedTokenItem.totalPages} pages · ₹{selectedTokenItem.totalAmount.toFixed(2)}
+                </span>
+              </div>
+              <button
+                type="button"
+                onClick={() => setSelectedTokenItem(null)}
+                className="rounded-lg border border-slate-200 bg-white px-2.5 py-1 text-xs font-bold text-slate-600 hover:bg-slate-100 cursor-pointer"
+              >
+                Close
+              </button>
+            </div>
+            <div className="p-5 space-y-4 max-h-[75vh] overflow-y-auto">
+              {(() => {
+                const printers = Array.from(
+                  new Set(
+                    selectedTokenItem.jobs.map((j) => j.printerName).filter((n): n is string => Boolean(n)),
+                  ),
+                );
+                return (
+                  <div className="rounded-xl border border-emerald-200 bg-emerald-50/80 p-3.5">
+                    <p className="text-[11px] font-extrabold uppercase tracking-wider text-emerald-800">
+                      Assigned Printer(s)
+                    </p>
+                    {printers.length > 0 ? (
+                      <div className="mt-2 flex flex-wrap gap-2">
+                        {printers.map((pn) => (
+                          <span
+                            key={pn}
+                            className="inline-flex items-center gap-1.5 rounded-lg border border-emerald-300 bg-white px-3 py-1 text-xs font-extrabold text-slate-900"
+                          >
+                            <Printer className="size-3.5 text-emerald-700" />
+                            {pn}
+                          </span>
+                        ))}
+                      </div>
+                    ) : (
+                      <p className="mt-1 text-xs font-medium text-emerald-900">
+                        Not dispatched yet — the desktop agent will automatically route B&amp;W pages to B&amp;W printers
+                        and Color pages to Color printers when printing starts.
+                      </p>
+                    )}
+                  </div>
+                );
+              })()}
+
+              <div className="space-y-2">
+                <p className="text-xs font-extrabold uppercase tracking-wider text-slate-500">
+                  Documents ({selectedTokenItem.documents.length})
+                </p>
+                {selectedTokenItem.documents.map((doc, idx) => {
+                  const matchedJobs = selectedTokenItem.jobs.filter((j) => j.documentId === doc.id);
+                  const docPrinters = Array.from(
+                    new Set(
+                      (matchedJobs.length > 0 ? matchedJobs : [selectedTokenItem.jobs[idx]].filter(Boolean))
+                        .map((j) => j?.printerName)
+                        .filter((n): n is string => Boolean(n)),
+                    ),
+                  );
+                  return (
+                    <div key={doc.id} className="rounded-xl border border-slate-200 bg-white p-3">
+                      <div className="text-sm font-bold text-slate-900 break-words">
+                        {idx + 1}. {doc.filename}
+                      </div>
+                      <div className="mt-1 text-xs text-slate-500">{doc.pageCount} page(s)</div>
+                      <div className="mt-2">
+                        {docPrinters.length > 0 ? (
+                          <span className="inline-flex items-center gap-1 rounded-md border border-emerald-200 bg-emerald-50 px-2 py-0.5 text-[11px] font-bold text-emerald-900">
+                            <Printer className="size-3" /> {docPrinters.join(", ")}
+                          </span>
+                        ) : (
+                          <span className="text-[11px] font-medium text-slate-500">
+                            Waiting for printer dispatch
+                          </span>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

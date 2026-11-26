@@ -105,4 +105,12 @@ export interface AgentStatusSnapshot {
     totalPagesSubmitted: number;
   };
   recentLogs: LogEntry[];
+  activeDispatches?: Array<{
+    orderId: string;
+    jobId: string;
+    filename: string;
+    printerName: string;
+    totalPages: number;
+    isColorPrinter?: boolean;
+  }>;
 }

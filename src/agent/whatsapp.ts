@@ -1225,6 +1225,10 @@ export class WhatsAppAgentService {
                 configUrl: regData.configUrl,
                 documents: regData.documents || [],
               };
+              // Release raw incoming media buffers once cached & registered to keep i3 RAM low
+              for (const att of chunk) {
+                att.mediaBuffer = Buffer.alloc(0);
+              }
               logger.info(
                 `⚡ Local-First Success: Registered ${successfulDocs.length} file(s) locally. Zero cloud bandwidth used.`,
               );

@@ -571,10 +571,215 @@ describe("agent dashboard status", () => {
 
     new vm.Script(script!).runInContext(context);
     await vm.runInContext("refreshStatus(true)", context);
-    expect(elements.get("printersList")?.innerHTML).toContain("Switch to Color");
+    const initialHtml = elements.get("printersList")?.innerHTML as string;
+    expect(initialHtml).toContain("Switch to Color");
+    expect(initialHtml).toContain('data-printer="HP LaserJet M1005"');
+    expect(initialHtml).toContain('data-target-color="true"');
 
+    // Execute the exact rendered onclick handler attribute to mirror clicking the UI button
     await vm.runInContext("toggleColorPrinter('HP LaserJet M1005', true)", context);
     expect(elements.get("printersList")?.innerHTML).toContain("Switch to B&W");
     expect(elements.get("printersList")?.innerHTML).toContain("🎨 Color");
+    expect(elements.get("printerCount")?.innerText).toContain("0 online (1 disconnected)");
+  });
+
+  it("displays target printer directly on awaiting tokens and opens token details on click", async () => {
+    const server = new AgentWebServer();
+    const html = (server as unknown as { getDashboardHtml(): string }).getDashboardHtml();
+    const script = html.match(/<script>([\s\S]*?)<\/script>/)?.[1];
+    expect(script).toBeTruthy();
+
+    const elements = new Map<string, Record<string, unknown>>();
+    elements.set("tokenDetailsModal", { style: { display: "none" } });
+    elements.set("tokenModalTitle", { innerHTML: "" });
+    elements.set("tokenDetailsBody", { innerHTML: "" });
+
+    const statusData = {
+      isPaired: true,
+      isConnected: true,
+      printers: [
+        { name: "HP LaserJet M1005", status: "online", isDefault: true, capabilities: { colorSupport: false } },
+      ],
+      printerColorOverrides: {} as Record<string, boolean>,
+      stats: { jobsProcessed: 0, jobsSubmitted: 0, jobsFailed: 0, totalPagesSubmitted: 0 },
+      recentLogs: [],
+      currentJob: null,
+    };
+
+    const queueData = {
+      queue: [
+        {
+          id: "order-awaiting-token",
+          tokenNumber: 5,
+          status: "awaiting_payment",
+          totalAmount: 15,
+          totalPages: 5,
+          blackAndWhitePages: 5,
+          colorPages: 0,
+          remainingSeconds: 1800,
+          isExpired: false,
+          documents: [{ id: "doc-1", filename: "assignment.pdf", pageCount: 5 }],
+          jobs: [],
+        },
+      ],
+    };
+
+    const context = vm.createContext({
+      document: {
+        getElementById: (id: string) => {
+          if (!elements.has(id)) elements.set(id, { style: {} });
+          return elements.get(id);
+        },
+      },
+      fetch: async (url: string) => {
+        if (url === "/api/counter-queue") {
+          return { ok: true, json: async () => structuredClone(queueData) };
+        }
+        return { ok: true, json: async () => structuredClone(statusData) };
+      },
+      setInterval: () => 0,
+      setTimeout: () => 0,
+      window: {},
+    });
+
+    new vm.Script(script!).runInContext(context);
+    await vm.runInContext("refreshStatus(true); refreshCounterQueue();", context);
+
+    const listHtml = elements.get("counterQueueList")?.innerHTML as string;
+    // Printer name must be visible directly on the token badge even before dispatch
+    expect(listHtml).toContain("token-badge-printer");
+    expect(listHtml).toContain("HP LaserJet M1005");
+    expect(listHtml).toContain('data-token-order-id="order-awaiting-token"');
+
+    // Clicking token opens details modal showing target printer for document
+    vm.runInContext("openTokenDetails('order-awaiting-token')", context);
+    const modal = elements.get("tokenDetailsModal") as { style: { display: string } };
+    expect(modal.style.display).toBe("flex");
+    const modalBody = elements.get("tokenDetailsBody")?.innerHTML as string;
+    expect(modalBody).toContain("HP LaserJet M1005");
+    expect(modalBody).toContain("assignment.pdf");
+  });
+
+  it("opens token inspector modal on click showing exact assigned printer names per document", async () => {
+    const server = new AgentWebServer();
+    const html = (server as unknown as { getDashboardHtml(): string }).getDashboardHtml();
+    const script = html.match(/<script>([\s\S]*?)<\/script>/)?.[1];
+    expect(script).toBeTruthy();
+
+    const elements = new Map<string, Record<string, unknown>>();
+    elements.set("tokenDetailsModal", { style: { display: "none" } });
+    elements.set("tokenModalTitle", { innerHTML: "" });
+    elements.set("tokenDetailsBody", { innerHTML: "" });
+
+    const queueData = {
+      queue: [
+        {
+          id: "order-multi-printer",
+          tokenNumber: 14,
+          status: "paid",
+          totalAmount: 28,
+          totalPages: 12,
+          blackAndWhitePages: 8,
+          colorPages: 4,
+          remainingSeconds: 1800,
+          isExpired: false,
+          assignedPrinters: ["HP LaserJet BW 2", "Epson EcoTank Color 1"],
+          documents: [
+            {
+              id: "doc-bw",
+              filename: "notes_bw.pdf",
+              pageCount: 8,
+              printerNames: ["HP LaserJet BW 2"],
+            },
+            {
+              id: "doc-color",
+              filename: "poster_color.pdf",
+              pageCount: 4,
+              printerNames: ["Epson EcoTank Color 1"],
+            },
+          ],
+          jobs: [
+            {
+              id: "job-bw",
+              documentId: "doc-bw",
+              status: "print_submitted",
+              liveRoutingStatus: "printing",
+              printerName: "HP LaserJet BW 2",
+              printerNames: ["HP LaserJet BW 2"],
+              totalPages: 8,
+              pages: [{ startPage: 1, endPage: 8, colorMode: "black_and_white" }],
+            },
+            {
+              id: "job-color",
+              documentId: "doc-color",
+              status: "print_submitted",
+              liveRoutingStatus: "printing",
+              printerName: "Epson EcoTank Color 1",
+              printerNames: ["Epson EcoTank Color 1"],
+              totalPages: 4,
+              pages: [{ startPage: 1, endPage: 4, colorMode: "color" }],
+            },
+          ],
+        },
+      ],
+    };
+
+    const statusData = {
+      isPaired: true,
+      isConnected: true,
+      printers: [
+        { name: "HP LaserJet BW 2", status: "printing", capabilities: { colorSupport: false } },
+        { name: "Epson EcoTank Color 1", status: "printing", capabilities: { colorSupport: true } },
+      ],
+      activeDispatches: [
+        { orderId: "order-multi-printer", jobId: "job-bw", filename: "notes_bw.pdf", printerName: "HP LaserJet BW 2", totalPages: 8, isColorPrinter: false },
+        { orderId: "order-multi-printer", jobId: "job-color", filename: "poster_color.pdf", printerName: "Epson EcoTank Color 1", totalPages: 4, isColorPrinter: true },
+      ],
+      stats: { jobsProcessed: 2, jobsSubmitted: 2, jobsFailed: 0, totalPagesSubmitted: 12 },
+      recentLogs: [],
+      currentJob: null,
+    };
+
+    const context = vm.createContext({
+      document: {
+        getElementById: (id: string) => {
+          if (!elements.has(id)) elements.set(id, { style: {} });
+          return elements.get(id);
+        },
+      },
+      fetch: async (url: string) => {
+        if (url === "/api/counter-queue") {
+          return { ok: true, json: async () => structuredClone(queueData) };
+        }
+        return { ok: true, json: async () => structuredClone(statusData) };
+      },
+      setInterval: () => 0,
+      setTimeout: () => 0,
+      window: {},
+    });
+
+    new vm.Script(script!).runInContext(context);
+    await vm.runInContext("refreshStatus(true); refreshCounterQueue();", context);
+
+    const listHtml = elements.get("counterQueueList")?.innerHTML as string;
+    expect(listHtml).toContain("openTokenDetails('order-multi-printer')");
+    expect(listHtml).toContain("HP LaserJet BW 2, Epson EcoTank Color 1");
+
+    // Simulate clicking Token #14
+    vm.runInContext("openTokenDetails('order-multi-printer')", context);
+
+    const modal = elements.get("tokenDetailsModal") as { style: { display: string } };
+    expect(modal.style.display).toBe("flex");
+
+    const modalBody = elements.get("tokenDetailsBody")?.innerHTML as string;
+    expect(modalBody).toContain("Currently Printing On (2 Printers)");
+    expect(modalBody).toContain("notes_bw.pdf");
+    expect(modalBody).toContain("HP LaserJet BW 2");
+    expect(modalBody).toContain("poster_color.pdf");
+    expect(modalBody).toContain("Epson EcoTank Color 1");
+
+    // Closing resets modal display
+    vm.runInContext("closeTokenDetails()", context);
+    expect(modal.style.display).toBe("none");
   });
 });

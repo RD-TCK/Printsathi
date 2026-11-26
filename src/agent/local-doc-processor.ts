@@ -26,6 +26,67 @@ import { extractImageFromPdf, renderPdfFirstPage } from "./pdf-preview";
 
 const execute = promisify(execFile);
 
+class AsyncSemaphore {
+  private active = 0;
+  private peakActive = 0;
+  private waitQueue: Array<() => void> = [];
+
+  constructor(private readonly maxConcurrent: number) {}
+
+  async run<T>(task: () => Promise<T>): Promise<T> {
+    if (this.active >= this.maxConcurrent) {
+      await new Promise<void>((resolve) => {
+        this.waitQueue.push(resolve);
+      });
+    }
+    this.active += 1;
+    if (this.active > this.peakActive) {
+      this.peakActive = this.active;
+    }
+    try {
+      return await task();
+    } finally {
+      this.active -= 1;
+      const next = this.waitQueue.shift();
+      if (next) next();
+    }
+  }
+
+  getStats() {
+    return { active: this.active, peakActive: this.peakActive, queued: this.waitQueue.length, limit: this.maxConcurrent };
+  }
+
+  resetPeak() {
+    this.peakActive = this.active;
+  }
+}
+
+export function getRecommendedConversionConcurrency(): number {
+  const cpuCount = os.cpus()?.length || 2;
+  const totalMemGb = os.totalmem() / (1024 * 1024 * 1024);
+  if (cpuCount <= 4 || totalMemGb < 6) {
+    return 2;
+  }
+  return cpuCount >= 8 && totalMemGb >= 12 ? 3 : 2;
+}
+
+// Global semaphores across ALL concurrent WhatsApp senders so a low-end i3 laptop
+// never spawns 10-20 LibreOffice / MS Office / PDF renderers simultaneously.
+const docConversionSemaphore = new AsyncSemaphore(getRecommendedConversionConcurrency());
+const officeProcessSemaphore = new AsyncSemaphore(1);
+
+export function getLocalDocProcessorStats() {
+  return {
+    conversion: docConversionSemaphore.getStats(),
+    officeProcess: officeProcessSemaphore.getStats(),
+  };
+}
+
+export function resetLocalDocProcessorStats() {
+  docConversionSemaphore.resetPeak();
+  officeProcessSemaphore.resetPeak();
+}
+
 export interface ProcessedLocalDocument {
   id: string;
   filename: string;
@@ -56,6 +117,14 @@ const imageExtensions = new Set([
  * and generates a lightweight preview thumbnail for the customer's phone.
  */
 export async function processAndCacheDocument(
+  rawBuffer: Buffer,
+  rawFilename: string,
+  mimetype: string,
+): Promise<ProcessedLocalDocument> {
+  return docConversionSemaphore.run(() => processAndCacheDocumentInternal(rawBuffer, rawFilename, mimetype));
+}
+
+async function processAndCacheDocumentInternal(
   rawBuffer: Buffer,
   rawFilename: string,
   mimetype: string,
@@ -413,13 +482,14 @@ async function convertWithWord(extension: string, bytes: Buffer): Promise<Buffer
   if (process.platform !== "win32") {
     throw new Error("Word COM conversion is only available on Windows.");
   }
-  const directory = fs.mkdtempSync(path.join(os.tmpdir(), "printiva-word-"));
-  try {
-    const input = path.join(directory, `source${extension}`);
-    const output = path.join(directory, "source.pdf");
-    fs.writeFileSync(input, bytes);
+  return officeProcessSemaphore.run(async () => {
+    const directory = fs.mkdtempSync(path.join(os.tmpdir(), "printiva-word-"));
+    try {
+      const input = path.join(directory, `source${extension}`);
+      const output = path.join(directory, "source.pdf");
+      fs.writeFileSync(input, bytes);
 
-    const script = `
+      const script = `
 $word = $null
 $doc = $null
 try {
@@ -443,22 +513,23 @@ try {
   [System.GC]::WaitForPendingFinalizers()
 }
 `;
-    await execute("powershell.exe", ["-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-Command", script], {
-      timeout: 60000,
-      windowsHide: true,
-    });
+      await execute("powershell.exe", ["-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-Command", script], {
+        timeout: 60000,
+        windowsHide: true,
+      });
 
-    if (!fs.existsSync(output)) {
-      throw new Error("Word COM conversion did not produce output PDF.");
+      if (!fs.existsSync(output)) {
+        throw new Error("Word COM conversion did not produce output PDF.");
+      }
+      return fs.readFileSync(output);
+    } finally {
+      try {
+        fs.rmSync(directory, { recursive: true, force: true });
+      } catch {
+        // ignore
+      }
     }
-    return fs.readFileSync(output);
-  } finally {
-    try {
-      fs.rmSync(directory, { recursive: true, force: true });
-    } catch {
-      // ignore
-    }
-  }
+  });
 }
 
 /**
@@ -468,13 +539,14 @@ async function convertWithPowerPoint(extension: string, bytes: Buffer): Promise<
   if (process.platform !== "win32") {
     throw new Error("PowerPoint COM conversion is only available on Windows.");
   }
-  const directory = fs.mkdtempSync(path.join(os.tmpdir(), "printiva-ppt-"));
-  try {
-    const input = path.join(directory, `source${extension}`);
-    const output = path.join(directory, "source.pdf");
-    fs.writeFileSync(input, bytes);
+  return officeProcessSemaphore.run(async () => {
+    const directory = fs.mkdtempSync(path.join(os.tmpdir(), "printiva-ppt-"));
+    try {
+      const input = path.join(directory, `source${extension}`);
+      const output = path.join(directory, "source.pdf");
+      fs.writeFileSync(input, bytes);
 
-    const script = `
+      const script = `
 $ppt = $null
 $pres = $null
 try {
@@ -498,22 +570,23 @@ try {
   [System.GC]::WaitForPendingFinalizers()
 }
 `;
-    await execute("powershell.exe", ["-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-Command", script], {
-      timeout: 60000,
-      windowsHide: true,
-    });
+      await execute("powershell.exe", ["-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-Command", script], {
+        timeout: 60000,
+        windowsHide: true,
+      });
 
-    if (!fs.existsSync(output)) {
-      throw new Error("PowerPoint COM conversion did not produce output PDF.");
+      if (!fs.existsSync(output)) {
+        throw new Error("PowerPoint COM conversion did not produce output PDF.");
+      }
+      return fs.readFileSync(output);
+    } finally {
+      try {
+        fs.rmSync(directory, { recursive: true, force: true });
+      } catch {
+        // ignore
+      }
     }
-    return fs.readFileSync(output);
-  } finally {
-    try {
-      fs.rmSync(directory, { recursive: true, force: true });
-    } catch {
-      // ignore
-    }
-  }
+  });
 }
 
 /**
@@ -523,13 +596,14 @@ async function convertWithExcel(extension: string, bytes: Buffer): Promise<Buffe
   if (process.platform !== "win32") {
     throw new Error("Excel COM conversion is only available on Windows.");
   }
-  const directory = fs.mkdtempSync(path.join(os.tmpdir(), "printiva-excel-"));
-  try {
-    const input = path.join(directory, `source${extension}`);
-    const output = path.join(directory, "source.pdf");
-    fs.writeFileSync(input, bytes);
+  return officeProcessSemaphore.run(async () => {
+    const directory = fs.mkdtempSync(path.join(os.tmpdir(), "printiva-excel-"));
+    try {
+      const input = path.join(directory, `source${extension}`);
+      const output = path.join(directory, "source.pdf");
+      fs.writeFileSync(input, bytes);
 
-    const script = `
+      const script = `
 $excel = $null
 $wb = $null
 try {
@@ -555,22 +629,23 @@ try {
   [System.GC]::WaitForPendingFinalizers()
 }
 `;
-    await execute("powershell.exe", ["-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-Command", script], {
-      timeout: 60000,
-      windowsHide: true,
-    });
+      await execute("powershell.exe", ["-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-Command", script], {
+        timeout: 60000,
+        windowsHide: true,
+      });
 
-    if (!fs.existsSync(output)) {
-      throw new Error("Excel COM conversion did not produce output PDF.");
+      if (!fs.existsSync(output)) {
+        throw new Error("Excel COM conversion did not produce output PDF.");
+      }
+      return fs.readFileSync(output);
+    } finally {
+      try {
+        fs.rmSync(directory, { recursive: true, force: true });
+      } catch {
+        // ignore
+      }
     }
-    return fs.readFileSync(output);
-  } finally {
-    try {
-      fs.rmSync(directory, { recursive: true, force: true });
-    } catch {
-      // ignore
-    }
-  }
+  });
 }
 
 /**
@@ -605,37 +680,39 @@ async function convertWithLibreOffice(extension: string, bytes: Buffer): Promise
   if (!executable) {
     throw new Error("LibreOffice not found.");
   }
-  const directory = fs.mkdtempSync(path.join(os.tmpdir(), "printiva-lo-"));
-  try {
-    const input = path.join(directory, `source${extension}`);
-    fs.writeFileSync(input, bytes);
-    await execute(
-      executable,
-      [
-        "--headless",
-        "--nologo",
-        "--nodefault",
-        "--norestore",
-        "--convert-to",
-        "pdf",
-        "--outdir",
-        directory,
-        input,
-      ],
-      { timeout: 60000, windowsHide: true, maxBuffer: 1024 * 1024 },
-    );
-    const output = path.join(directory, "source.pdf");
-    if (!fs.existsSync(output)) {
-      throw new Error("LibreOffice conversion did not produce output PDF.");
-    }
-    return fs.readFileSync(output);
-  } finally {
+  return officeProcessSemaphore.run(async () => {
+    const directory = fs.mkdtempSync(path.join(os.tmpdir(), "printiva-lo-"));
     try {
-      fs.rmSync(directory, { recursive: true, force: true });
-    } catch {
-      // ignore
+      const input = path.join(directory, `source${extension}`);
+      fs.writeFileSync(input, bytes);
+      await execute(
+        executable,
+        [
+          "--headless",
+          "--nologo",
+          "--nodefault",
+          "--norestore",
+          "--convert-to",
+          "pdf",
+          "--outdir",
+          directory,
+          input,
+        ],
+        { timeout: 60000, windowsHide: true, maxBuffer: 1024 * 1024 },
+      );
+      const output = path.join(directory, "source.pdf");
+      if (!fs.existsSync(output)) {
+        throw new Error("LibreOffice conversion did not produce output PDF.");
+      }
+      return fs.readFileSync(output);
+    } finally {
+      try {
+        fs.rmSync(directory, { recursive: true, force: true });
+      } catch {
+        // ignore
+      }
     }
-  }
+  });
 }
 
 /**

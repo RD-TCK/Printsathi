@@ -89,8 +89,11 @@ export async function GET(request: Request) {
         total_pages,
         total_amount,
         duplex_step,
+        duplex_printer_name,
         print_job_pages (
           side_mode,
+          color_mode,
+          paper_size,
           start_page,
           end_page,
           copies
@@ -110,6 +113,29 @@ export async function GET(request: Request) {
 
   if (error) {
     return NextResponse.json({ error: error.message }, { status: 500 });
+  }
+
+  // Look up persisted printer_name assignments from today's submission audit logs (index-backed, non-fatal)
+  const submittedPrinterByJobId = new Map<string, string>();
+  try {
+    const auditFrom = adminClient.from("audit_logs") as unknown as { select?: unknown };
+    if (orders && orders.length > 0 && typeof auditFrom?.select === "function") {
+      const { data: submitLogs } = await adminClient
+        .from("audit_logs")
+        .select("entity_id, metadata, created_at")
+        .eq("shop_id", shopId)
+        .in("action", ["print_job_submitted", "print_job_odd_pages_submitted"])
+        .gte("created_at", queueSince.toISOString())
+        .order("created_at", { ascending: false })
+        .limit(400);
+      for (const row of (submitLogs || []) as Array<{ entity_id?: string | null; metadata?: { printer_name?: string | null } | null }>) {
+        if (row.entity_id && row.metadata?.printer_name && !submittedPrinterByJobId.has(row.entity_id)) {
+          submittedPrinterByJobId.set(row.entity_id, String(row.metadata.printer_name));
+        }
+      }
+    }
+  } catch {
+    // non-fatal
   }
 
   const queueItems = (orders || []).map((o) => {
@@ -243,20 +269,35 @@ export async function GET(request: Request) {
         filename: d.original_filename,
         pageCount: d.page_count,
       })),
-      jobs: rawJobs.map((j) => ({
+      jobs: rawJobs.map((j: {
+        id: string;
+        document_id: string;
+        status: string;
+        failure_reason?: string | null;
+        total_pages?: number | null;
+        duplex_step?: string | null;
+        duplex_printer_name?: string | null;
+        print_job_pages?: unknown[];
+      }) => ({
         id: j.id,
         documentId: j.document_id,
         status: j.status,
         failureReason: j.failure_reason || null,
         totalPages: j.total_pages,
         duplexStep: j.duplex_step || "none",
+        printerName: j.duplex_printer_name || submittedPrinterByJobId.get(j.id) || null,
         pages: (Array.isArray(j.print_job_pages) ? j.print_job_pages : []).map(
-          (p: { start_page: number; end_page: number; copies?: number; side_mode?: string }) => ({
-            startPage: p.start_page,
-            endPage: p.end_page,
-            copies: p.copies ?? 1,
-            sideMode: p.side_mode || "single_sided",
-          }),
+          (p: unknown) => {
+            const pg = p as { start_page: number; end_page: number; copies?: number; side_mode?: string; color_mode?: string; paper_size?: string };
+            return {
+              startPage: pg.start_page,
+              endPage: pg.end_page,
+              copies: pg.copies ?? 1,
+              sideMode: pg.side_mode || "single_sided",
+              colorMode: pg.color_mode || "black_and_white",
+              paperSize: pg.paper_size || "a4",
+            };
+          },
         ),
       })),
     };

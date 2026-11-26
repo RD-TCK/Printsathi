@@ -27,6 +27,42 @@ let cachedPrinters: DiscoveredPrinter[] | null = null;
 let lastDiscoveryTimestamp = 0;
 const PRINTER_CACHE_TTL_MS = 10000; // 10 seconds cache
 
+export function invalidatePrinterDiscoveryCache(): void {
+  cachedPrinters = null;
+  lastDiscoveryTimestamp = 0;
+}
+
+function applyFreshConfigOverrides(printers: DiscoveredPrinter[]): DiscoveredPrinter[] {
+  try {
+    const config = loadConfig();
+    const disabledSet = new Set((config.disabledPrinters || []).map((s) => s.trim().toLowerCase()));
+    const colorOverrides: Record<string, boolean> = {};
+    for (const [key, val] of Object.entries(config.printerColorOverrides || {})) {
+      colorOverrides[key.trim().toLowerCase()] = Boolean(val);
+    }
+    return printers.map((p) => {
+      const lower = (p.name || "").trim().toLowerCase();
+      const isDisabled = disabledSet.has(lower);
+      const hasColorOverride = colorOverrides[lower] !== undefined;
+      const colorSupport = hasColorOverride ? Boolean(colorOverrides[lower]) : Boolean(p.capabilities?.colorSupport);
+      return {
+        ...p,
+        isDisabled,
+        status: isDisabled ? "offline" : p.status,
+        isColorUserOverride: hasColorOverride || p.isColorUserOverride,
+        capabilities: {
+          duplexSupport: Boolean(p.capabilities?.duplexSupport),
+          paperSizes: p.capabilities?.paperSizes || ["A4", "Letter"],
+          ...p.capabilities,
+          colorSupport,
+        },
+      };
+    });
+  } catch {
+    return printers;
+  }
+}
+
 export async function discoverWindowsPrinters(forceRefresh = false): Promise<DiscoveredPrinter[]> {
   const isWindows = process.platform === "win32" || os.platform() === "win32";
 
@@ -37,7 +73,7 @@ export async function discoverWindowsPrinters(forceRefresh = false): Promise<Dis
 
   const now = Date.now();
   if (!forceRefresh && cachedPrinters && now - lastDiscoveryTimestamp < PRINTER_CACHE_TTL_MS) {
-    return cachedPrinters;
+    return applyFreshConfigOverrides(cachedPrinters);
   }
 
   try {
@@ -373,6 +409,9 @@ export function findBestPrinterForJob(
     allowColorFallbackForMono?: boolean;
     allowMonoFallbackForColor?: boolean;
     allowOffline?: boolean;
+    queueCounts?: Map<string, number> | Record<string, number>;
+    lastUsedOrder?: Map<string, number> | Record<string, number>;
+    loadBalancePools?: boolean;
   },
 ): DiscoveredPrinter | null {
   const busySet = new Set(
@@ -382,6 +421,20 @@ export function findBestPrinterForJob(
         ? Array.from(options.busyPrinters).map((s) => s.toLowerCase())
         : [],
   );
+
+  const readNumericMap = (
+    source: Map<string, number> | Record<string, number> | undefined,
+    printerName: string,
+  ): number => {
+    if (!source) return 0;
+    const key = printerName.toLowerCase();
+    if (source instanceof Map) {
+      return source.get(key) ?? source.get(printerName) ?? 0;
+    }
+    return source[key] ?? source[printerName] ?? 0;
+  };
+  const useLoadBalancing = Boolean(options.loadBalancePools || options.queueCounts || options.lastUsedOrder);
+  const preferredLower = options.preferredName ? options.preferredName.toLowerCase() : null;
 
   let configDisabled: string[] = [];
   try {
@@ -450,6 +503,41 @@ export function findBestPrinterForJob(
   // Helper to pick best printer from candidates:
   const pickBestCandidate = (candidates: DiscoveredPrinter[]): DiscoveredPrinter | null => {
     if (candidates.length === 0) return null;
+
+    if (useLoadBalancing) {
+      const sorted = [...candidates].sort((a, b) => {
+        const aReady = a.status === "online" || a.status === "printing" ? 0 : 1;
+        const bReady = b.status === "online" || b.status === "printing" ? 0 : 1;
+        if (aReady !== bReady) return aReady - bReady;
+
+        // 1. Lowest Windows Spooler + active queue count wins (0 idle beats any queued printer)
+        const aQueue = readNumericMap(options.queueCounts, a.name);
+        const bQueue = readNumericMap(options.queueCounts, b.name);
+        if (aQueue !== bQueue) return aQueue - bQueue;
+
+        // 2. Prefer awake printers over sleeping printers when queue counts are equal
+        const aSleep = a.isSleeping ? 1 : 0;
+        const bSleep = b.isSleeping ? 1 : 0;
+        if (aSleep !== bSleep) return aSleep - bSleep;
+
+        // 3. Round-robin / least-recently-used distribution across printers with equal queue load
+        const aUsed = readNumericMap(options.lastUsedOrder, a.name);
+        const bUsed = readNumericMap(options.lastUsedOrder, b.name);
+        if (aUsed !== bUsed) return aUsed - bUsed;
+
+        // 4. Cold-start tie-breakers when load and last-used history are identical
+        if (preferredLower) {
+          const aPref = a.name.toLowerCase() === preferredLower ? 0 : 1;
+          const bPref = b.name.toLowerCase() === preferredLower ? 0 : 1;
+          if (aPref !== bPref) return aPref - bPref;
+        }
+        const aDef = a.isDefault ? 0 : 1;
+        const bDef = b.isDefault ? 0 : 1;
+        return aDef - bDef;
+      });
+      return sorted[0] || null;
+    }
+
     const onlineDefault = candidates.find((p) => p.isDefault && (p.status === "online" || p.status === "printing"));
     if (onlineDefault) return onlineDefault;
 
@@ -478,38 +566,36 @@ export function findBestPrinterForJob(
       return null;
     }
 
-    // Use preferred printer ONLY if it is an actual color printer
-    if (options.preferredName) {
-      const preferred = colorPrinters.find((p) => p.name.toLowerCase() === options.preferredName!.toLowerCase());
+    const colorPool = options.requiresDuplex
+      ? (() => {
+          const duplexColor = colorPrinters.filter((p) => p.capabilities?.duplexSupport === true);
+          return duplexColor.length > 0 ? duplexColor : colorPrinters;
+        })()
+      : colorPrinters;
+
+    // When load-balancing across a Color pool, let pickBestCandidate balance by queue/LRU instead of locking onto 1 printer.
+    if (options.preferredName && !useLoadBalancing) {
+      const preferred = colorPool.find((p) => p.name.toLowerCase() === options.preferredName!.toLowerCase());
       if (preferred) {
-        const hasOnlineCandidate = colorPrinters.some(
-          (p) =>
-            (p.status === "online" || p.status === "printing") &&
-            (!options.requiresDuplex || p.capabilities?.duplexSupport === true),
-        );
+        const hasOnlineCandidate = colorPool.some((p) => p.status === "online" || p.status === "printing");
         if (preferred.status !== "offline" || !hasOnlineCandidate) {
           return preferred;
         }
       }
     }
 
-    if (options.requiresDuplex) {
-      const duplexColor = colorPrinters.filter((p) => p.capabilities?.duplexSupport === true);
-      if (duplexColor.length > 0) return pickBestCandidate(duplexColor);
-    }
-
-    return pickBestCandidate(colorPrinters);
+    return pickBestCandidate(colorPool);
   }
 
   // B&W ROUTING:
-  // If user selected a preferred default printer, use it ONLY if it is a B&W printer (or if no online dedicated B&W printer exists and fallback is allowed)
-  const hasOnlineDedicatedMono = compatiblePrinters.some(
+  // Strictly isolated to dedicated monochrome/B&W printers (!colorSupport), unless allowColorFallbackForMono is explicitly true.
+  const monoPrinters = compatiblePrinters.filter((p) => !p.capabilities?.colorSupport);
+  const hasOnlineDedicatedMono = monoPrinters.some(
     (p) =>
-      !p.capabilities?.colorSupport &&
       (p.status === "online" || p.status === "printing") &&
       (!options.requiresDuplex || p.capabilities?.duplexSupport === true),
   );
-  if (options.preferredName) {
+  if (options.preferredName && !useLoadBalancing) {
     const matched = compatiblePrinters.find((p) => p.name.toLowerCase() === options.preferredName!.toLowerCase());
     if (matched) {
       const satisfiesDuplex = !options.requiresDuplex || matched.capabilities?.duplexSupport === true;
@@ -527,9 +613,7 @@ export function findBestPrinterForJob(
 
   if (options.requiresDuplex) {
     // 1. Prioritize dedicated monochrome duplex printer
-    const duplexMono = compatiblePrinters.filter(
-      (p) => !p.capabilities?.colorSupport && p.capabilities?.duplexSupport === true,
-    );
+    const duplexMono = monoPrinters.filter((p) => p.capabilities?.duplexSupport === true);
     if (duplexMono.length > 0) return pickBestCandidate(duplexMono);
 
     // 2. Fallback to color duplex only if explicitly permitted
@@ -543,8 +627,7 @@ export function findBestPrinterForJob(
   }
 
   // Single-sided B&W:
-  // 1. Dedicated monochrome printer (!colorSupport)
-  const monoPrinters = compatiblePrinters.filter((p) => !p.capabilities?.colorSupport);
+  // 1. Dedicated monochrome printer pool (!colorSupport)
   if (monoPrinters.length > 0) {
     return pickBestCandidate(monoPrinters);
   }

@@ -131,7 +131,7 @@ export function softwareJsonLd() {
     ],
     applicationCategory: "BusinessApplication",
     operatingSystem: "Web, Windows 10, Windows 11",
-    softwareVersion: "1.8.35",
+    softwareVersion: "1.8.36",
     url: siteUrl("/"),
     description:
       "India's #1 print automation software and photocopy management system. Automate customer QR document intake, instant per-page pricing, Razorpay UPI payments, and physical Windows printing.",

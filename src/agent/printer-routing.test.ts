@@ -206,5 +206,131 @@ describe("Printer Routing & Exclusion Safety", () => {
     expect(selected?.name).toBe(bwPrinter.name);
     expect(selected?.capabilities?.colorSupport).toBe(false);
   });
+
+  it("load-balances 5 B&W and 4 Color printers by least Windows spooler queue + round-robin while keeping strict isolation", () => {
+    const makeBw = (idx: number, isDefault = false): DiscoveredPrinter => ({
+      ...bwPrinter,
+      name: `HP B&W ${idx}`,
+      systemIdentifier: `bw_${idx}`,
+      isDefault,
+    });
+    const makeColor = (idx: number): DiscoveredPrinter => ({
+      ...colorPrinter,
+      name: `Epson Color ${idx}`,
+      systemIdentifier: `color_${idx}`,
+      isDefault: false,
+    });
+
+    const shopPrinters: DiscoveredPrinter[] = [
+      makeBw(1, true),
+      makeBw(2),
+      makeBw(3),
+      makeBw(4),
+      makeBw(5),
+      makeColor(1),
+      makeColor(2),
+      makeColor(3),
+      makeColor(4),
+    ];
+
+    // 1. Round-robin across 5 idle B&W printers when queues are all 0 (never picks any Color printer)
+    const lastUsed = new Map<string, number>();
+    const pickedBwNames: string[] = [];
+    for (let step = 1; step <= 5; step++) {
+      const picked = findBestPrinterForJob(shopPrinters, {
+        colorMode: "black_and_white",
+        preferredName: "HP B&W 1",
+        lastUsedOrder: lastUsed,
+        loadBalancePools: true,
+      });
+      expect(picked).not.toBeNull();
+      expect(picked?.capabilities?.colorSupport).toBe(false);
+      pickedBwNames.push(picked!.name);
+      lastUsed.set(picked!.name.toLowerCase(), step);
+    }
+    expect(new Set(pickedBwNames).size).toBe(5);
+
+    // 2. Round-robin across 4 idle Color printers (never picks any B&W printer)
+    const pickedColorNames: string[] = [];
+    for (let step = 1; step <= 4; step++) {
+      const picked = findBestPrinterForJob(shopPrinters, {
+        colorMode: "color",
+        preferredName: "HP B&W 1",
+        lastUsedOrder: lastUsed,
+        loadBalancePools: true,
+      });
+      expect(picked).not.toBeNull();
+      expect(picked?.capabilities?.colorSupport).toBe(true);
+      pickedColorNames.push(picked!.name);
+      lastUsed.set(picked!.name.toLowerCase(), 10 + step);
+    }
+    expect(new Set(pickedColorNames).size).toBe(4);
+
+    // 3. Live spooler queue count overrides LRU/default: least-queued printer wins in its pool
+    const queueCounts: Record<string, number> = {
+      "hp b&w 1": 3,
+      "hp b&w 2": 2,
+      "hp b&w 3": 0,
+      "hp b&w 4": 1,
+      "hp b&w 5": 4,
+      "epson color 1": 2,
+      "epson color 2": 0,
+      "epson color 3": 3,
+      "epson color 4": 1,
+    };
+    expect(
+      findBestPrinterForJob(shopPrinters, {
+        colorMode: "black_and_white",
+        preferredName: "HP B&W 1",
+        queueCounts,
+        lastUsedOrder: { "hp b&w 3": 99 },
+        loadBalancePools: true,
+      })?.name,
+    ).toBe("HP B&W 3");
+
+    expect(
+      findBestPrinterForJob(shopPrinters, {
+        colorMode: "color",
+        queueCounts,
+        lastUsedOrder: { "epson color 2": 99 },
+        loadBalancePools: true,
+      })?.name,
+    ).toBe("Epson Color 2");
+
+    // 4. Even when all 5 B&W printers are busy/offline, B&W job must NEVER go to Color printers
+    const allBwBusy = shopPrinters.filter((p) => !p.capabilities?.colorSupport).map((p) => p.name);
+    expect(
+      findBestPrinterForJob(shopPrinters, {
+        colorMode: "black_and_white",
+        busyPrinters: allBwBusy,
+        loadBalancePools: true,
+      }),
+    ).toBeNull();
+  });
+
+  it("changes functional routing when a printer is toggled between B&W and Color", () => {
+    const printer: DiscoveredPrinter = {
+      name: "HP LaserJet M1005",
+      systemIdentifier: "sys-m1005",
+      driverName: "HP LaserJet M1005",
+      portName: "USB001",
+      status: "online",
+      isDefault: true,
+      capabilities: {
+        colorSupport: false,
+        duplexSupport: false,
+        paperSizes: ["a4"],
+      },
+    };
+
+    // Initially B&W: rejects color jobs, accepts B&W jobs
+    expect(findBestPrinterForJob([printer], { colorMode: "color" })).toBeNull();
+    expect(findBestPrinterForJob([printer], { colorMode: "black_and_white" })?.name).toBe("HP LaserJet M1005");
+
+    // After Switch to Color (colorSupport = true): accepts Color jobs and isolates B&W
+    printer.capabilities!.colorSupport = true;
+    expect(findBestPrinterForJob([printer], { colorMode: "color" })?.name).toBe("HP LaserJet M1005");
+    expect(findBestPrinterForJob([printer], { colorMode: "black_and_white" })).toBeNull();
+  });
 });
 

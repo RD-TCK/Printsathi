@@ -37,7 +37,7 @@ export default function DownloadPage() {
           <div className="mx-auto max-w-4xl px-6 text-center lg:px-8">
             <div className="inline-flex items-center gap-2 rounded-full border border-emerald-200 bg-emerald-50 px-3 py-1 text-xs font-semibold text-emerald-800 mb-4">
               <span className="size-1.5 rounded-full bg-emerald-600 animate-pulse" />
-              Official Production Release v1.8.35
+              Official Production Release v1.8.36
             </div>
             <h1 className="text-3xl font-bold tracking-tight text-brand-950 sm:text-5xl">
               Printiva Desktop Agent for Windows
@@ -50,7 +50,7 @@ export default function DownloadPage() {
               <Button asChild size="lg" variant="primary">
                 <a href="/api/agent/download" className="gap-2.5">
                   <Download className="size-5" />
-                  Download Windows Agent (v1.8.35 .exe)
+                  Download Windows Agent (v1.8.36 .exe)
                 </a>
               </Button>
               <Button asChild size="lg" variant="secondary">

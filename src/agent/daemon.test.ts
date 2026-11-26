@@ -47,6 +47,7 @@ vi.mock("./print-executor", () => ({
   prepareAndPrintDocument: mocks.print,
   prepareAndPrintBatch: mocks.printBatch,
   waitForPhysicalPrintCompletion: mocks.waitForPhysicalPrintCompletion,
+  getAllPrinterQueueCounts: vi.fn().mockResolvedValue({}),
   resetPrinterSpoolQueue: vi.fn(),
   proactiveWarmupPrinter: vi.fn(),
 }));
@@ -444,6 +445,38 @@ describe("automatic dispatch safety", () => {
     expect(status.printerColorOverrides?.["hp laserjet m1005"]).toBe(true);
     expect(status.printers[0].capabilities?.colorSupport).toBe(true);
     expect(status.printers[0].isColorUserOverride).toBe(true);
+
+    // Toggling back to B&W immediately removes Color capability so routing stays consistent
+    daemon.setPrinterColorOverride("HP LaserJet M1005", false);
+    const afterBw = daemon.getStatus();
+    expect(afterBw.printerColorOverrides?.["hp laserjet m1005"]).toBe(false);
+    expect(afterBw.printers[0].capabilities?.colorSupport).toBe(false);
+  });
+
+  it("never falls back a B&W job to Color printers in daemon routing", async () => {
+    mocks.findBestPrinter.mockImplementation((_printers: any, req: any) => {
+      if (req?.colorMode === "black_and_white" && req?.allowColorFallbackForMono === false) {
+        return null;
+      }
+      return { name: "Epson Color", capabilities: { colorSupport: true } };
+    });
+
+    await processJob();
+
+    expect(mocks.findBestPrinter).toHaveBeenCalledWith(
+      expect.any(Array),
+      expect.objectContaining({
+        colorMode: "black_and_white",
+        allowColorFallbackForMono: false,
+        loadBalancePools: true,
+      }),
+    );
+    expect(mocks.print).not.toHaveBeenCalled();
+    expect(mocks.failure).toHaveBeenCalledWith(
+      "job-123456",
+      expect.stringContaining("Black & White printer"),
+      true,
+    );
   });
 });
 
