@@ -1,12 +1,18 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
+import dynamic from "next/dynamic";
 import Image from "next/image";
 import Link from "next/link";
 import { Download, Play } from "lucide-react";
 import { HeroAnimatedHeading } from "@/components/hero-animated-heading";
-import { AnchorCoords, PrintPhysicsCanvas } from "@/components/print-physics-canvas";
+import type { AnchorCoords } from "@/components/print-physics-canvas";
 import { cn } from "@/lib/utils";
+
+const PrintPhysicsCanvas = dynamic(
+  () => import("@/components/print-physics-canvas").then((mod) => mod.PrintPhysicsCanvas),
+  { ssr: false },
+);
 
 const SCROLL_STORY_STEPS = [
   {
@@ -82,6 +88,10 @@ export function LandingScrollStage() {
 
   const [activeStep, setActiveStep] = useState(0);
   const [stageProgressPct, setStageProgressPct] = useState(0);
+  const [is3dReady, setIs3dReady] = useState(false);
+  const handleCanvasReady = useCallback(() => {
+    setIs3dReady(true);
+  }, []);
 
   const anchorsRef = useRef<AnchorCoords>({
     heroPhoneX: 0,
@@ -274,8 +284,8 @@ export function LandingScrollStage() {
 
   return (
     <>
-      {/* Unified Real 3D Three.js Stage: Rotating 3D Printer + 3D QR Stand + 3D Razorpay Shield + Curled Paper Burst */}
-      <PrintPhysicsCanvas anchorsRef={anchorsRef} />
+      {/* Unified Real 3D Three.js Stage loaded asynchronously so initial paint & hydration are instant even on slow networks */}
+      <PrintPhysicsCanvas anchorsRef={anchorsRef} onReady={handleCanvasReady} />
 
       {/* ━━━ HERO SECTION ━━━ */}
       <section
@@ -339,6 +349,8 @@ export function LandingScrollStage() {
                 width={787}
                 height={952}
                 priority
+                fetchPriority="high"
+                sizes="(max-width: 640px) 124px, (max-width: 1024px) 255px, 335px"
                 className="w-full h-auto object-contain drop-shadow-[0_18px_32px_rgba(15,23,42,0.16)] dark:drop-shadow-[0_20px_36px_rgba(0,0,0,0.65)]"
               />
               <div
@@ -349,12 +361,31 @@ export function LandingScrollStage() {
             </div>
           </div>
 
-          {/* Right Hero Dock: Elevated Cleanly on Both Mobile & Desktop */}
+          {/* Right Hero Dock: Lightweight inline fallback shows at 0ms until WebGL 3D renders frame 1 */}
           <div
             ref={heroPrinterDockRef}
-            className="absolute bottom-2 sm:bottom-20 lg:bottom-24 right-3 sm:right-6 lg:right-[6%] z-0 w-[140px] sm:w-[190px] md:w-[225px] lg:w-[255px] xl:w-[275px] aspect-[4/3]"
+            className="absolute bottom-2 sm:bottom-20 lg:bottom-24 right-3 sm:right-6 lg:right-[6%] z-0 w-[140px] sm:w-[190px] md:w-[225px] lg:w-[255px] xl:w-[275px] aspect-[4/3] flex items-center justify-center"
             aria-hidden="true"
-          />
+          >
+            {!is3dReady && (
+              <svg
+                viewBox="0 0 240 180"
+                className="w-[82%] h-auto opacity-85 transition-opacity duration-300 drop-shadow-[0_14px_24px_rgba(6,78,59,0.14)]"
+                fill="none"
+              >
+                <rect x="44" y="18" width="152" height="36" rx="8" fill="#0f172a" />
+                <rect x="56" y="24" width="128" height="24" rx="4" fill="#e2e8f0" />
+                <rect x="26" y="46" width="188" height="82" rx="18" fill="#cbd5e1" stroke="#94a3b8" strokeWidth="2" />
+                <rect x="38" y="60" width="164" height="54" rx="10" fill="#043d2e" />
+                <rect x="48" y="68" width="144" height="5" rx="2.5" fill="#10b981" />
+                <rect x="58" y="96" width="124" height="26" rx="5" fill="#090d16" />
+                <rect x="64" y="114" width="112" height="38" rx="6" fill="#334155" />
+                <rect x="76" y="118" width="88" height="34" rx="4" fill="#ffffff" stroke="#cbd5e1" strokeWidth="1.5" />
+                <rect x="86" y="126" width="54" height="5" rx="2" fill="#10b981" />
+                <rect x="86" y="135" width="68" height="3.5" rx="1.5" fill="#94a3b8" />
+              </svg>
+            )}
+          </div>
         </div>
       </section>
 
@@ -419,6 +450,8 @@ export function LandingScrollStage() {
                         alt="Customer scanning Printiva counter QR with smartphone"
                         width={787}
                         height={952}
+                        loading="lazy"
+                        sizes="(max-width: 640px) 88px, 200px"
                         className="w-full h-auto object-contain drop-shadow-[0_16px_28px_rgba(15,23,42,0.16)] scale-x-[-1]"
                       />
                       <div

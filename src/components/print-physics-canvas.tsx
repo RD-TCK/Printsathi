@@ -1,8 +1,44 @@
 "use client";
 
 import { useEffect, useRef } from "react";
-import * as THREE from "three";
-import { RoomEnvironment } from "three/examples/jsm/environments/RoomEnvironment.js";
+import {
+  ACESFilmicToneMapping,
+  AdditiveBlending,
+  BoxGeometry,
+  BufferAttribute,
+  BufferGeometry,
+  CanvasTexture,
+  CircleGeometry,
+  Clock,
+  CylinderGeometry,
+  DataTexture,
+  DirectionalLight,
+  DoubleSide,
+  EquirectangularReflectionMapping,
+  ExtrudeGeometry,
+  Group,
+  HemisphereLight,
+  LinearFilter,
+  Material,
+  Mesh,
+  MeshBasicMaterial,
+  MeshStandardMaterial,
+  Object3D,
+  PCFShadowMap,
+  PerspectiveCamera,
+  PlaneGeometry,
+  Points,
+  PointsMaterial,
+  RGBAFormat,
+  SRGBColorSpace,
+  Scene,
+  Shape,
+  Texture,
+  TorusGeometry,
+  UnsignedByteType,
+  Vector3,
+  WebGLRenderer,
+} from "three";
 import { RoundedBoxGeometry } from "three/examples/jsm/geometries/RoundedBoxGeometry.js";
 
 export interface AnchorCoords {
@@ -32,7 +68,7 @@ export interface AnchorCoords {
 }
 
 interface EjectedSheet {
-  mesh: THREE.Mesh;
+  mesh: Mesh;
   vx: number;
   vy: number;
   vz: number;
@@ -46,17 +82,47 @@ interface EjectedSheet {
 }
 
 interface Pool {
-  geometries: THREE.BufferGeometry[];
-  materials: THREE.Material[];
-  textures: THREE.Texture[];
+  geometries: BufferGeometry[];
+  materials: Material[];
+  textures: Texture[];
 }
 
-function createPrintedPageTexture(variant: number): THREE.CanvasTexture {
+/**
+ * Tiny 16x8 procedural studio gradient reflection map (< 0.1ms setup, zero RoomEnvironment/PMREM pass).
+ */
+function createStudioEnvTexture(): DataTexture {
+  const width = 16;
+  const height = 8;
+  const data = new Uint8Array(width * height * 4);
+  for (let y = 0; y < height; y++) {
+    const v = y / (height - 1);
+    const sky = v > 0.55 ? 235 : v > 0.42 ? 150 : 38;
+    const gBoost = v > 0.5 ? 242 : v > 0.35 ? 168 : 48;
+    for (let x = 0; x < width; x++) {
+      const idx = (y * width + x) * 4;
+      const keyHighlight = x >= 4 && x <= 7 && v >= 0.6 ? 20 : 0;
+      data[idx] = Math.min(255, sky + keyHighlight);
+      data[idx + 1] = Math.min(255, gBoost + keyHighlight);
+      data[idx + 2] = Math.min(255, sky + 12 + keyHighlight);
+      data[idx + 3] = 255;
+    }
+  }
+  const tex = new DataTexture(data, width, height, RGBAFormat, UnsignedByteType);
+  tex.mapping = EquirectangularReflectionMapping;
+  tex.colorSpace = SRGBColorSpace;
+  tex.magFilter = LinearFilter;
+  tex.minFilter = LinearFilter;
+  tex.needsUpdate = true;
+  return tex;
+}
+
+function createPrintedPageTexture(variant: number): CanvasTexture {
   const canvas = document.createElement("canvas");
-  canvas.width = 384;
-  canvas.height = 480;
+  canvas.width = 256;
+  canvas.height = 320;
   const ctx = canvas.getContext("2d");
   if (ctx) {
+    ctx.scale(256 / 384, 320 / 480);
     ctx.fillStyle = "#ffffff";
     ctx.fillRect(0, 0, 384, 480);
 
@@ -135,18 +201,19 @@ function createPrintedPageTexture(variant: number): THREE.CanvasTexture {
     ctx.fillStyle = "#94a3b8";
     ctx.fillRect(272, 440, 84, 10);
   }
-  const tex = new THREE.CanvasTexture(canvas);
-  tex.anisotropy = 4;
+  const tex = new CanvasTexture(canvas);
+  tex.anisotropy = 2;
   tex.needsUpdate = true;
   return tex;
 }
 
-function createQrTexture(): THREE.CanvasTexture {
+function createQrTexture(): CanvasTexture {
   const canvas = document.createElement("canvas");
-  canvas.width = 512;
-  canvas.height = 512;
+  canvas.width = 256;
+  canvas.height = 256;
   const ctx = canvas.getContext("2d");
   if (ctx) {
+    ctx.scale(0.5, 0.5);
     ctx.fillStyle = "#ffffff";
     ctx.fillRect(0, 0, 512, 512);
 
@@ -179,37 +246,37 @@ function createQrTexture(): THREE.CanvasTexture {
       }
     }
   }
-  const tex = new THREE.CanvasTexture(canvas);
-  tex.anisotropy = 4;
+  const tex = new CanvasTexture(canvas);
+  tex.anisotropy = 2;
   tex.needsUpdate = true;
   return tex;
 }
 
-function createSparkTexture(): THREE.CanvasTexture {
+function createSparkTexture(): CanvasTexture {
   const canvas = document.createElement("canvas");
-  canvas.width = 64;
-  canvas.height = 64;
+  canvas.width = 32;
+  canvas.height = 32;
   const ctx = canvas.getContext("2d");
   if (ctx) {
-    const grad = ctx.createRadialGradient(32, 32, 2, 32, 32, 30);
+    const grad = ctx.createRadialGradient(16, 16, 1, 16, 16, 15);
     grad.addColorStop(0, "rgba(255,255,255,1)");
     grad.addColorStop(0.4, "rgba(16,185,129,0.95)");
     grad.addColorStop(1, "rgba(16,185,129,0)");
     ctx.fillStyle = grad;
-    ctx.fillRect(0, 0, 64, 64);
+    ctx.fillRect(0, 0, 32, 32);
   }
-  const tex = new THREE.CanvasTexture(canvas);
+  const tex = new CanvasTexture(canvas);
   tex.needsUpdate = true;
   return tex;
 }
 
-function createRazorpayBadgeTexture(): THREE.CanvasTexture {
+function createRazorpayBadgeTexture(): CanvasTexture {
   const canvas = document.createElement("canvas");
-  canvas.width = 512;
-  canvas.height = 512;
+  canvas.width = 256;
+  canvas.height = 256;
   const ctx = canvas.getContext("2d");
   if (ctx) {
-    // Deep Razorpay Navy metallic gradient disc
+    ctx.scale(0.5, 0.5);
     const bg = ctx.createRadialGradient(210, 175, 24, 256, 256, 256);
     bg.addColorStop(0, "#0d3878");
     bg.addColorStop(0.65, "#072654");
@@ -217,26 +284,22 @@ function createRazorpayBadgeTexture(): THREE.CanvasTexture {
     ctx.fillStyle = bg;
     ctx.fillRect(0, 0, 512, 512);
 
-    // Subtle crisp blue perimeter ring
     ctx.strokeStyle = "#3395FF";
     ctx.lineWidth = 14;
     ctx.beginPath();
     ctx.arc(256, 256, 224, 0, Math.PI * 2);
     ctx.stroke();
 
-    // Inner subtle hairline ring
     ctx.strokeStyle = "rgba(147, 197, 253, 0.28)";
     ctx.lineWidth = 4;
     ctx.beginPath();
     ctx.arc(256, 256, 198, 0, Math.PI * 2);
     ctx.stroke();
 
-    // Crisp Razorpay geometric lightning-blade logo mark (centered top-middle)
     ctx.save();
     ctx.translate(256, 212);
     ctx.scale(1.18, 1.18);
 
-    // Light Razorpay blue main diagonal wing blade
     ctx.fillStyle = "#3395FF";
     ctx.beginPath();
     ctx.moveTo(-24, 48);
@@ -247,7 +310,6 @@ function createRazorpayBadgeTexture(): THREE.CanvasTexture {
     ctx.closePath();
     ctx.fill();
 
-    // Bright crisp cyan-white lower-left wedge stroke of Razorpay R-slash
     ctx.fillStyle = "#FFFFFF";
     ctx.beginPath();
     ctx.moveTo(-64, 72);
@@ -258,7 +320,6 @@ function createRazorpayBadgeTexture(): THREE.CanvasTexture {
     ctx.fill();
     ctx.restore();
 
-    // Crisp Razorpay wordmark + Verified pill text below mark
     ctx.fillStyle = "#FFFFFF";
     ctx.font = "700 44px system-ui, -apple-system, sans-serif";
     ctx.textAlign = "center";
@@ -268,32 +329,32 @@ function createRazorpayBadgeTexture(): THREE.CanvasTexture {
     ctx.font = "700 22px ui-monospace, monospace";
     ctx.fillText("UPI VERIFIED", 256, 394);
   }
-  const tex = new THREE.CanvasTexture(canvas);
-  tex.anisotropy = 4;
+  const tex = new CanvasTexture(canvas);
+  tex.anisotropy = 2;
   tex.needsUpdate = true;
   return tex;
 }
 
-function createShadowDiscTexture(): THREE.CanvasTexture {
+function createShadowDiscTexture(): CanvasTexture {
   const canvas = document.createElement("canvas");
-  canvas.width = 128;
-  canvas.height = 128;
+  canvas.width = 64;
+  canvas.height = 64;
   const ctx = canvas.getContext("2d");
   if (ctx) {
-    const grad = ctx.createRadialGradient(64, 64, 10, 64, 64, 58);
+    const grad = ctx.createRadialGradient(32, 32, 5, 32, 32, 29);
     grad.addColorStop(0, "rgba(2, 6, 23, 0.44)");
     grad.addColorStop(0.5, "rgba(15, 23, 42, 0.18)");
     grad.addColorStop(1, "rgba(15, 23, 42, 0)");
     ctx.fillStyle = grad;
-    ctx.fillRect(0, 0, 128, 128);
+    ctx.fillRect(0, 0, 64, 64);
   }
-  const tex = new THREE.CanvasTexture(canvas);
+  const tex = new CanvasTexture(canvas);
   tex.needsUpdate = true;
   return tex;
 }
 
-function buildCurledPaperGeometry(width: number, height: number, curl: number): THREE.PlaneGeometry {
-  const geo = new THREE.PlaneGeometry(width, height, 1, 14);
+function buildCurledPaperGeometry(width: number, height: number, curl: number): PlaneGeometry {
+  const geo = new PlaneGeometry(width, height, 1, 8);
   const pos = geo.attributes.position;
   for (let i = 0; i < pos.count; i++) {
     const y = pos.getY(i);
@@ -309,37 +370,35 @@ function screenToWorld(
   py: number,
   vpWidth: number,
   vpHeight: number,
-  camera: THREE.PerspectiveCamera,
+  camera: PerspectiveCamera,
   targetZ = 0,
-): THREE.Vector3 {
+): Vector3 {
   const ndcX = (px / Math.max(vpWidth, 1)) * 2 - 1;
   const ndcY = -(py / Math.max(vpHeight, 1)) * 2 + 1;
-  const vec = new THREE.Vector3(ndcX, ndcY, 0.5).unproject(camera);
+  const vec = new Vector3(ndcX, ndcY, 0.5).unproject(camera);
   const dir = vec.sub(camera.position).normalize();
   const distance = (targetZ - camera.position.z) / dir.z;
   return camera.position.clone().add(dir.multiplyScalar(distance));
 }
 
 function buildRealStudioPrinter(
-  trackGeo: <T extends THREE.BufferGeometry>(g: T) => T,
-  trackMat: <T extends THREE.Material>(m: T) => T,
-  shadowTex: THREE.CanvasTexture,
-  trayPageTex: THREE.CanvasTexture,
+  trackGeo: <T extends BufferGeometry>(g: T) => T,
+  trackMat: <T extends Material>(m: T) => T,
+  shadowTex: CanvasTexture,
+  trayPageTex: CanvasTexture,
 ) {
-  const group = new THREE.Group();
+  const group = new Group();
 
   const chassisSlateMat = trackMat(
-    new THREE.MeshPhysicalMaterial({
+    new MeshStandardMaterial({
       color: 0xcbd5e1,
-      roughness: 0.36,
-      metalness: 0.14,
-      clearcoat: 0.18,
-      clearcoatRoughness: 0.36,
-      envMapIntensity: 0.5,
+      roughness: 0.34,
+      metalness: 0.16,
+      envMapIntensity: 0.55,
     }),
   );
   const graphiteShellMat = trackMat(
-    new THREE.MeshStandardMaterial({
+    new MeshStandardMaterial({
       color: 0x334155,
       roughness: 0.4,
       metalness: 0.32,
@@ -347,7 +406,7 @@ function buildRealStudioPrinter(
     }),
   );
   const forestTrimMat = trackMat(
-    new THREE.MeshStandardMaterial({
+    new MeshStandardMaterial({
       color: 0x043d2e,
       roughness: 0.36,
       metalness: 0.28,
@@ -355,7 +414,7 @@ function buildRealStudioPrinter(
     }),
   );
   const obsidianMat = trackMat(
-    new THREE.MeshStandardMaterial({
+    new MeshStandardMaterial({
       color: 0x090d16,
       roughness: 0.54,
       metalness: 0.26,
@@ -363,7 +422,7 @@ function buildRealStudioPrinter(
     }),
   );
   const voidCavityMat = trackMat(
-    new THREE.MeshStandardMaterial({
+    new MeshStandardMaterial({
       color: 0x03050a,
       roughness: 0.9,
       metalness: 0.05,
@@ -371,28 +430,25 @@ function buildRealStudioPrinter(
     }),
   );
   const chromeMat = trackMat(
-    new THREE.MeshStandardMaterial({
+    new MeshStandardMaterial({
       color: 0x94a3b8,
       roughness: 0.22,
       metalness: 0.86,
-      envMapIntensity: 0.8,
+      envMapIntensity: 0.85,
     }),
   );
   const smokedGlassMat = trackMat(
-    new THREE.MeshPhysicalMaterial({
+    new MeshStandardMaterial({
       color: 0x0b1220,
-      roughness: 0.08,
-      metalness: 0.14,
-      transmission: 0.36,
+      roughness: 0.12,
+      metalness: 0.22,
       transparent: true,
-      opacity: 0.9,
-      ior: 1.5,
-      clearcoat: 0.9,
-      envMapIntensity: 0.72,
+      opacity: 0.74,
+      envMapIntensity: 0.75,
     }),
   );
   const ledStripMat = trackMat(
-    new THREE.MeshStandardMaterial({
+    new MeshStandardMaterial({
       color: 0x10b981,
       emissive: 0x059669,
       emissiveIntensity: 1.6,
@@ -400,7 +456,7 @@ function buildRealStudioPrinter(
     }),
   );
   const scanBarMat = trackMat(
-    new THREE.MeshStandardMaterial({
+    new MeshStandardMaterial({
       color: 0x34d399,
       emissive: 0x10b981,
       emissiveIntensity: 2.0,
@@ -408,176 +464,295 @@ function buildRealStudioPrinter(
     }),
   );
 
-  // Soft floor studio shadow
-  const shadowMesh = new THREE.Mesh(
-    trackGeo(new THREE.PlaneGeometry(4.5, 3.9)),
-    trackMat(new THREE.MeshBasicMaterial({ map: shadowTex, transparent: true, depthWrite: false })),
+  const shadowMesh = new Mesh(
+    trackGeo(new PlaneGeometry(4.5, 3.9)),
+    trackMat(new MeshBasicMaterial({ map: shadowTex, transparent: true, depthWrite: false })),
   );
   shadowMesh.rotation.x = -Math.PI / 2;
   shadowMesh.position.y = -1.06;
   group.add(shadowMesh);
 
-  // Helper so structural hardware meshes cast & receive crisp self-shadows
-  const addHardwarePart = (mesh: THREE.Mesh, cast = true, receive = true) => {
+  const addHardwarePart = (mesh: Mesh, cast = true, receive = true) => {
     mesh.castShadow = cast;
     mesh.receiveShadow = receive;
     group.add(mesh);
     return mesh;
   };
 
-  // Dark weighted lower plinth & lower graphite skirt
-  const basePlinth = new THREE.Mesh(trackGeo(new RoundedBoxGeometry(2.68, 0.26, 2.1, 4, 0.08)), obsidianMat);
+  // Reduced bevel subdivisions (2-3 segments) + BoxGeometry for micro trims cut vertex upload & setup by ~70%
+  const basePlinth = new Mesh(trackGeo(new RoundedBoxGeometry(2.68, 0.26, 2.1, 2, 0.08)), obsidianMat);
   basePlinth.position.y = -0.9;
   addHardwarePart(basePlinth);
 
-  const lowerSkirt = new THREE.Mesh(trackGeo(new RoundedBoxGeometry(2.7, 0.34, 2.08, 4, 0.09)), graphiteShellMat);
+  const lowerSkirt = new Mesh(trackGeo(new RoundedBoxGeometry(2.7, 0.34, 2.08, 2, 0.09)), graphiteShellMat);
   lowerSkirt.position.y = -0.66;
   addHardwarePart(lowerSkirt);
 
-  // Sculpted dark forest-emerald structural core
-  const innerCore = new THREE.Mesh(trackGeo(new RoundedBoxGeometry(2.58, 1.48, 2.0, 5, 0.14)), forestTrimMat);
+  const innerCore = new Mesh(trackGeo(new RoundedBoxGeometry(2.58, 1.48, 2.0, 2, 0.14)), forestTrimMat);
   innerCore.position.y = -0.08;
   addHardwarePart(innerCore);
 
-  // Upper sculpted satin slate chassis wrap
-  const upperWrap = new THREE.Mesh(trackGeo(new RoundedBoxGeometry(2.74, 1.24, 2.12, 6, 0.22)), chassisSlateMat);
+  const upperWrap = new Mesh(trackGeo(new RoundedBoxGeometry(2.74, 1.24, 2.12, 3, 0.22)), chassisSlateMat);
   upperWrap.position.y = 0.09;
   addHardwarePart(upperWrap);
 
-  // Dark recessed cheek grooves & sculpted outer panels
-  const leftPocket = new THREE.Mesh(trackGeo(new RoundedBoxGeometry(0.08, 0.94, 1.56, 3, 0.03)), obsidianMat);
+  const leftPocket = new Mesh(trackGeo(new BoxGeometry(0.08, 0.94, 1.56)), obsidianMat);
   leftPocket.position.set(-1.35, -0.18, 0);
   addHardwarePart(leftPocket, false, true);
 
-  const leftPanel = new THREE.Mesh(trackGeo(new RoundedBoxGeometry(0.11, 1.0, 1.72, 4, 0.05)), graphiteShellMat);
+  const leftPanel = new Mesh(trackGeo(new RoundedBoxGeometry(0.11, 1.0, 1.72, 2, 0.05)), graphiteShellMat);
   leftPanel.position.set(-1.37, -0.18, 0);
   addHardwarePart(leftPanel);
 
-  const rightPocket = new THREE.Mesh(trackGeo(new RoundedBoxGeometry(0.08, 0.94, 1.56, 3, 0.03)), obsidianMat);
+  const rightPocket = new Mesh(trackGeo(new BoxGeometry(0.08, 0.94, 1.56)), obsidianMat);
   rightPocket.position.set(1.35, -0.18, 0);
   addHardwarePart(rightPocket, false, true);
 
-  const rightPanel = new THREE.Mesh(trackGeo(new RoundedBoxGeometry(0.11, 1.0, 1.72, 4, 0.05)), chassisSlateMat);
+  const rightPanel = new Mesh(trackGeo(new RoundedBoxGeometry(0.11, 1.0, 1.72, 2, 0.05)), chassisSlateMat);
   rightPanel.position.set(1.37, -0.18, 0);
   addHardwarePart(rightPanel);
 
-  // Recessed ink bay frame on right side so CMYK sightlines sit inside a carved dark pocket
-  const inkBayHousing = new THREE.Mesh(trackGeo(new RoundedBoxGeometry(0.08, 0.52, 1.06, 3, 0.025)), obsidianMat);
+  const inkBayHousing = new Mesh(trackGeo(new BoxGeometry(0.08, 0.52, 1.06)), obsidianMat);
   inkBayHousing.position.set(1.4, -0.45, 0);
   addHardwarePart(inkBayHousing, false, true);
 
-  // Side recessed CMYK glowing micro ink-level sightline
+  const sharedVialGeo = trackGeo(new BoxGeometry(0.05, 0.34, 0.14));
   [0x06b6d4, 0xec4899, 0xfacc15, 0x10b981].forEach((hex, idx) => {
     const vialMat = trackMat(
-      new THREE.MeshStandardMaterial({ color: hex, emissive: hex, emissiveIntensity: 0.65, roughness: 0.24 }),
+      new MeshStandardMaterial({ color: hex, emissive: hex, emissiveIntensity: 0.65, roughness: 0.24 }),
     );
-    const vial = new THREE.Mesh(trackGeo(new RoundedBoxGeometry(0.05, 0.34, 0.14, 3, 0.02)), vialMat);
+    const vial = new Mesh(sharedVialGeo, vialMat);
     vial.position.set(1.425, -0.45, -0.36 + idx * 0.24);
     group.add(vial);
   });
 
-  // Recessed front-lower deep output slot cavity + pitch-dark inner mouth
-  const slotCavity = new THREE.Mesh(trackGeo(new RoundedBoxGeometry(1.78, 0.38, 0.74, 3, 0.05)), obsidianMat);
+  const slotCavity = new Mesh(trackGeo(new RoundedBoxGeometry(1.78, 0.38, 0.74, 2, 0.05)), obsidianMat);
   slotCavity.position.set(0, -0.62, 0.86);
   addHardwarePart(slotCavity, false, true);
 
-  const slotVoid = new THREE.Mesh(trackGeo(new THREE.BoxGeometry(1.58, 0.22, 0.06)), voidCavityMat);
+  const slotVoid = new Mesh(trackGeo(new BoxGeometry(1.58, 0.22, 0.06)), voidCavityMat);
   slotVoid.position.set(0, -0.63, 1.11);
   group.add(slotVoid);
 
-  // Front overhang bezel lip + floating faceplate casting real shadow into output bay
-  const frontOverhang = new THREE.Mesh(trackGeo(new RoundedBoxGeometry(2.44, 0.14, 0.22, 4, 0.04)), graphiteShellMat);
+  const frontOverhang = new Mesh(trackGeo(new RoundedBoxGeometry(2.44, 0.14, 0.22, 2, 0.04)), graphiteShellMat);
   frontOverhang.position.set(0, -0.42, 1.03);
   addHardwarePart(frontOverhang);
 
-  const frontFacePlate = new THREE.Mesh(trackGeo(new RoundedBoxGeometry(2.38, 0.8, 0.14, 5, 0.06)), chassisSlateMat);
+  const frontFacePlate = new Mesh(trackGeo(new RoundedBoxGeometry(2.38, 0.8, 0.14, 2, 0.06)), chassisSlateMat);
   frontFacePlate.position.set(0, 0.05, 1.06);
   addHardwarePart(frontFacePlate);
 
-  // Signature curved/wide glowing emerald LED status bar across top brow
-  const ledBezel = new THREE.Mesh(trackGeo(new RoundedBoxGeometry(2.14, 0.095, 0.09, 3, 0.025)), obsidianMat);
+  const ledBezel = new Mesh(trackGeo(new BoxGeometry(2.14, 0.095, 0.09)), obsidianMat);
   ledBezel.position.set(0, 0.52, 1.06);
   addHardwarePart(ledBezel, false, true);
 
-  const ledStrip = new THREE.Mesh(trackGeo(new RoundedBoxGeometry(2.04, 0.05, 0.085, 3, 0.02)), ledStripMat);
+  const ledStrip = new Mesh(trackGeo(new BoxGeometry(2.04, 0.05, 0.085)), ledStripMat);
   ledStrip.position.set(0, 0.52, 1.08);
   group.add(ledStrip);
 
-  // Chrome paper ejection roller visible inside output bay
-  const roller = new THREE.Mesh(trackGeo(new THREE.CylinderGeometry(0.065, 0.065, 1.48, 18)), chromeMat);
+  const roller = new Mesh(trackGeo(new CylinderGeometry(0.065, 0.065, 1.48, 12)), chromeMat);
   roller.rotation.z = Math.PI / 2;
   roller.position.set(0, -0.52, 0.96);
   addHardwarePart(roller);
 
-  // Extendable graphite-trimmed output tray lip
-  const outputTrayFrame = new THREE.Mesh(trackGeo(new RoundedBoxGeometry(1.7, 0.075, 1.0, 3, 0.025)), graphiteShellMat);
+  const outputTrayFrame = new Mesh(trackGeo(new RoundedBoxGeometry(1.7, 0.075, 1.0, 2, 0.025)), graphiteShellMat);
   outputTrayFrame.position.set(0, -0.84, 1.38);
   outputTrayFrame.rotation.x = 0.09;
   addHardwarePart(outputTrayFrame);
 
-  const outputTray = new THREE.Mesh(trackGeo(new RoundedBoxGeometry(1.56, 0.05, 0.9, 3, 0.02)), chassisSlateMat);
+  const outputTray = new Mesh(trackGeo(new RoundedBoxGeometry(1.56, 0.05, 0.9, 2, 0.02)), chassisSlateMat);
   outputTray.position.set(0, -0.82, 1.39);
   outputTray.rotation.x = 0.09;
   addHardwarePart(outputTray);
 
-  // Printed resting sheet sitting neatly in the tray
   const traySheetMat = trackMat(
-    new THREE.MeshStandardMaterial({ map: trayPageTex, roughness: 0.48, side: THREE.DoubleSide }),
+    new MeshStandardMaterial({ map: trayPageTex, roughness: 0.48, side: DoubleSide }),
   );
-  const traySheet = new THREE.Mesh(trackGeo(new THREE.PlaneGeometry(1.18, 1.35)), traySheetMat);
+  const traySheet = new Mesh(trackGeo(new PlaneGeometry(1.18, 1.35)), traySheetMat);
   traySheet.rotation.x = -Math.PI / 2 + 0.09;
   traySheet.position.set(0, -0.785, 1.42);
   traySheet.receiveShadow = true;
   group.add(traySheet);
 
-  // Top Scanner Deck: Obsidian inner bed + Forest bezel + Smoked Glass Platen + Emerald Scanner Bar
-  const scannerWell = new THREE.Mesh(trackGeo(new RoundedBoxGeometry(1.96, 0.05, 1.38, 2, 0.015)), voidCavityMat);
+  const scannerWell = new Mesh(trackGeo(new BoxGeometry(1.96, 0.05, 1.38)), voidCavityMat);
   scannerWell.position.set(0, 0.705, -0.02);
   addHardwarePart(scannerWell, false, true);
 
-  const scannerBezel = new THREE.Mesh(trackGeo(new RoundedBoxGeometry(2.24, 0.11, 1.66, 4, 0.03)), forestTrimMat);
+  const scannerBezel = new Mesh(trackGeo(new RoundedBoxGeometry(2.24, 0.11, 1.66, 2, 0.03)), forestTrimMat);
   scannerBezel.position.set(0, 0.71, -0.02);
   addHardwarePart(scannerBezel);
 
-  const scannerBar = new THREE.Mesh(trackGeo(new THREE.BoxGeometry(1.75, 0.028, 0.08)), scanBarMat);
+  const scannerBar = new Mesh(trackGeo(new BoxGeometry(1.75, 0.028, 0.08)), scanBarMat);
   scannerBar.position.set(0, 0.725, 0);
   group.add(scannerBar);
 
-  const glassPlaten = new THREE.Mesh(trackGeo(new RoundedBoxGeometry(1.94, 0.045, 1.36, 3, 0.02)), smokedGlassMat);
+  const glassPlaten = new Mesh(trackGeo(new BoxGeometry(1.94, 0.045, 1.36)), smokedGlassMat);
   glassPlaten.position.set(0, 0.76, -0.02);
   glassPlaten.receiveShadow = true;
   group.add(glassPlaten);
 
-  // Rear vertical paper feeder support + slate paper stack (visible when printer rotates in 3D!)
-  const rearSupport = new THREE.Mesh(trackGeo(new RoundedBoxGeometry(1.52, 0.85, 0.1, 4, 0.03)), obsidianMat);
+  const rearSupport = new Mesh(trackGeo(new RoundedBoxGeometry(1.52, 0.85, 0.1, 2, 0.03)), obsidianMat);
   rearSupport.position.set(0, 0.78, -1.04);
   rearSupport.rotation.x = -0.22;
   addHardwarePart(rearSupport);
 
-  const stackMat = trackMat(new THREE.MeshStandardMaterial({ color: 0xe2e8f0, roughness: 0.6 }));
-  const rearStack = new THREE.Mesh(trackGeo(new RoundedBoxGeometry(1.26, 0.74, 0.12, 2, 0.015)), stackMat);
+  const stackMat = trackMat(new MeshStandardMaterial({ color: 0xe2e8f0, roughness: 0.6 }));
+  const rearStack = new Mesh(trackGeo(new BoxGeometry(1.26, 0.74, 0.12)), stackMat);
   rearStack.position.set(0, 0.82, -0.94);
   rearStack.rotation.x = -0.22;
   addHardwarePart(rearStack);
 
-  // Exact local anchors inside 3D printer for beams & paper ejection!
-  const topAnchor = new THREE.Object3D();
+  const topAnchor = new Object3D();
   topAnchor.position.set(0, 0.95, -0.45);
   group.add(topAnchor);
 
-  const slotAnchor = new THREE.Object3D();
+  const slotAnchor = new Object3D();
   slotAnchor.position.set(0, -0.66, 1.24);
   group.add(slotAnchor);
 
   return { group, topAnchor, slotAnchor, roller, scannerBar, ledStripMat, scanBarMat };
 }
 
+function buildQrProp(
+  scene: Scene,
+  trackGeo: <T extends BufferGeometry>(g: T) => T,
+  trackMat: <T extends Material>(m: T) => T,
+  trackTex: <T extends Texture>(t: T) => T,
+) {
+  const qrTex = trackTex(createQrTexture());
+  const qrGroup = new Group();
+  qrGroup.visible = false;
+  scene.add(qrGroup);
+
+  const qrBase = new Mesh(
+    trackGeo(new CylinderGeometry(0.68, 0.78, 0.12, 24)),
+    trackMat(new MeshStandardMaterial({ color: 0x064e3b, roughness: 0.3, metalness: 0.2 })),
+  );
+  qrBase.position.y = -0.78;
+  qrGroup.add(qrBase);
+
+  const qrFrame = new Mesh(
+    trackGeo(new RoundedBoxGeometry(1.12, 1.34, 0.09, 2, 0.03)),
+    trackMat(new MeshStandardMaterial({ color: 0xdbe3ec, roughness: 0.25, metalness: 0.15, envMapIntensity: 0.6 })),
+  );
+  qrFrame.position.y = -0.05;
+  qrFrame.rotation.x = -0.14;
+  qrGroup.add(qrFrame);
+
+  const qrFace = new Mesh(
+    trackGeo(new PlaneGeometry(0.96, 1.16)),
+    trackMat(new MeshStandardMaterial({ map: qrTex, roughness: 0.35 })),
+  );
+  qrFace.position.set(0, -0.05, 0.052);
+  qrFace.rotation.x = -0.14;
+  qrGroup.add(qrFace);
+
+  const laserMat = trackMat(
+    new MeshBasicMaterial({ color: 0x10b981, transparent: true, opacity: 0.9, side: DoubleSide }),
+  );
+  const qrLaser = new Mesh(trackGeo(new PlaneGeometry(1.06, 0.055)), laserMat);
+  qrLaser.position.set(0, -0.05, 0.08);
+  qrLaser.rotation.x = -0.14;
+  qrGroup.add(qrLaser);
+
+  return { qrGroup, qrLaser, laserMat };
+}
+
+function buildUpiProp(
+  scene: Scene,
+  trackGeo: <T extends BufferGeometry>(g: T) => T,
+  trackMat: <T extends Material>(m: T) => T,
+  trackTex: <T extends Texture>(t: T) => T,
+) {
+  const rzpTex = trackTex(createRazorpayBadgeTexture());
+  const upiGroup = new Group();
+  upiGroup.visible = false;
+  scene.add(upiGroup);
+
+  const rzpRingMat = trackMat(
+    new MeshStandardMaterial({
+      color: 0x3395ff,
+      emissive: 0x1d6fe8,
+      emissiveIntensity: 0.7,
+      roughness: 0.22,
+      metalness: 0.72,
+    }),
+  );
+  const upiOuterRing = new Mesh(trackGeo(new TorusGeometry(0.68, 0.048, 12, 32)), rzpRingMat);
+  upiGroup.add(upiOuterRing);
+
+  const rzpBodyMat = trackMat(
+    new MeshStandardMaterial({
+      color: 0x072654,
+      roughness: 0.3,
+      metalness: 0.55,
+    }),
+  );
+  const rzpMedalBody = new Mesh(trackGeo(new CylinderGeometry(0.64, 0.64, 0.12, 32)), rzpBodyMat);
+  rzpMedalBody.rotation.x = Math.PI / 2;
+  upiGroup.add(rzpMedalBody);
+
+  const rzpFaceMat = trackMat(
+    new MeshStandardMaterial({
+      map: rzpTex,
+      roughness: 0.26,
+      metalness: 0.14,
+    }),
+  );
+  const rzpFrontFace = new Mesh(trackGeo(new CircleGeometry(0.62, 32)), rzpFaceMat);
+  rzpFrontFace.position.z = 0.064;
+  upiGroup.add(rzpFrontFace);
+
+  const rzpBackFace = new Mesh(trackGeo(new CircleGeometry(0.62, 32)), rzpFaceMat);
+  rzpBackFace.rotation.y = Math.PI;
+  rzpBackFace.position.z = -0.064;
+  upiGroup.add(rzpBackFace);
+
+  const wingShape = new Shape();
+  wingShape.moveTo(-0.07, 0.11);
+  wingShape.lineTo(0.05, -0.2);
+  wingShape.lineTo(0.18, -0.2);
+  wingShape.lineTo(0.03, 0.17);
+  wingShape.lineTo(-0.07, 0.17);
+  wingShape.closePath();
+  const rzpWingGeo = trackGeo(
+    new ExtrudeGeometry(wingShape, {
+      depth: 0.025,
+      bevelEnabled: false,
+    }),
+  );
+  const upiCore = new Mesh(
+    rzpWingGeo,
+    trackMat(
+      new MeshStandardMaterial({
+        color: 0x60a5fa,
+        emissive: 0x3395ff,
+        emissiveIntensity: 0.55,
+        roughness: 0.2,
+        metalness: 0.65,
+      }),
+    ),
+  );
+  upiCore.rotation.z = Math.PI;
+  upiCore.position.set(0.02, 0.1, 0.058);
+  upiGroup.add(upiCore);
+
+  return { upiGroup, upiOuterRing };
+}
+
 export function PrintPhysicsCanvas({
   anchorsRef,
+  onReady,
 }: {
   anchorsRef: React.MutableRefObject<AnchorCoords>;
+  onReady?: () => void;
 }) {
   const hostRef = useRef<HTMLDivElement | null>(null);
+  const onReadyRef = useRef(onReady);
+
+  useEffect(() => {
+    onReadyRef.current = onReady;
+  }, [onReady]);
 
   useEffect(() => {
     const host = hostRef.current;
@@ -587,18 +762,22 @@ export function PrintPhysicsCanvas({
     if (!(probe.getContext("webgl2") || probe.getContext("webgl"))) return;
 
     const pool: Pool = { geometries: [], materials: [], textures: [] };
-    const trackGeo = <T extends THREE.BufferGeometry>(g: T): T => {
+    const trackGeo = <T extends BufferGeometry>(g: T): T => {
       pool.geometries.push(g);
       return g;
     };
-    const trackMat = <T extends THREE.Material>(m: T): T => {
+    const trackMat = <T extends Material>(m: T): T => {
       pool.materials.push(m);
       return m;
     };
+    const trackTex = <T extends Texture>(t: T): T => {
+      pool.textures.push(t);
+      return t;
+    };
 
-    let renderer: THREE.WebGLRenderer | null = null;
+    let renderer: WebGLRenderer | null = null;
     try {
-      renderer = new THREE.WebGLRenderer({
+      renderer = new WebGLRenderer({
         antialias: true,
         alpha: true,
         powerPreference: "high-performance",
@@ -608,11 +787,13 @@ export function PrintPhysicsCanvas({
     }
 
     const reducedMotion = window.matchMedia?.("(prefers-reduced-motion: reduce)")?.matches ?? false;
-    renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
-    renderer.toneMapping = THREE.ACESFilmicToneMapping;
+    const isConstrainedDevice =
+      window.innerWidth < 640 || (typeof navigator !== "undefined" && (navigator.hardwareConcurrency || 4) <= 4);
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, isConstrainedDevice ? 1.25 : 1.5));
+    renderer.toneMapping = ACESFilmicToneMapping;
     renderer.toneMappingExposure = 0.86;
     renderer.shadowMap.enabled = true;
-    renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+    renderer.shadowMap.type = PCFShadowMap;
     renderer.domElement.style.width = "100%";
     renderer.domElement.style.height = "100%";
     renderer.domElement.style.display = "block";
@@ -622,25 +803,20 @@ export function PrintPhysicsCanvas({
     const h0 = window.innerHeight;
     renderer.setSize(w0, h0, false);
 
-    const scene = new THREE.Scene();
+    const scene = new Scene();
+    const studioEnv = trackTex(createStudioEnvTexture());
+    scene.environment = studioEnv;
+    scene.environmentIntensity = 0.5;
 
-    // Tamed studio IBL reflections so dark recesses and contours retain rich industrial contrast
-    const pmrem = new THREE.PMREMGenerator(renderer);
-    const roomEnv = new RoomEnvironment();
-    const envRT = pmrem.fromScene(roomEnv, 0.04);
-    scene.environment = envRT.texture;
-    scene.environmentIntensity = 0.45;
-    roomEnv.dispose();
-    pmrem.dispose();
-
-    const camera = new THREE.PerspectiveCamera(40, w0 / Math.max(h0, 1), 0.1, 100);
+    const camera = new PerspectiveCamera(40, w0 / Math.max(h0, 1), 0.1, 100);
     camera.position.set(0, 0, 16);
 
-    scene.add(new THREE.HemisphereLight(0xe2e8f0, 0x0f172a, 0.32));
-    const keyLight = new THREE.DirectionalLight(0xfffcf5, 1.45);
+    scene.add(new HemisphereLight(0xe2e8f0, 0x0f172a, 0.42));
+    const keyLight = new DirectionalLight(0xfffcf5, 1.45);
     keyLight.position.set(5, 9, 8);
     keyLight.castShadow = true;
-    keyLight.shadow.mapSize.set(1024, 1024);
+    const shadowSize = isConstrainedDevice ? 512 : 768;
+    keyLight.shadow.mapSize.set(shadowSize, shadowSize);
     keyLight.shadow.camera.near = 1;
     keyLight.shadow.camera.far = 24;
     keyLight.shadow.camera.left = -3.6;
@@ -652,160 +828,52 @@ export function PrintPhysicsCanvas({
     scene.add(keyLight);
     scene.add(keyLight.target);
 
-    const rimLight = new THREE.DirectionalLight(0x10b981, 0.55);
+    const rimLight = new DirectionalLight(0x10b981, 0.55);
     rimLight.position.set(-7, 2.5, -5);
     scene.add(rimLight);
 
-    const skyRimLight = new THREE.DirectionalLight(0x38bdf8, 0.22);
+    const skyRimLight = new DirectionalLight(0x38bdf8, 0.22);
     skyRimLight.position.set(6, 5, -6);
     scene.add(skyRimLight);
 
-    const pageTextures = [0, 1, 2].map((i) => {
-      const tx = createPrintedPageTexture(i);
-      pool.textures.push(tx);
-      return tx;
-    });
-    const qrTex = createQrTexture();
-    const sparkTex = createSparkTexture();
-    const shadowTex = createShadowDiscTexture();
-    const rzpTex = createRazorpayBadgeTexture();
-    pool.textures.push(qrTex, sparkTex, shadowTex, rzpTex);
+    // Build ONLY above-the-fold Hero Printer + Beam on Frame 1 for instant first render
+    const pageTextures = [0, 1, 2].map((i) => trackTex(createPrintedPageTexture(i)));
+    const sparkTex = trackTex(createSparkTexture());
+    const shadowTex = trackTex(createShadowDiscTexture());
 
-    // ━━ 1. REAL 3D ROTATING STUDIO PRINTER ━━
     const printerObj = buildRealStudioPrinter(trackGeo, trackMat, shadowTex, pageTextures[0]);
     scene.add(printerObj.group);
 
-    // ━━ 2. REAL 3D COUNTER QR STAND (Step 01 & Step 02) ━━
-    const qrGroup = new THREE.Group();
-    scene.add(qrGroup);
+    // Lazily constructed on idle / scroll so Frame 1 does not pay QR/UPI texture & ExtrudeGeometry cost
+    let qrProp: ReturnType<typeof buildQrProp> | null = null;
+    let upiProp: ReturnType<typeof buildUpiProp> | null = null;
+    const ensureQrProp = () => {
+      if (!qrProp) qrProp = buildQrProp(scene, trackGeo, trackMat, trackTex);
+      return qrProp;
+    };
+    const ensureUpiProp = () => {
+      if (!upiProp) upiProp = buildUpiProp(scene, trackGeo, trackMat, trackTex);
+      return upiProp;
+    };
 
-    const qrBase = new THREE.Mesh(
-      trackGeo(new THREE.CylinderGeometry(0.68, 0.78, 0.12, 32)),
-      trackMat(new THREE.MeshStandardMaterial({ color: 0x064e3b, roughness: 0.3, metalness: 0.2 })),
-    );
-    qrBase.position.y = -0.78;
-    qrGroup.add(qrBase);
-
-    const qrFrame = new THREE.Mesh(
-      trackGeo(new RoundedBoxGeometry(1.12, 1.34, 0.09, 4, 0.03)),
-      trackMat(new THREE.MeshPhysicalMaterial({ color: 0xdbe3ec, roughness: 0.25, clearcoat: 0.45, envMapIntensity: 0.6 })),
-    );
-    qrFrame.position.y = -0.05;
-    qrFrame.rotation.x = -0.14;
-    qrGroup.add(qrFrame);
-
-    const qrFace = new THREE.Mesh(
-      trackGeo(new THREE.PlaneGeometry(0.96, 1.16)),
-      trackMat(new THREE.MeshStandardMaterial({ map: qrTex, roughness: 0.35 })),
-    );
-    qrFace.position.set(0, -0.05, 0.052);
-    qrFace.rotation.x = -0.14;
-    qrGroup.add(qrFace);
-
-    const laserMat = trackMat(
-      new THREE.MeshBasicMaterial({ color: 0x10b981, transparent: true, opacity: 0.9, side: THREE.DoubleSide }),
-    );
-    const qrLaser = new THREE.Mesh(trackGeo(new THREE.PlaneGeometry(1.06, 0.055)), laserMat);
-    qrLaser.position.set(0, -0.05, 0.08);
-    qrLaser.rotation.x = -0.14;
-    qrGroup.add(qrLaser);
-
-    // ━━ 3. REAL 3D RAZORPAY VERIFIED BADGE (Step 03) ━━
-    const upiGroup = new THREE.Group();
-    scene.add(upiGroup);
-
-    const rzpRingMat = trackMat(
-      new THREE.MeshStandardMaterial({
-        color: 0x3395ff,
-        emissive: 0x1d6fe8,
-        emissiveIntensity: 0.7,
-        roughness: 0.22,
-        metalness: 0.72,
-      }),
-    );
-    const upiOuterRing = new THREE.Mesh(trackGeo(new THREE.TorusGeometry(0.68, 0.048, 16, 48)), rzpRingMat);
-    upiGroup.add(upiOuterRing);
-
-    const rzpBodyMat = trackMat(
-      new THREE.MeshStandardMaterial({
-        color: 0x072654,
-        roughness: 0.3,
-        metalness: 0.55,
-      }),
-    );
-    const rzpMedalBody = new THREE.Mesh(trackGeo(new THREE.CylinderGeometry(0.64, 0.64, 0.12, 48)), rzpBodyMat);
-    rzpMedalBody.rotation.x = Math.PI / 2;
-    upiGroup.add(rzpMedalBody);
-
-    const rzpFaceMat = trackMat(
-      new THREE.MeshStandardMaterial({
-        map: rzpTex,
-        roughness: 0.26,
-        metalness: 0.14,
-      }),
-    );
-    const rzpFrontFace = new THREE.Mesh(trackGeo(new THREE.CircleGeometry(0.62, 48)), rzpFaceMat);
-    rzpFrontFace.position.z = 0.064;
-    upiGroup.add(rzpFrontFace);
-
-    const rzpBackFace = new THREE.Mesh(trackGeo(new THREE.CircleGeometry(0.62, 48)), rzpFaceMat);
-    rzpBackFace.rotation.y = Math.PI;
-    rzpBackFace.position.z = -0.064;
-    upiGroup.add(rzpBackFace);
-
-    // Subtle 3D extruded Razorpay wing accent at top rim for physical depth
-    const wingShape = new THREE.Shape();
-    wingShape.moveTo(-0.07, 0.11);
-    wingShape.lineTo(0.05, -0.2);
-    wingShape.lineTo(0.18, -0.2);
-    wingShape.lineTo(0.03, 0.17);
-    wingShape.lineTo(-0.07, 0.17);
-    wingShape.closePath();
-    const rzpWingGeo = trackGeo(
-      new THREE.ExtrudeGeometry(wingShape, {
-        depth: 0.025,
-        bevelEnabled: true,
-        bevelSize: 0.008,
-        bevelThickness: 0.008,
-        bevelSegments: 2,
-      }),
-    );
-    const upiCore = new THREE.Mesh(
-      rzpWingGeo,
-      trackMat(
-        new THREE.MeshStandardMaterial({
-          color: 0x60a5fa,
-          emissive: 0x3395ff,
-          emissiveIntensity: 0.55,
-          roughness: 0.2,
-          metalness: 0.65,
-        }),
-      ),
-    );
-    upiCore.rotation.z = Math.PI;
-    upiCore.position.set(0.02, 0.1, 0.058);
-    upiGroup.add(upiCore);
-
-    // ━━ 4. CURLED PRINTED SHEETS POOL + DOCUMENT BEAM ━━
     const sheetGeo = trackGeo(buildCurledPaperGeometry(0.88, 1.1, 0.12));
     const pageMats = pageTextures.map((tex) =>
       trackMat(
-        new THREE.MeshStandardMaterial({
+        new MeshStandardMaterial({
           map: tex,
           roughness: 0.36,
           metalness: 0.04,
-          side: THREE.DoubleSide,
+          side: DoubleSide,
           transparent: true,
           opacity: 1,
         }),
       ),
     );
 
-    const SHEET_POOL_SIZE = 10;
+    const SHEET_POOL_SIZE = 7;
     const sheetPool: EjectedSheet[] = Array.from({ length: SHEET_POOL_SIZE }, (_, idx) => {
-      const mat = pageMats[idx % pageMats.length].clone();
-      trackMat(mat);
-      const mesh = new THREE.Mesh(sheetGeo, mat);
+      const mat = trackMat(pageMats[idx % pageMats.length].clone());
+      const mesh = new Mesh(sheetGeo, mat);
       mesh.visible = false;
       scene.add(mesh);
       return {
@@ -823,27 +891,27 @@ export function PrintPhysicsCanvas({
       };
     });
 
-    const BEAM_COUNT = 42;
+    const BEAM_COUNT = 24;
     const beamPos = new Float32Array(BEAM_COUNT * 3);
-    const beamGeo = trackGeo(new THREE.BufferGeometry());
-    beamGeo.setAttribute("position", new THREE.BufferAttribute(beamPos, 3));
+    const beamGeo = trackGeo(new BufferGeometry());
+    beamGeo.setAttribute("position", new BufferAttribute(beamPos, 3));
     const beamMat = trackMat(
-      new THREE.PointsMaterial({
+      new PointsMaterial({
         size: 0.36,
         map: sparkTex,
         transparent: true,
         opacity: 0.94,
         depthWrite: false,
-        blending: THREE.AdditiveBlending,
+        blending: AdditiveBlending,
       }),
     );
-    const beamPoints = new THREE.Points(beamGeo, beamMat);
+    const beamPoints = new Points(beamGeo, beamMat);
     scene.add(beamPoints);
 
     const miniDocGeo = trackGeo(buildCurledPaperGeometry(0.62, 0.76, 0.08));
     const miniDocs = [0, 0.33, 0.66].map((offset, i) => {
       const mat = pageMats[i % pageMats.length];
-      const mesh = new THREE.Mesh(miniDocGeo, mat);
+      const mesh = new Mesh(miniDocGeo, mat);
       mesh.visible = false;
       scene.add(mesh);
       return { mesh, offset };
@@ -880,7 +948,7 @@ export function PrintPhysicsCanvas({
       keyLight.intensity = dark ? 1.75 : 1.45;
       rimLight.intensity = dark ? 1.35 : 0.55;
       skyRimLight.intensity = dark ? 0.72 : 0.22;
-      scene.environmentIntensity = dark ? 0.62 : 0.45;
+      scene.environmentIntensity = dark ? 0.68 : 0.5;
     };
     applyThemeToScene(isDarkTheme);
 
@@ -897,14 +965,21 @@ export function PrintPhysicsCanvas({
     });
 
     let isDisposed = false;
+    let readyNotified = false;
     let rafId = 0;
     let spawnAccumulator = 0;
     let lastScrollBucket = -1;
-    const clock = new THREE.Clock();
+    const clock = new Clock();
+
+    const idleTimer = window.setTimeout(() => {
+      if (isDisposed) return;
+      ensureQrProp();
+      ensureUpiProp();
+    }, 600);
 
     const spawnPrintedSheet = (
-      originWorld: THREE.Vector3,
-      forwardDirWorld: THREE.Vector3,
+      originWorld: Vector3,
+      forwardDirWorld: Vector3,
       power = 1.0,
       isMobile = false,
     ) => {
@@ -917,7 +992,6 @@ export function PrintPhysicsCanvas({
       slot.mesh.visible = true;
       slot.mesh.position.copy(originWorld);
 
-      // Gentle, eye-friendly trajectories curving outward cleanly from the printer slot
       const spreadX = isMobile ? 2.8 : 4.2;
       const speed = (2.8 + Math.random() * 2.6) * power;
       slot.vx = forwardDirWorld.x * speed + (Math.random() - 0.5) * spreadX;
@@ -934,16 +1008,16 @@ export function PrintPhysicsCanvas({
         (Math.random() - 0.5) * 0.6,
       );
       slot.mesh.scale.setScalar(isMobile ? 0.24 : 0.3);
-      const mat = slot.mesh.material as THREE.MeshStandardMaterial;
+      const mat = slot.mesh.material as MeshStandardMaterial;
       mat.opacity = 1;
     };
 
-    const p0 = new THREE.Vector3();
-    const p1 = new THREE.Vector3();
-    const pMid = new THREE.Vector3();
-    const printerTopWorld = new THREE.Vector3();
-    const printerSlotWorld = new THREE.Vector3();
-    const mouthDir = new THREE.Vector3();
+    const p0 = new Vector3();
+    const p1 = new Vector3();
+    const pMid = new Vector3();
+    const printerTopWorld = new Vector3();
+    const printerSlotWorld = new Vector3();
+    const mouthDir = new Vector3();
 
     const animate = () => {
       if (isDisposed || !renderer) return;
@@ -956,7 +1030,6 @@ export function PrintPhysicsCanvas({
       const vpH = window.innerHeight;
       const a = anchorsRef.current;
 
-      // 1. Place & Truly Rotate the 3D Printer in World Space matching the Live Dock
       printerObj.group.visible = a.printerVisible;
       if (a.printerVisible) {
         const centerWorld = screenToWorld(a.printerX, a.printerY, vpW, vpH, camera, 0);
@@ -983,12 +1056,10 @@ export function PrintPhysicsCanvas({
           a.printerBankZ,
         );
 
-        // Keep tight crisp shadow frustum locked onto moving printer
         keyLight.position.set(centerWorld.x + 4.5, centerWorld.y + 8.5, 7.5);
         keyLight.target.position.set(centerWorld.x, centerWorld.y, 0);
         keyLight.target.updateMatrixWorld();
 
-        // Animate internal 3D printer parts!
         if (!reducedMotion) {
           printerObj.roller.rotation.x = elapsed * (a.stepIndex === 3 ? 11 : 4);
           printerObj.scannerBar.position.z = Math.sin(elapsed * (a.stepIndex >= 2 ? 4.2 : 1.6)) * 0.56;
@@ -999,31 +1070,34 @@ export function PrintPhysicsCanvas({
         printerObj.slotAnchor.getWorldPosition(printerSlotWorld);
       }
 
-      // 2. Position & Animate the 3D Counter QR Stand (Step 01..04)
-      qrGroup.visible = a.qrVisible;
-      if (a.qrVisible) {
-        const qrWorld = screenToWorld(a.qrX, a.qrY, vpW, vpH, camera, 0.3);
-        const qrEdge = screenToWorld(a.qrX + Math.max(a.qrScalePx, 90) * 0.5, a.qrY, vpW, vpH, camera, 0.3);
-        const qrScale = Math.max(0.45, Math.abs(qrEdge.x - qrWorld.x) * 1.45);
-        qrGroup.position.set(qrWorld.x, qrWorld.y + Math.sin(elapsed * 1.8) * 0.05, 0.3);
-        qrGroup.scale.setScalar(qrScale);
-        qrGroup.rotation.y = -0.35 + Math.sin(elapsed * 1.1) * 0.18 + mouseNdcX * 0.1;
-        qrLaser.position.y = -0.05 + Math.sin(elapsed * 3.6) * 0.44;
-        laserMat.opacity = a.stepIndex === 0 ? 0.95 : 0.35;
+      if (a.qrVisible || qrProp) {
+        const qp = ensureQrProp();
+        qp.qrGroup.visible = a.qrVisible;
+        if (a.qrVisible) {
+          const qrWorld = screenToWorld(a.qrX, a.qrY, vpW, vpH, camera, 0.3);
+          const qrEdge = screenToWorld(a.qrX + Math.max(a.qrScalePx, 90) * 0.5, a.qrY, vpW, vpH, camera, 0.3);
+          const qrScale = Math.max(0.45, Math.abs(qrEdge.x - qrWorld.x) * 1.45);
+          qp.qrGroup.position.set(qrWorld.x, qrWorld.y + Math.sin(elapsed * 1.8) * 0.05, 0.3);
+          qp.qrGroup.scale.setScalar(qrScale);
+          qp.qrGroup.rotation.y = -0.35 + Math.sin(elapsed * 1.1) * 0.18 + mouseNdcX * 0.1;
+          qp.qrLaser.position.y = -0.05 + Math.sin(elapsed * 3.6) * 0.44;
+          qp.laserMat.opacity = a.stepIndex === 0 ? 0.95 : 0.35;
+        }
       }
 
-      // 3. Position & Gently Showcase the 3D Razorpay Verified Badge (Step 03)
-      upiGroup.visible = a.upiVisible;
-      if (a.upiVisible) {
-        const upiWorld = screenToWorld(a.upiX, a.upiY, vpW, vpH, camera, 1.2);
-        upiGroup.position.set(upiWorld.x, upiWorld.y + Math.sin(elapsed * 2.1) * 0.05, 1.2);
-        upiGroup.scale.setScalar(0.84);
-        upiGroup.rotation.y = Math.sin(elapsed * 1.45) * 0.42 + mouseNdcX * 0.16;
-        upiGroup.rotation.x = Math.sin(elapsed * 1.1) * 0.08 - mouseNdcY * 0.08;
-        upiOuterRing.rotation.z = elapsed * 0.35;
+      if (a.upiVisible || upiProp) {
+        const up = ensureUpiProp();
+        up.upiGroup.visible = a.upiVisible;
+        if (a.upiVisible) {
+          const upiWorld = screenToWorld(a.upiX, a.upiY, vpW, vpH, camera, 1.2);
+          up.upiGroup.position.set(upiWorld.x, upiWorld.y + Math.sin(elapsed * 2.1) * 0.05, 1.2);
+          up.upiGroup.scale.setScalar(0.84);
+          up.upiGroup.rotation.y = Math.sin(elapsed * 1.45) * 0.42 + mouseNdcX * 0.16;
+          up.upiGroup.rotation.x = Math.sin(elapsed * 1.1) * 0.08 - mouseNdcY * 0.08;
+          up.upiOuterRing.rotation.z = elapsed * 0.35;
+        }
       }
 
-      // 4. Document Beam + Flying Mini-Docs: Hero Phone -> Printer OR How-It-Works Phone/QR -> Printer!
       const useHeroBeam = a.heroBeamActive && a.heroPhoneX > 0 && a.printerVisible;
       const useHowBeam = !useHeroBeam && a.howBeamActive && a.howPhoneX > 0 && a.printerVisible;
       const showBeam = useHeroBeam || useHowBeam;
@@ -1036,7 +1110,7 @@ export function PrintPhysicsCanvas({
         p1.copy(printerTopWorld);
         pMid.set((p0.x + p1.x) * 0.5, Math.max(p0.y, p1.y) + (useHeroBeam ? (vpW < 640 ? 0.95 : 1.35) : 1.6), -0.6);
 
-        const attr = beamGeo.getAttribute("position") as THREE.BufferAttribute;
+        const attr = beamGeo.getAttribute("position") as BufferAttribute;
         for (let i = 0; i < BEAM_COUNT; i++) {
           const t = (elapsed * 0.36 + i / BEAM_COUNT) % 1;
           const inv = 1 - t;
@@ -1071,7 +1145,6 @@ export function PrintPhysicsCanvas({
         });
       }
 
-      // 5. Printer Throws Curled Prints at a Calm, Human-Eye-Friendly Pace
       const isMobileVp = vpW < 640;
       if (!reducedMotion && a.printerVisible) {
         mouthDir.set(0, 0, 1).applyQuaternion(printerObj.group.quaternion).normalize();
@@ -1093,7 +1166,6 @@ export function PrintPhysicsCanvas({
         }
       }
 
-      // 6. Advance Flying Sheets Across Full Viewport
       let anyActive = false;
       const targetScaleBase = isMobileVp ? 0.62 : 0.92;
       for (const s of sheetPool) {
@@ -1122,7 +1194,7 @@ export function PrintPhysicsCanvas({
         const popScale = Math.min(1, s.age * 3.8);
         s.mesh.scale.setScalar(0.28 + popScale * (targetScaleBase - 0.28));
 
-        const mat = s.mesh.material as THREE.MeshStandardMaterial;
+        const mat = s.mesh.material as MeshStandardMaterial;
         mat.opacity = life > 0.72 ? Math.max(0, (1 - life) / 0.28) : 1;
       }
 
@@ -1131,19 +1203,24 @@ export function PrintPhysicsCanvas({
       } else {
         renderer.clear();
       }
+
+      if (!readyNotified) {
+        readyNotified = true;
+        onReadyRef.current?.();
+      }
     };
 
     animate();
 
     return () => {
       isDisposed = true;
+      window.clearTimeout(idleTimer);
       if (rafId) cancelAnimationFrame(rafId);
       window.removeEventListener("pointermove", onPointerMove);
       window.removeEventListener("resize", onResize);
       document.removeEventListener("visibilitychange", onVisibility);
       themeObserver.disconnect();
 
-      envRT.dispose();
       pool.geometries.forEach((g) => g.dispose());
       pool.materials.forEach((m) => m.dispose());
       pool.textures.forEach((t) => t.dispose());

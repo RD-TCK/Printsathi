@@ -19,7 +19,7 @@ const nextConfig: NextConfig = {
   },
   experimental: {
     agentUpgrade: "security",
-    optimizePackageImports: ["lucide-react", "clsx", "tailwind-merge", "@supabase/ssr", "zod"],
+    optimizePackageImports: ["lucide-react", "clsx", "tailwind-merge", "@supabase/ssr", "zod", "three"],
     serverActions: {
       bodySizeLimit: "50mb",
     },
