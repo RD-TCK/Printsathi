@@ -57,24 +57,21 @@ export function buildWhatsAppTextReply(options: {
   const header = formatBrandHeader(options.shopName);
   if (options.activeConfigUrl) {
     return [
-      header,
-      "",
-      "Your active print link:",
+      "Print & pay here:",
       options.activeConfigUrl,
       "",
+      header,
       "Send another PDF, Word file, or photo anytime to start a new order.",
     ].join("\n");
   }
 
   return [
     header,
-    "",
-    "Send your PDF, Word file (.docx), or photos here to print.",
-    "We'll reply with a link to set color, sides, copies, and pay.",
+    "Send your PDF, Word (.docx), or photos here to get your print & payment link.",
   ].join("\n");
 }
 
-/** Builds the primary customer confirmation message containing document summary and config link(s). */
+/** Builds the primary customer confirmation message with link first, then documents and details. */
 export function buildWhatsAppBatchSuccessReply(options: {
   shopName?: string | null;
   chunks: WhatsAppReplyChunk[];
@@ -91,22 +88,20 @@ export function buildWhatsAppBatchSuccessReply(options: {
     if (docs.length === 1) {
       const doc = docs[0];
       sections.push(
-        `${header} · Ready to print`,
-        "",
-        `• ${doc.filename} (${formatPageCountLabel(doc.pageCount)})`,
-        "",
-        "Configure color, copies & pay:",
+        "Print & pay here:",
         configUrl,
+        "",
+        header,
+        `• ${doc.filename} (${formatPageCountLabel(doc.pageCount)})`,
       );
     } else {
       const fileLines = docs.map((d, i) => `${i + 1}. ${d.filename} (${formatPageCountLabel(d.pageCount)})`);
       sections.push(
-        `${header} · ${docs.length} files ready (${formatPageCountLabel(totalPages)})`,
-        "",
-        ...fileLines,
-        "",
-        "Configure color, copies & pay:",
+        "Print & pay here:",
         configUrl,
+        "",
+        `${header} · ${docs.length} files (${formatPageCountLabel(totalPages)})`,
+        ...fileLines,
       );
     }
   } else {
@@ -117,8 +112,7 @@ export function buildWhatsAppBatchSuccessReply(options: {
     );
 
     sections.push(
-      `${header} · ${totalDocs} files ready (${formatPageCountLabel(totalPages)})`,
-      `Organized into ${chunks.length} orders:`,
+      `${header} · ${chunks.length} orders (${totalDocs} files · ${formatPageCountLabel(totalPages)})`,
     );
 
     let docIndex = 1;
@@ -131,9 +125,9 @@ export function buildWhatsAppBatchSuccessReply(options: {
       const countLabel = `${chunk.documents.length} ${chunk.documents.length === 1 ? "file" : "files"}`;
       sections.push(
         "",
-        `*Order ${i + 1}* (${countLabel} · ${formatPageCountLabel(chunkPages)})`,
+        `*Order ${i + 1}:* ${chunk.configUrl}`,
+        `${countLabel} · ${formatPageCountLabel(chunkPages)}:`,
         ...fileLines,
-        `Configure: ${chunk.configUrl}`,
       );
     }
   }

@@ -48,7 +48,7 @@ vi.mock("./config", () => ({
     agentToken: "ps_agent_stress",
     agentName: "i3-laptop",
     selectedPrinter: "HP LaserJet BW 1",
-    version: "1.8.37",
+    version: "1.8.38",
     pollIntervalMs: 2000,
     heartbeatIntervalMs: 45000,
     enableSeparatorPage: true,

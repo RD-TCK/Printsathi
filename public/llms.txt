@@ -27,7 +27,7 @@
 - Features & Specs: https://printiva.co.in/features
 - How It Works: https://printiva.co.in/how-it-works
 - Pricing: https://printiva.co.in/pricing
-- Windows Agent Download (v1.8.37): https://printiva.co.in/download
+- Windows Agent Download (v1.8.38): https://printiva.co.in/download
 - Find a Print Shop: https://printiva.co.in/shops
 - Blog & Printer Guides (English & Hindi): https://printiva.co.in/blog
 - Track Print Order: https://printiva.co.in/track

@@ -297,12 +297,11 @@ describe("WhatsApp Agent Service", () => {
       });
       expect(single).toBe(
         [
-          "*Sharma Xerox* · Printiva · Ready to print",
-          "",
-          "• notes.pdf (1 page)",
-          "",
-          "Configure color, copies & pay:",
+          "Print & pay here:",
           "https://printiva.co.in/c/abc",
+          "",
+          "*Sharma Xerox* · Printiva",
+          "• notes.pdf (1 page)",
         ].join("\n"),
       );
 
@@ -318,7 +317,8 @@ describe("WhatsApp Agent Service", () => {
         ],
         skippedFiles: [{ filename: "bad.pdf", reason: "Password-protected" }],
       });
-      expect(multi).toContain("*Printiva* · 2 files ready (3 pages)");
+      expect(multi.indexOf("https://printiva.co.in/c/batch")).toBeLessThan(multi.indexOf("1. a.pdf"));
+      expect(multi).toContain("*Printiva* · 2 files (3 pages)");
       expect(multi).toContain("1. a.pdf (2 pages)");
       expect(multi).toContain("2. b.jpg (1 page)");
       expect(multi).toContain("Skipped 1 file:\n• bad.pdf — Password-protected");
@@ -338,12 +338,12 @@ describe("WhatsApp Agent Service", () => {
           },
         ],
       });
-      expect(split).toContain("Organized into 2 orders:");
-      expect(split).toContain("*Order 1* (1 file · 4 pages)");
-      expect(split).toContain("Configure: https://printiva.co.in/c/2");
+      expect(split).toContain("*Campus Print* · Printiva · 2 orders (2 files · 9 pages)");
+      expect(split).toContain("*Order 1:* https://printiva.co.in/c/1\n1 file · 4 pages:\n1. doc1.pdf (4 pages)");
+      expect(split).toContain("*Order 2:* https://printiva.co.in/c/2\n1 file · 5 pages:\n2. doc2.pdf (5 pages)");
 
       expect(buildWhatsAppTextReply({ shopName: "Campus Print", activeConfigUrl: "https://printiva.co.in/c/1" })).toContain(
-        "Your active print link:\nhttps://printiva.co.in/c/1",
+        "Print & pay here:\nhttps://printiva.co.in/c/1",
       );
       expect(buildWhatsAppBatchFailureReply([{ filename: "locked.pdf", reason: "Encrypted" }])).toContain(
         "• locked.pdf — Encrypted",

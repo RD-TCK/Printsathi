@@ -181,7 +181,7 @@ export function softwareJsonLd() {
     applicationCategory: "BusinessApplication",
     applicationSubCategory: "Print Shop Management & Windows Print Spooler Automation",
     operatingSystem: "Web, Windows 10, Windows 11 (64-bit)",
-    softwareVersion: "1.8.37",
+    softwareVersion: "1.8.38",
     memoryRequirements: "48 MB RAM",
     downloadUrl: siteUrl("/api/agent/download"),
     installUrl: siteUrl("/download"),
