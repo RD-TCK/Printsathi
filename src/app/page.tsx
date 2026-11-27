@@ -228,7 +228,7 @@ export default function Home() {
                     <Button asChild variant="primary" className="w-full sm:w-auto">
                       <Link href="/download">
                         <Download className="size-4" />
-                        Download v1.8.36 (.exe)
+                        Download v1.8.37 (.exe)
                       </Link>
                     </Button>
                     <Link
@@ -245,7 +245,7 @@ export default function Home() {
                   <div className="flex items-center justify-between border-b border-slate-100 dark:border-white/[0.08] pb-3 text-xs">
                     <span className="font-semibold text-brand-950 dark:text-white">System Specification</span>
                     <span className="font-medium text-emerald-700 dark:text-emerald-400 font-mono">
-                      v1.8.36 Release
+                      v1.8.37 Release
                     </span>
                   </div>
                   {[

@@ -29,7 +29,7 @@ Printiva replaces those steps with an automated pipeline:
 
 ## 3. Core Capabilities
 
-### A. Windows Desktop Agent (v1.8.36)
+### A. Windows Desktop Agent (v1.8.37)
 - Runs as a background service on 64-bit Windows 10 and Windows 11 with a < 48 MB RAM footprint.
 - Dispatches print streams directly through the Windows Print Spooler (`winspool.drv`), bypassing browser print dialogs.
 - Background pre-caching downloads uploaded files locally before checkout completes so printing starts immediately upon confirmation.

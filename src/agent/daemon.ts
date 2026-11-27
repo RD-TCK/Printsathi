@@ -20,6 +20,22 @@ import { logger } from "./logger";
 import { whatsAppAgent } from "./whatsapp";
 import { createClient, SupabaseClient, RealtimeChannel } from "@supabase/supabase-js";
 
+interface PrecacheQueueOrder {
+  id: string;
+  publicId?: string;
+  tokenNumber?: number | null;
+  status: string;
+  isExpired?: boolean;
+  documents?: Array<{ id: string; filename?: string; pageCount?: number }>;
+  jobs?: Array<{
+    id?: string;
+    documentId?: string;
+    pagesConfig?: ClaimedJob["pagesConfig"];
+    pages?: ClaimedJob["pagesConfig"];
+    duplexStep?: "odd" | "even" | "all" | "none";
+  }>;
+}
+
 export class AgentDaemon {
   private instanceLock: net.Server | null = null;
   private config: AgentConfig;
@@ -84,7 +100,13 @@ export class AgentDaemon {
   private lastSentPrintersSignature: string | null = null;
   private lastFullPrinterSyncAt = 0;
   private precacheDebounceTimer: NodeJS.Timeout | null = null;
+  private precacheInFlight: Promise<void> | null = null;
+  private lastPrecacheScanAt = 0;
+  private lastWarmupAt = 0;
+  private reportedPrecacheDocIds: Set<string> = new Set();
   private processedJobIds: Set<string> = new Set();
+  private executionSlotWaiters: Array<() => void> = [];
+  private executionSlotsActive = 0;
   private pendingCompletionJobIds: Set<string> = new Set();
   private pendingCompletionRetries: Map<string, number> = new Map();
   private forcedOrderIds: Set<string> = new Set();
@@ -766,6 +788,30 @@ export class AgentDaemon {
     return this.getHardwareConcurrencyLimit() <= 2 ? 1 : 2;
   }
 
+  private async runWithExecutionSlot<T>(task: () => Promise<T>): Promise<T> {
+    const limit = Math.max(1, this.getHardwareConcurrencyLimit());
+    while (this.executionSlotsActive + this.activeOrderDispatches >= limit) {
+      await new Promise<void>((resolve) => {
+        this.executionSlotWaiters.push(resolve);
+      });
+    }
+    this.executionSlotsActive += 1;
+    try {
+      return await task();
+    } finally {
+      this.executionSlotsActive = Math.max(0, this.executionSlotsActive - 1);
+      this.wakeNextExecutionWaiter();
+    }
+  }
+
+  private wakeNextExecutionWaiter(): void {
+    const limit = Math.max(1, this.getHardwareConcurrencyLimit());
+    if (this.executionSlotsActive + this.activeOrderDispatches < limit) {
+      const next = this.executionSlotWaiters.shift();
+      if (next) next();
+    }
+  }
+
   private async runAdaptivePollCycle(): Promise<void> {
     if (!this.isRunning || !isConfigPaired(this.config)) return;
     if (this.isPollRunning) {
@@ -804,31 +850,54 @@ export class AgentDaemon {
         if (onlineCount <= 1) {
           didProcessJob = await this.pollAndProcessNextJob();
         } else {
+          // Sliding concurrency pool: refill freed printer slots immediately without waiting for slow printers
           const maxBurst = Math.min(hardwareCap, onlineCount);
-          const backgroundDispatches: Array<Promise<boolean>> = [];
-          while (this.isRunning && this.activeOrderDispatches < maxBurst && this.hasIdlePhysicalPrinter()) {
-            const job = await this.client.claimNextJob(45);
-            this.isConnected = true;
-            if (!job) break;
+          const MAX_DISPATCHES_PER_CYCLE = 50;
+          const inFlight = new Set<Promise<boolean>>();
+          let queueExhausted = false;
+          let dispatchedInCycle = 0;
 
-            didProcessJob = true;
-            // Start execution and await the brief routing step so activePrintingPrinters reflects this order
-            // before claiming another order for the remaining idle physical printers.
-            let notifyRouted!: () => void;
-            const routedPromise = new Promise<void>((resolve) => {
-              notifyRouted = resolve;
-            });
-            const execPromise = this.executeClaimedJob(job, notifyRouted);
-            backgroundDispatches.push(execPromise);
-            await Promise.race([routedPromise, execPromise]);
-          }
-          if (backgroundDispatches.length > 0) {
-            const results = await Promise.all(backgroundDispatches);
-            didProcessJob = results.some(Boolean);
-            // If all dispatched workers succeeded at full burst capacity, check immediately for remaining queued orders
-            if (backgroundDispatches.length >= maxBurst && results.every(Boolean)) {
-              this.hasPendingWakeup = true;
+          while (this.isRunning && dispatchedInCycle < MAX_DISPATCHES_PER_CYCLE) {
+            while (
+              this.isRunning &&
+              dispatchedInCycle < MAX_DISPATCHES_PER_CYCLE &&
+              inFlight.size < maxBurst &&
+              this.activeOrderDispatches < maxBurst &&
+              this.hasIdlePhysicalPrinter()
+            ) {
+              const job = await this.client.claimNextJob(180);
+              this.isConnected = true;
+              if (!job) {
+                queueExhausted = true;
+                break;
+              }
+
+              didProcessJob = true;
+              dispatchedInCycle += 1;
+              let notifyRouted!: () => void;
+              const routedPromise = new Promise<void>((resolve) => {
+                notifyRouted = resolve;
+              });
+              const execPromise = this.executeClaimedJob(job, notifyRouted).finally(() => {
+                inFlight.delete(execPromise);
+              });
+              inFlight.add(execPromise);
+              await Promise.race([routedPromise, execPromise]);
             }
+
+            if (queueExhausted || inFlight.size === 0 || dispatchedInCycle >= MAX_DISPATCHES_PER_CYCLE) {
+              break;
+            }
+            // Wait only for the FIRST finishing dispatch so an idle printer never blocks behind a slow job
+            await Promise.race(inFlight);
+          }
+
+          if (inFlight.size > 0) {
+            const results = await Promise.all(inFlight);
+            if (results.some(Boolean)) didProcessJob = true;
+          }
+          if (dispatchedInCycle >= MAX_DISPATCHES_PER_CYCLE && !queueExhausted) {
+            this.hasPendingWakeup = true;
           }
         }
       }
@@ -956,7 +1025,7 @@ export class AgentDaemon {
       if (!defaultPrinter || defaultPrinter.status === "offline") {
         return false;
       }
-      const job = await this.client.claimNextJob(45); // 45 second fast-recovery lease
+      const job = await this.client.claimNextJob(180); // 180 second recovery lease for low-spec hardware batches
       this.isConnected = true;
       if (!job) {
         return false;
@@ -1231,10 +1300,27 @@ export class AgentDaemon {
             }
 
             try {
-              for (const pJob of printerJobs) {
-                const resolved = await this.resolveJobDocumentPath(pJob);
-                resolvedItems.push({ sourcePath: resolved.filePath, job: pJob, isLocalCacheHit: resolved.isLocalCacheHit });
-              }
+              // Bound parallel document downloads to 2 concurrent streams so uncached multi-file batches finish quickly without saturating i3 RAM/network
+              const maxDlConcurrency = Math.min(2, printerJobs.length);
+              const resolvedSlots: Array<{ sourcePath: string; job: ClaimedJob; isLocalCacheHit: boolean }> = new Array(
+                printerJobs.length,
+              );
+              let nextDlIdx = 0;
+              await Promise.all(
+                Array.from({ length: maxDlConcurrency }, async () => {
+                  while (nextDlIdx < printerJobs.length) {
+                    const idx = nextDlIdx++;
+                    const pJob = printerJobs[idx];
+                    const resolved = await this.resolveJobDocumentPath(pJob);
+                    resolvedSlots[idx] = {
+                      sourcePath: resolved.filePath,
+                      job: pJob,
+                      isLocalCacheHit: resolved.isLocalCacheHit,
+                    };
+                  }
+                }),
+              );
+              resolvedItems.push(...resolvedSlots);
 
               await Promise.all(
                 printerJobs.map((pJob) => {
@@ -1270,19 +1356,25 @@ export class AgentDaemon {
                   batchPagesSubmitted += singleRes.pagesSubmitted;
                 }
               } else {
-                const batchResult = await prepareAndPrintBatch(
-                  resolvedItems.map((item) => ({ sourcePath: item.sourcePath, job: item.job })),
-                  targetPrinterName,
-                  {
-                    includeSeparatorPage: shouldIncludeSeparator,
-                    discoveredPrinter: targetPrinter,
-                  },
-                );
+                // Cap per-batch PDF assembly to 15 documents so massive multi-photo orders never exhaust V8 RAM on 4GB i3 PCs
+                const MAX_DOCS_PER_BATCH_CHUNK = 15;
+                for (let chunkStart = 0; chunkStart < resolvedItems.length; chunkStart += MAX_DOCS_PER_BATCH_CHUNK) {
+                  const chunk = resolvedItems.slice(chunkStart, chunkStart + MAX_DOCS_PER_BATCH_CHUNK);
+                  const isFinalChunk = chunkStart + MAX_DOCS_PER_BATCH_CHUNK >= resolvedItems.length;
+                  const batchResult = await prepareAndPrintBatch(
+                    chunk.map((item) => ({ sourcePath: item.sourcePath, job: item.job })),
+                    targetPrinterName,
+                    {
+                      includeSeparatorPage: shouldIncludeSeparator && isFinalChunk,
+                      discoveredPrinter: targetPrinter,
+                    },
+                  );
 
-                if (!batchResult.success) {
-                  throw new Error(batchResult.errorMessage || "Print submission failed.");
+                  if (!batchResult.success) {
+                    throw new Error(batchResult.errorMessage || "Print submission failed.");
+                  }
+                  batchPagesSubmitted += batchResult.pagesSubmitted;
                 }
-                batchPagesSubmitted = batchResult.pagesSubmitted;
               }
 
               if (process.platform === "win32" || os.platform() === "win32") {
@@ -1665,17 +1757,25 @@ export class AgentDaemon {
       this.isProcessingJob = this.activeOrderDispatches > 0;
       if (this.activeOrderDispatches === 0) {
         this.currentJob = null;
+        this.drainPresliceQueue();
       }
+      this.wakeNextExecutionWaiter();
     }
     return false;
   }
 
   private precachingDocIds: Set<string> = new Set();
   private precacheQueue: Array<{
-    order: any;
-    doc: any;
+    order: { id: string; tokenNumber?: number | null; publicId?: string; status?: string; isExpired?: boolean };
+    doc: { id: string; filename?: string };
     targetPath: string;
-    matchingJob: any;
+    matchingJob: {
+      id?: string;
+      documentId?: string;
+      pagesConfig?: ClaimedJob["pagesConfig"];
+      pages?: ClaimedJob["pagesConfig"];
+      duplexStep?: "odd" | "even" | "all" | "none";
+    } | null;
   }> = [];
   private activePrecacheCount = 0;
 
@@ -1710,8 +1810,15 @@ export class AgentDaemon {
   }
 
   private drainPresliceQueue(): void {
+    // Pause background PDF slicing while actively printing so low-spec i3 CPU & RAM remain free for spooling
+    if (this.activeOrderDispatches > 0 || this.isProcessingJob) return;
     const maxPreslices = this.getMaxConcurrentPreslices();
-    while (this.activePresliceCount < maxPreslices && this.presliceQueue.length > 0) {
+    while (
+      this.activeOrderDispatches === 0 &&
+      !this.isProcessingJob &&
+      this.activePresliceCount < maxPreslices &&
+      this.presliceQueue.length > 0
+    ) {
       const item = this.presliceQueue.shift();
       if (!item) break;
       this.activePresliceCount++;
@@ -1752,7 +1859,15 @@ export class AgentDaemon {
             }
             logger.info(`✅ Successfully pre-cached "${doc.filename}" in local SSD cache (0s latency on print).`);
           }
-          await this.client.reportPrecacheComplete(doc.id, order.id);
+          if (!this.reportedPrecacheDocIds.has(doc.id)) {
+            this.reportedPrecacheDocIds.add(doc.id);
+            while (this.reportedPrecacheDocIds.size > 2000) {
+              const oldest = this.reportedPrecacheDocIds.values().next().value;
+              if (!oldest) break;
+              this.reportedPrecacheDocIds.delete(oldest);
+            }
+            await this.client.reportPrecacheComplete(doc.id, order.id);
+          }
 
           // Bounded background pre-slice (max 1 on low-end i3, max 2 otherwise)
           this.enqueuePreslice(targetPath, matchingJob);
@@ -1785,47 +1900,106 @@ export class AgentDaemon {
     }, 600);
   }
 
-  async precachePendingCounterDocuments(): Promise<void> {
+  async precachePendingCounterDocuments(preFetchedQueue?: PrecacheQueueOrder[]): Promise<void> {
     if (!this.isRunning || !isConfigPaired(this.config)) return;
-    try {
-      const data = await this.client.getCounterQueue();
-      const queue = data?.queue || [];
-      if (queue.length === 0) return;
+    if (this.precacheInFlight) {
+      return this.precacheInFlight;
+    }
+    const now = Date.now();
+    if (!preFetchedQueue && now - this.lastPrecacheScanAt < 4000) {
+      return;
+    }
 
-      const cacheDir = getDocumentCacheDirectory();
-      if (!cacheDir) return;
+    const runScan = (async () => {
+      try {
+        this.lastPrecacheScanAt = Date.now();
+        const rawQueue = Array.isArray(preFetchedQueue)
+          ? preFetchedQueue
+          : (await this.client.getCounterQueue())?.queue;
+        const queue: PrecacheQueueOrder[] = Array.isArray(rawQueue)
+          ? (rawQueue as unknown as PrecacheQueueOrder[])
+          : [];
+        if (queue.length === 0) return;
 
-      const pendingOrders = queue.filter(
-        (o) =>
-          (o.status === "awaiting_payment" || o.status === "paid" || o.status === "partially_printed") &&
-          !o.isExpired,
-      );
+        const cacheDir = typeof getDocumentCacheDirectory === "function" ? getDocumentCacheDirectory() : "";
+        if (!cacheDir) return;
 
-      if (pendingOrders.length > 0) {
-        void this.warmupTargetPrinters();
-      }
-
-      for (const order of pendingOrders) {
-        for (const doc of order.documents || []) {
-          if (!doc.id || this.precachingDocIds.has(doc.id)) continue;
-
-          const targetPath = path.join(cacheDir, `doc_${doc.id}.pdf`);
-          const matchingJob =
-            ((order.jobs || []) as any[]).find((j: any) => j.documentId === doc.id) || null;
-
-          if (fs.existsSync(targetPath) && fs.statSync(targetPath).size > 0) {
-            void this.client.reportPrecacheComplete(doc.id, order.id);
-            this.enqueuePreslice(targetPath, matchingJob);
-            continue;
+        let cachedFilesSet: Set<string> | null = null;
+        try {
+          if (typeof fs.readdirSync === "function") {
+            cachedFilesSet = new Set(fs.readdirSync(cacheDir));
           }
-
-          this.precachingDocIds.add(doc.id);
-          this.precacheQueue.push({ order, doc, targetPath, matchingJob });
+        } catch {
+          cachedFilesSet = null;
         }
+
+        const pendingOrders = queue.filter(
+          (o) =>
+            (o.status === "awaiting_payment" || o.status === "paid" || o.status === "partially_printed") &&
+            !o.isExpired,
+        );
+
+        if (pendingOrders.length > 0) {
+          void this.warmupTargetPrinters();
+        }
+
+        for (const order of pendingOrders) {
+          for (const doc of order.documents || []) {
+            if (!doc.id || this.precachingDocIds.has(doc.id)) continue;
+
+            const filename = `doc_${doc.id}.pdf`;
+            const targetPath = path.join(cacheDir, filename);
+            const rawMatchingJob =
+              (order.jobs || []).find((j) => j.documentId === doc.id) || null;
+            const matchingJob = rawMatchingJob
+              ? {
+                  ...rawMatchingJob,
+                  pagesConfig:
+                    Array.isArray(rawMatchingJob.pagesConfig) && rawMatchingJob.pagesConfig.length > 0
+                      ? rawMatchingJob.pagesConfig
+                      : Array.isArray(rawMatchingJob.pages)
+                        ? rawMatchingJob.pages
+                        : undefined,
+                }
+              : null;
+
+            const alreadyCached = cachedFilesSet
+              ? cachedFilesSet.has(filename)
+              : fs.existsSync(targetPath) && fs.statSync(targetPath).size > 0;
+
+            if (alreadyCached) {
+              if (!this.reportedPrecacheDocIds.has(doc.id)) {
+                this.reportedPrecacheDocIds.add(doc.id);
+                while (this.reportedPrecacheDocIds.size > 2000) {
+                  const oldest = this.reportedPrecacheDocIds.values().next().value;
+                  if (!oldest) break;
+                  this.reportedPrecacheDocIds.delete(oldest);
+                }
+                void this.client.reportPrecacheComplete(doc.id, order.id);
+              }
+              this.enqueuePreslice(targetPath, matchingJob);
+              continue;
+            }
+
+            if (this.precacheQueue.length < 150) {
+              this.precachingDocIds.add(doc.id);
+              this.precacheQueue.push({ order, doc, targetPath, matchingJob });
+            }
+          }
+        }
+        this.drainPrecacheQueue();
+      } catch {
+        // Non-fatal
       }
-      this.drainPrecacheQueue();
-    } catch {
-      // Non-fatal
+    })();
+
+    this.precacheInFlight = runScan;
+    try {
+      await runScan;
+    } finally {
+      if (this.precacheInFlight === runScan) {
+        this.precacheInFlight = null;
+      }
     }
   }
 
@@ -1911,13 +2085,27 @@ export class AgentDaemon {
 
   async getCounterQueue() {
     const data = await this.client.getCounterQueue();
-    void this.precachePendingCounterDocuments();
-    const cacheDir = getDocumentCacheDirectory();
+    const cacheDir = typeof getDocumentCacheDirectory === "function" ? getDocumentCacheDirectory() : "";
+    let cachedFilesSet: Set<string> | null = null;
+    if (cacheDir) {
+      try {
+        if (typeof fs.readdirSync === "function") {
+          cachedFilesSet = new Set(fs.readdirSync(cacheDir));
+        }
+      } catch {
+        cachedFilesSet = null;
+      }
+    }
     if (data?.queue && Array.isArray(data.queue)) {
+      void this.precachePendingCounterDocuments(data.queue);
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       data.queue = data.queue.map((item: any) => {
         const isPrecached = !cacheDir || !item.documents?.length || item.documents.every((d: { id: string }) => {
-          const p = path.join(cacheDir, `doc_${d.id}.pdf`);
+          const filename = `doc_${d.id}.pdf`;
+          if (cachedFilesSet) {
+            return cachedFilesSet.has(filename);
+          }
+          const p = path.join(cacheDir, filename);
           return fs.existsSync(p) && fs.statSync(p).size > 0;
         });
 
@@ -2003,6 +2191,11 @@ export class AgentDaemon {
 
   async warmupTargetPrinters(specificPrinterName?: string): Promise<void> {
     if (!this.isRunning || process.env.NODE_ENV === "test") return;
+    if (!specificPrinterName) {
+      const now = Date.now();
+      if (now - this.lastWarmupAt < 15000) return;
+      this.lastWarmupAt = now;
+    }
     try {
       if (specificPrinterName) {
         void proactiveWarmupPrinter(specificPrinterName);
@@ -2026,7 +2219,11 @@ export class AgentDaemon {
     }
   }
 
-  async approveCounterOrder(orderId: string, duplexStep?: "odd" | "even" | "all") {
+  async approveCounterOrder(
+    orderId: string,
+    duplexStep?: "odd" | "even" | "all",
+    options?: { waitForExecution?: boolean },
+  ) {
     if (this.approvingOrderIds.has(orderId)) {
       throw new Error("Order approval is already in progress.");
     }
@@ -2048,12 +2245,23 @@ export class AgentDaemon {
       void this.warmupTargetPrinters();
       // 2. Dispatch cloud approval request (which atomically claims the job on server)
       const result = await this.client.approveCounterOrder(orderId, duplexStep);
-      // 3. Fast-path: If the server returned the claimed job directly, execute it immediately!
-      if (result && (result as any).claimedJob) {
+      // 3. Fast-path: If the server returned the claimed job directly, route through bounded hardware semaphore
+      //    so 50 rapid approvals never spawn 50 parallel PDF builds / SumatraPDF processes on a 4GB i3.
+      if (result && result.claimedJob) {
         logger.info(
-          `⚡ Instant Fast-Path: Order #${orderId.slice(0, 8)} claimed atomically during approval. Initiating 0ms local dispatch...`,
+          `⚡ Instant Fast-Path: Order #${orderId.slice(0, 8)} claimed atomically during approval. Queuing local dispatch...`,
         );
-        await this.executeClaimedJob((result as any).claimedJob as ClaimedJob);
+        const claimed = result.claimedJob as ClaimedJob;
+        const execTask = this.runWithExecutionSlot(() => this.executeClaimedJob(claimed)).catch((err) => {
+          logger.error(`Background approval dispatch failed for Order #${orderId.slice(0, 8)}:`, {
+            error: err instanceof Error ? err.message : String(err),
+          });
+          return false;
+        });
+        if (options?.waitForExecution === false) {
+          return result;
+        }
+        await execTask;
         return result;
       }
       // 4. Fallback safety net: Force immediate poll without idle backoff
@@ -2082,7 +2290,8 @@ export class AgentDaemon {
     return await this.client.completeCounterOrder(orderId);
   }
 
-  async precacheOrder(orderId?: string): Promise<boolean> {
+  async precacheOrder(_orderId?: string): Promise<boolean> {
+    void _orderId;
     void this.precachePendingCounterDocuments();
     return true;
   }

@@ -321,7 +321,7 @@ export function LandingScrollStage() {
                 href="/download"
                 className="font-medium text-emerald-800 hover:text-emerald-950 dark:text-emerald-400 dark:hover:text-emerald-300 hover:underline inline-flex items-center gap-1"
               >
-                Download v1.8.36 (.exe)
+                Download v1.8.37 (.exe)
                 <Download className="size-3 text-emerald-800 dark:text-emerald-400" />
               </Link>
             </div>

@@ -25,6 +25,7 @@ function runPowerShellScript(script: string, timeoutMs: number = 8000): Promise<
 
 let cachedPrinters: DiscoveredPrinter[] | null = null;
 let lastDiscoveryTimestamp = 0;
+let inFlightDiscovery: Promise<DiscoveredPrinter[]> | null = null;
 const PRINTER_CACHE_TTL_MS = 10000; // 10 seconds cache
 
 export function invalidatePrinterDiscoveryCache(): void {
@@ -75,7 +76,11 @@ export async function discoverWindowsPrinters(forceRefresh = false): Promise<Dis
   if (!forceRefresh && cachedPrinters && now - lastDiscoveryTimestamp < PRINTER_CACHE_TTL_MS) {
     return applyFreshConfigOverrides(cachedPrinters);
   }
+  if (!forceRefresh && inFlightDiscovery) {
+    return inFlightDiscovery.then(applyFreshConfigOverrides);
+  }
 
+  const runDiscovery = (async (): Promise<DiscoveredPrinter[]> => {
   try {
     const config = loadConfig();
     const disabledSet = new Set((config.disabledPrinters || []).map((s) => s.trim().toLowerCase()));
@@ -84,7 +89,9 @@ export async function discoverWindowsPrinters(forceRefresh = false): Promise<Dis
       colorOverrides[key.trim().toLowerCase()] = Boolean(val);
     }
 
-    const printerScript = `
+    // Coalesce Win32_Printer, Get-PnpDevice, and Win32_PrinterConfiguration into ONE PowerShell invocation
+    // to minimize .NET CLR & WMI overhead on low-spec (i3) shop machines.
+    const combinedScript = `
 [Console]::OutputEncoding = [System.Text.UTF8Encoding]::new()
 $printers = Get-CimInstance Win32_Printer -ErrorAction SilentlyContinue
 if (-not $printers) {
@@ -94,10 +101,14 @@ if (-not $printers) {
   $printers = Get-Printer -ErrorAction SilentlyContinue
 }
 $pnp = Get-PnpDevice -Class Printer -ErrorAction SilentlyContinue
+$configs = Get-CimInstance Win32_PrinterConfiguration -ErrorAction SilentlyContinue
+if (-not $configs) {
+  $configs = Get-WmiObject Win32_PrinterConfiguration -ErrorAction SilentlyContinue
+}
 
-$results = foreach ($p in $printers) {
+$printerRows = @(foreach ($p in $printers) {
   $pName = $p.Name
-  $baseName = ($pName -replace '\s*\(Copy\s+\d+\)$', '').Trim()
+  $baseName = ($pName -replace '\\s*\\(Copy\\s+\\d+\\)$', '').Trim()
   $matchedPnp = $pnp |
     Where-Object {
       $_.FriendlyName -eq $pName -or
@@ -121,31 +132,31 @@ $results = foreach ($p in $printers) {
     PrinterPaperNames = $p.PrinterPaperNames
     PnpPresent = $isPnpPresent
   }
-}
-if ($results) {
-  $results | ConvertTo-Json -Compress
-}
-`;
+})
 
-    const configScript = `
-[Console]::OutputEncoding = [System.Text.UTF8Encoding]::new()
-$configs = Get-CimInstance Win32_PrinterConfiguration -ErrorAction SilentlyContinue
-if (-not $configs) {
-  $configs = Get-WmiObject Win32_PrinterConfiguration -ErrorAction SilentlyContinue
-}
+$configRows = @()
 if ($configs) {
-  $configs | Select-Object Name, Color, Duplex | ConvertTo-Json -Compress
+  $configRows = @($configs | Select-Object Name, Color, Duplex)
 }
+
+[PSCustomObject]@{
+  Printers = $printerRows
+  Configs = $configRows
+} | ConvertTo-Json -Compress -Depth 4
 `;
 
-    const [printerOut, configOut] = await Promise.all([
-      runPowerShellScript(printerScript, 8000),
-      runPowerShellScript(configScript, 8000),
-    ]);
-
-    const trimmed = printerOut.trim();
+    const combinedOut = await runPowerShellScript(combinedScript, 8000);
+    const trimmed = combinedOut.trim();
     if (!trimmed) {
       logger.warn("PowerShell printer discovery returned empty output.");
+      return getFallbackPrinters();
+    }
+
+    let parsedBundle: { Printers?: unknown; Configs?: unknown } | null = null;
+    try {
+      parsedBundle = JSON.parse(trimmed) as { Printers?: unknown; Configs?: unknown };
+    } catch {
+      logger.warn("Could not parse Win32_Printer JSON directly, attempting fallback.");
       return getFallbackPrinters();
     }
 
@@ -153,10 +164,9 @@ if ($configs) {
     const colorMap = new Map<string, boolean>();
     const duplexMap = new Map<string, boolean>();
     try {
-      const configTrimmed = configOut.trim();
-      if (configTrimmed) {
-        const configParsed = JSON.parse(configTrimmed);
-        const configItems = Array.isArray(configParsed) ? configParsed : [configParsed];
+      const rawConfigs = parsedBundle?.Configs;
+      if (rawConfigs) {
+        const configItems = Array.isArray(rawConfigs) ? rawConfigs : [rawConfigs];
         for (const item of configItems) {
           if (item && item.Name) {
             const key = String(item.Name).trim().toLowerCase();
@@ -174,13 +184,7 @@ if ($configs) {
       // Non-fatal, fallback to driver/name heuristic
     }
 
-    let rawList: unknown;
-    try {
-      rawList = JSON.parse(trimmed);
-    } catch {
-      logger.warn("Could not parse Win32_Printer JSON directly, attempting fallback.");
-      return getFallbackPrinters();
-    }
+    const rawList = parsedBundle?.Printers ?? [];
 
     const items = Array.isArray(rawList) ? rawList : [rawList];
     const discovered: DiscoveredPrinter[] = items
@@ -367,6 +371,16 @@ if ($configs) {
       error: error instanceof Error ? error.message : String(error),
     });
     return getFallbackPrinters();
+  }
+  })();
+
+  inFlightDiscovery = runDiscovery;
+  try {
+    return await runDiscovery;
+  } finally {
+    if (inFlightDiscovery === runDiscovery) {
+      inFlightDiscovery = null;
+    }
   }
 }
 

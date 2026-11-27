@@ -207,31 +207,28 @@ export async function POST(request: Request) {
         .in("id", siblingDocIds);
       const docsMap = new Map((docs || []).map((d) => [d.id, d]));
 
-      // Filter to siblings that have an existing document record and claim them atomically while still "queued"
+      // Filter to siblings that have an existing document record and claim them atomically in ONE batched query
       const candidateSiblings = rawSiblings.filter((s) => docsMap.has(s.document_id));
-      const claimedSiblingsList: typeof candidateSiblings = [];
-      const claimedAtIso = new Date().toISOString();
-      const leaseExpiresIso = new Date(Date.now() + leaseSeconds * 1000).toISOString();
-
-      for (const candidate of candidateSiblings) {
-        const { data: claimedSiblingRow } = await adminClient
+      let claimedSiblingsList: typeof candidateSiblings = [];
+      if (candidateSiblings.length > 0) {
+        const claimedAtIso = new Date().toISOString();
+        const leaseExpiresIso = new Date(Date.now() + leaseSeconds * 1000).toISOString();
+        const candidateIds = candidateSiblings.map((c) => c.id);
+        const { data: claimedSiblingRows } = await adminClient
           .from("print_jobs")
           .update({
             status: "claimed",
             claimed_by_agent_id: auth.agent.id,
             claimed_at: claimedAtIso,
             claim_expires_at: leaseExpiresIso,
-            print_attempts: (candidate.print_attempts || 0) + 1,
             failure_reason: null,
           })
-          .eq("id", candidate.id)
+          .in("id", candidateIds)
           .eq("status", "queued")
-          .select("id")
-          .maybeSingle();
+          .select("id");
 
-        if (claimedSiblingRow) {
-          claimedSiblingsList.push(candidate);
-        }
+        const claimedIdSet = new Set((claimedSiblingRows || []).map((r) => r.id));
+        claimedSiblingsList = candidateSiblings.filter((c) => claimedIdSet.has(c.id));
       }
 
       if (claimedSiblingsList.length > 0) {

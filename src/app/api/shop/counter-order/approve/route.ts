@@ -219,7 +219,8 @@ export async function POST(request: Request) {
   let claimedJobPayload = null;
   if (agentAuth) {
     try {
-      const leaseSeconds = 45;
+      const leaseSeconds = 180;
+      const nowIso = new Date().toISOString();
       const expiresAt = new Date(Date.now() + leaseSeconds * 1000).toISOString();
 
       let jobsQuery = adminClient
@@ -235,27 +236,25 @@ export async function POST(request: Request) {
 
       const { data: candidateJobs } = await jobsQuery;
 
-      const claimedJobsList: NonNullable<typeof candidateJobs> = [];
-      for (const job of candidateJobs || []) {
-        const { data: claimedRow } = await adminClient
+      let claimedJobsList: NonNullable<typeof candidateJobs> = [];
+      if (candidateJobs && candidateJobs.length > 0) {
+        const candidateIds = candidateJobs.map((j) => j.id);
+        const { data: claimedRows } = await adminClient
           .from("print_jobs")
           .update({
             status: "claimed",
             claimed_by_agent_id: agentAuth.agent.id,
-            claimed_at: new Date().toISOString(),
+            claimed_at: nowIso,
             claim_expires_at: expiresAt,
-            print_attempts: (job.print_attempts || 0) + 1,
             failure_reason: null,
-            updated_at: new Date().toISOString(),
+            updated_at: nowIso,
           })
-          .eq("id", job.id)
+          .in("id", candidateIds)
           .eq("status", "queued")
-          .select("id")
-          .maybeSingle();
+          .select("id");
 
-        if (claimedRow) {
-          claimedJobsList.push(job);
-        }
+        const claimedIdSet = new Set((claimedRows || []).map((r) => r.id));
+        claimedJobsList = candidateJobs.filter((j) => claimedIdSet.has(j.id));
       }
 
       if (claimedJobsList.length > 0) {
@@ -281,7 +280,7 @@ export async function POST(request: Request) {
         ]);
 
         const docsMap = new Map((docs || []).map((d) => [d.id, d]));
-        const pagesMap = new Map<string, any[]>();
+        const pagesMap = new Map<string, NonNullable<typeof allPages>>();
         for (const p of allPages || []) {
           const list = pagesMap.get(p.print_job_id) || [];
           list.push(p);

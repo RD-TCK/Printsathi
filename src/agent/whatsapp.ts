@@ -165,6 +165,9 @@ export class WhatsAppAgentService {
   // Multi-document batching: group rapid consecutive photos/PDFs from the same sender into ONE order
   private pendingBatches: Map<string, PendingSenderBatch> = new Map();
   private activeFlushes: Set<string> = new Set();
+  private activeBatchUploads = 0;
+  private batchUploadWaiters: Array<() => void> = [];
+  private readonly maxConcurrentBatchUploads = 3;
 
   // Resilient offline retry queue: automatically retries batches when internet or socket reconnects
   private retryBatches: Map<string, PendingSenderBatch> = new Map();
@@ -1099,6 +1102,22 @@ export class WhatsAppAgentService {
    * this method queues the batch in `retryBatches` instead of marking it failed.
    */
   private async executeBatchUpload(batch: PendingSenderBatch): Promise<void> {
+    if (this.activeBatchUploads >= this.maxConcurrentBatchUploads) {
+      await new Promise<void>((resolve) => {
+        this.batchUploadWaiters.push(resolve);
+      });
+    }
+    this.activeBatchUploads += 1;
+    try {
+      await this.executeBatchUploadInternal(batch);
+    } finally {
+      this.activeBatchUploads = Math.max(0, this.activeBatchUploads - 1);
+      const next = this.batchUploadWaiters.shift();
+      if (next) next();
+    }
+  }
+
+  private async executeBatchUploadInternal(batch: PendingSenderBatch): Promise<void> {
     const { senderPhone, senderName, remoteJid, attachments, lastMessage } = batch;
     const config = loadConfig();
 

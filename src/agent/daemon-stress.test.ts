@@ -32,6 +32,10 @@ const stressState = vi.hoisted(() => {
     peakActivePreslices: 0,
     printedBatches: [] as Array<{ printer: string; count: number; colorModes: string[] }>,
     liveSpoolCounts: {} as Record<string, number>,
+    precacheReports: [] as Array<{ docId: string; orderId: string }>,
+    counterQueueFetches: 0,
+    counterQueuePayload: [] as unknown[],
+    pendingApprovals: new Map<string, ClaimedJob>(),
   };
 });
 
@@ -44,7 +48,7 @@ vi.mock("./config", () => ({
     agentToken: "ps_agent_stress",
     agentName: "i3-laptop",
     selectedPrinter: "HP LaserJet BW 1",
-    version: "1.8.36",
+    version: "1.8.37",
     pollIntervalMs: 2000,
     heartbeatIntervalMs: 45000,
     enableSeparatorPage: true,
@@ -85,7 +89,15 @@ vi.mock("./client", () => ({
       return true;
     }
     async getCounterQueue() {
-      return { queue: [] };
+      stressState.counterQueueFetches += 1;
+      return { queue: stressState.counterQueuePayload };
+    }
+    async reportPrecacheComplete(docId: string, orderId: string) {
+      stressState.precacheReports.push({ docId, orderId });
+    }
+    async approveCounterOrder(orderId: string) {
+      const claimedJob = stressState.pendingApprovals.get(orderId);
+      return { success: true, message: "Approved", claimedJob };
     }
     async sendHeartbeat() {
       return { timestamp: new Date().toISOString() };
@@ -238,6 +250,10 @@ describe("Low-End i3 Hardware & Multi-Printer Stress Verification", () => {
     stressState.peakActivePreslices = 0;
     stressState.printedBatches = [];
     stressState.liveSpoolCounts = {};
+    stressState.precacheReports = [];
+    stressState.counterQueueFetches = 0;
+    stressState.counterQueuePayload = [];
+    stressState.pendingApprovals = new Map();
   });
 
   it("handles 3 consecutive loops of 10 simultaneous mixed orders x 12 docs on a 2-core 4GB i3 laptop without overflow or color/BW leaks", async () => {
@@ -388,6 +404,106 @@ describe("Low-End i3 Hardware & Multi-Printer Stress Verification", () => {
       await new Promise((r) => setTimeout(r, 350));
 
       expect(stressState.peakActivePreslices).toBe(1);
+    } finally {
+      daemon?.stop();
+      cpuSpy.mockRestore();
+      memSpy.mockRestore();
+    }
+  });
+
+  it("handles a 50-order burst (250 jobs) on a 2-core 4GB i3 with strict concurrency caps and rapid manual approvals", async () => {
+    const cpuSpy = vi.spyOn(os, "cpus").mockReturnValue([{}, {}] as unknown as os.CpuInfo[]);
+    const memSpy = vi.spyOn(os, "totalmem").mockReturnValue(4 * 1024 * 1024 * 1024);
+
+    let daemon: AgentDaemon | null = null;
+    try {
+      daemon = new AgentDaemon();
+      const daemonInternals = daemon as unknown as {
+        isRunning: boolean;
+        discoveredPrinters: DiscoveredPrinter[];
+        runAdaptivePollCycle: () => Promise<void>;
+        executeClaimedJob: (job: ClaimedJob, onRouted?: () => void) => Promise<boolean>;
+      };
+      daemonInternals.isRunning = true;
+      daemonInternals.discoveredPrinters = [...stressState.shopPrinters];
+
+      let activeOrders = 0;
+      let peakActiveOrders = 0;
+      const origExecute = daemonInternals.executeClaimedJob.bind(daemon);
+      daemonInternals.executeClaimedJob = async (job, onRouted) => {
+        activeOrders += 1;
+        if (activeOrders > peakActiveOrders) peakActiveOrders = activeOrders;
+        try {
+          return await origExecute(job, onRouted);
+        } finally {
+          activeOrders -= 1;
+        }
+      };
+
+      // 1. 50 queued orders x 5 docs = 250 jobs through sliding poll pool
+      stressState.queue = Array.from({ length: 50 }, (_, idx) => createOrderBatch(idx + 1, 5, false));
+      let cycles = 0;
+      while (stressState.queue.length > 0 && cycles < 10) {
+        cycles += 1;
+        await daemonInternals.runAdaptivePollCycle();
+      }
+      expect(stressState.completed).toHaveLength(250);
+      expect(stressState.failed).toHaveLength(0);
+      expect(peakActiveOrders).toBeLessThanOrEqual(2);
+      expect(stressState.peakActiveBuilds).toBeLessThanOrEqual(2);
+
+      // 2. Rapid burst of 50 simultaneous manual Print & Approve clicks (non-blocking HTTP fast path + bounded FIFO execution)
+      stressState.completed = [];
+      stressState.peakActiveBuilds = 0;
+      peakActiveOrders = 0;
+      for (let i = 0; i < 50; i++) {
+        const order = createOrderBatch(500 + i, 1, false);
+        stressState.pendingApprovals.set(order.orderId, order);
+      }
+
+      const approvalResponses = await Promise.all(
+        Array.from({ length: 50 }, (_, i) =>
+          daemon!.approveCounterOrder(`order-i3-${500 + i}`, "all", { waitForExecution: false }),
+        ),
+      );
+      expect(approvalResponses).toHaveLength(50);
+
+      await vi.waitFor(() => expect(stressState.completed).toHaveLength(50), { timeout: 5000 });
+      expect(peakActiveOrders).toBeLessThanOrEqual(2);
+      expect(stressState.peakActiveBuilds).toBeLessThanOrEqual(2);
+    } finally {
+      daemon?.stop();
+      cpuSpy.mockRestore();
+      memSpy.mockRestore();
+    }
+  });
+
+  it("avoids duplicate getCounterQueue calls and reportPrecacheComplete storms across 50 cached orders", async () => {
+    const cpuSpy = vi.spyOn(os, "cpus").mockReturnValue([{}, {}] as unknown as os.CpuInfo[]);
+    const memSpy = vi.spyOn(os, "totalmem").mockReturnValue(4 * 1024 * 1024 * 1024);
+
+    let daemon: AgentDaemon | null = null;
+    try {
+      daemon = new AgentDaemon();
+      (daemon as unknown as { isRunning: boolean }).isRunning = true;
+
+      stressState.counterQueuePayload = Array.from({ length: 50 }, (_, i) => ({
+        id: `q-order-${i}`,
+        status: "awaiting_payment",
+        isExpired: false,
+        documents: [{ id: `q-doc-${i}`, filename: `doc_${i}.pdf`, pageCount: 2 }],
+        jobs: [],
+      }));
+
+      for (let poll = 0; poll < 5; poll++) {
+        await daemon.getCounterQueue();
+      }
+      await new Promise((r) => setTimeout(r, 30));
+
+      // Exactly 1 backend fetch per getCounterQueue() call (5 total, never doubled to 10)
+      expect(stressState.counterQueueFetches).toBe(5);
+      // Each of the 50 cached documents is reported pre-cached ONLY ONCE across all 5 polls (50, not 250)
+      expect(stressState.precacheReports).toHaveLength(50);
     } finally {
       daemon?.stop();
       cpuSpy.mockRestore();

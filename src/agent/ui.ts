@@ -266,7 +266,7 @@ export class AgentWebServer {
         return;
       }
       try {
-        const data = await agentDaemon.approveCounterOrder(orderId, duplexStep);
+        const data = await agentDaemon.approveCounterOrder(orderId, duplexStep, { waitForExecution: false });
         res.writeHead(200, { "Content-Type": "application/json" });
         res.end(JSON.stringify(data));
       } catch (err) {
@@ -1388,7 +1388,7 @@ export class AgentWebServer {
               ⚡ <b>Strict Load-Balanced Routing:</b> B&amp;W jobs rotate across <b>\${bwOnlineCount} B&amp;W</b> printer(s); Color jobs route strictly across <b>\${colorOnlineCount} Color</b> printer(s).
             </div>\`;
 
-        pList.innerHTML = headerNotice + status.printers.map(p => {
+        const nextPrintersHtml = headerNotice + status.printers.map(p => {
           const nameLower = (p.name || '').trim().toLowerCase();
           const isColor = getPrinterColorState(p);
           const isOnline = ['online', 'printing'].includes(p.status);
@@ -1441,6 +1441,10 @@ export class AgentWebServer {
           </div>
         \`;
         }).join('');
+        if (lastRenderedPrintersHtml !== nextPrintersHtml) {
+          lastRenderedPrintersHtml = nextPrintersHtml;
+          pList.innerHTML = nextPrintersHtml;
+        }
       }
 
       document.getElementById('statProcessed').innerText = status.stats.jobsProcessed;
@@ -1487,9 +1491,8 @@ export class AgentWebServer {
       }
 
       const qCard = document.getElementById('counterQueueCard');
-      if (qCard) {
-        if (qCard.style) qCard.style.display = 'block';
-        void refreshCounterQueue();
+      if (qCard && qCard.style) {
+        qCard.style.display = 'block';
       }
       if (selectedTokenOrderId) {
         renderTokenDetailsModal();
@@ -1632,14 +1635,24 @@ export class AgentWebServer {
       }
     }
 
+    let inFlightQueueFetch = null;
+    let lastQueueFetchAt = 0;
+
     async function fetchCounterQueue() {
-      try {
-        const res = await fetch('/api/counter-queue');
-        if (!res.ok) return null;
-        return await res.json();
-      } catch (err) {
-        return null;
-      }
+      if (inFlightQueueFetch) return inFlightQueueFetch;
+      inFlightQueueFetch = (async () => {
+        try {
+          const res = await fetch('/api/counter-queue');
+          if (!res.ok) return null;
+          lastQueueFetchAt = Date.now();
+          return await res.json();
+        } catch (err) {
+          return null;
+        } finally {
+          inFlightQueueFetch = null;
+        }
+      })();
+      return inFlightQueueFetch;
     }
 
     let cachedCounterQueue = [];
@@ -1648,6 +1661,16 @@ export class AgentWebServer {
     let approvingOrderIds = new Set();
     let queueMutationSeq = 0;
     let queueErrorNotice = null;
+    let lastRenderedPrintersHtml = null;
+    let lastRenderedQueueHtml = null;
+    let lastRenderedModalHtml = null;
+    let visibleQueueLimit = 40;
+
+    function showMoreQueueItems() {
+      visibleQueueLimit += 40;
+      lastRenderedQueueHtml = null;
+      renderAgentQueueWithFilter();
+    }
 
     function getSnapshotPrintersByPool() {
       var all = (lastStatusSnapshot && Array.isArray(lastStatusSnapshot.printers)) ? lastStatusSnapshot.printers : [];
@@ -1893,7 +1916,7 @@ export class AgentWebServer {
             ].join('');
           }).join('');
 
-      bodyEl.innerHTML = [
+      const nextModalHtml = [
         spotlightHtml,
         '<div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;">',
           '<span style="font-size:12px; font-weight:800; text-transform:uppercase; letter-spacing:0.04em; color:#475569;">Documents (' + docs.length + ')</span>',
@@ -1901,6 +1924,10 @@ export class AgentWebServer {
         '</div>',
         docsHtml
       ].join('');
+      if (lastRenderedModalHtml !== nextModalHtml) {
+        lastRenderedModalHtml = nextModalHtml;
+        bodyEl.innerHTML = nextModalHtml;
+      }
     }
 
     function updateQueueBadge() {
@@ -2130,15 +2157,23 @@ export class AgentWebServer {
       }
 
       if (items.length === 0) {
-        if (query) {
-          list.innerHTML = errorNoticeHtml + '<p style="font-size:13px; color:var(--text-muted); padding:10px 0;">No counter orders found matching Token #' + escapeHtml(query) + '.</p>';
-        } else {
-          list.innerHTML = errorNoticeHtml + '<p style="font-size:13px; color:var(--text-muted); padding:10px 0;">No active counter requests right now.</p>';
+        const emptyHtml = query
+          ? (errorNoticeHtml + '<p style="font-size:13px; color:var(--text-muted); padding:10px 0;">No counter orders found matching Token #' + escapeHtml(query) + '.</p>')
+          : (errorNoticeHtml + '<p style="font-size:13px; color:var(--text-muted); padding:10px 0;">No active counter requests right now.</p>');
+        if (lastRenderedQueueHtml !== emptyHtml) {
+          lastRenderedQueueHtml = emptyHtml;
+          list.innerHTML = emptyHtml;
         }
         return;
       }
 
-      list.innerHTML = errorNoticeHtml + items.map(function(item) {
+      const displayItems = (!query && items.length > visibleQueueLimit) ? items.slice(0, visibleQueueLimit) : items;
+      const hiddenCount = items.length - displayItems.length;
+      const showMoreFooter = hiddenCount > 0
+        ? '<div style="text-align:center; padding:10px 0;"><button type="button" class="btn-secondary" style="font-size:12px; font-weight:700; padding:6px 14px; cursor:pointer;" onclick="showMoreQueueItems()">Show more orders (' + hiddenCount + ' older hidden)</button></div>'
+        : '';
+
+      const nextListHtml = errorNoticeHtml + displayItems.map(function(item) {
         var isDouble = item.sideMode === "double_sided";
         var isCancelled = item.status === "cancelled";
         var isCompleted = item.status === "completed" || (Array.isArray(item.jobs) && item.jobs.length > 0 && item.jobs.every(function(j) { return j.status === 'completed'; }));
@@ -2408,7 +2443,12 @@ export class AgentWebServer {
             '<div style="display:flex; gap:8px; align-items:center; flex:0 0 auto; flex-shrink:0; justify-content:flex-end; white-space:nowrap;">' + actionHtml + '</div>',
           '</div>'
         ].join("");
-      }).join("");
+      }).join("") + showMoreFooter;
+
+      if (lastRenderedQueueHtml !== nextListHtml) {
+        lastRenderedQueueHtml = nextListHtml;
+        list.innerHTML = nextListHtml;
+      }
 
       if (selectedTokenOrderId) {
         renderTokenDetailsModal();
@@ -2601,7 +2641,7 @@ export class AgentWebServer {
         var target = ev && ev.target;
         if (target && typeof target.closest === 'function') {
           var trigger = target.closest('[data-token-order-id]');
-          if (trigger) {
+          if (trigger && !trigger.getAttribute('onclick')) {
             var oid = trigger.getAttribute('data-token-order-id');
             if (oid) openTokenDetails(oid);
           }

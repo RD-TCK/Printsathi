@@ -228,29 +228,24 @@ export function resetPrinterSpoolQueue(printerName?: string): void {
   }
 }
 
-export async function getPrinterQueueCount(printerName: string): Promise<number> {
+const QUEUE_COUNTS_CACHE_TTL_MS = 2000;
+let cachedQueueCounts: Record<string, number> = {};
+let lastQueueCountsFetchedAt = 0;
+let inFlightQueueCounts: Promise<Record<string, number>> | null = null;
+
+export async function getPrinterQueueCount(printerName: string, forceRefresh = false): Promise<number> {
   const isWindows = process.platform === "win32" || os.platform() === "win32";
   if (!isWindows || process.env.NODE_ENV === "test") return 0;
 
   try {
-    const escaped = printerName.replace(/'/g, "''");
-    const script = `@(Get-PrintJob -PrinterName '${escaped}' -ErrorAction SilentlyContinue).Count`;
-    const out = await runPowerShellInline(script, 4000);
-    const count = parseInt(out.trim(), 10);
-    return Number.isInteger(count) ? count : 0;
+    const counts = await getAllPrinterQueueCounts(forceRefresh);
+    return counts[printerName.trim().toLowerCase()] || 0;
   } catch {
     return 0;
   }
 }
 
-/**
- * Queries live Windows Spooler job counts across all installed printers in a single PowerShell call.
- * Returns a lowercase printerName -> active queued job count map.
- */
-export async function getAllPrinterQueueCounts(): Promise<Record<string, number>> {
-  const isWindows = process.platform === "win32" || os.platform() === "win32";
-  if (!isWindows || process.env.NODE_ENV === "test") return {};
-
+async function fetchPrinterQueueCountsSnapshot(): Promise<Record<string, number>> {
   try {
     const script = `
 [Console]::OutputEncoding = [System.Text.UTF8Encoding]::new()
@@ -272,7 +267,11 @@ if ($jobs) {
 }
 `;
     const out = (await runPowerShellInline(script, 3000)).trim();
-    if (!out) return {};
+    if (!out) {
+      cachedQueueCounts = {};
+      lastQueueCountsFetchedAt = Date.now();
+      return {};
+    }
     const parsed = JSON.parse(out) as Record<string, unknown>;
     const normalized: Record<string, number> = {};
     for (const [key, val] of Object.entries(parsed)) {
@@ -281,10 +280,38 @@ if ($jobs) {
         normalized[key.trim().toLowerCase()] = n;
       }
     }
-    return normalized;
+    cachedQueueCounts = normalized;
+    lastQueueCountsFetchedAt = Date.now();
+    return { ...normalized };
   } catch {
-    return {};
+    return { ...cachedQueueCounts };
   }
+}
+
+/**
+ * Queries live Windows Spooler job counts across all installed printers in a single PowerShell call.
+ * Uses a 2s cache + single-flight lock to avoid WMI storms under 50-order bursts on i3 machines.
+ */
+export async function getAllPrinterQueueCounts(forceRefresh = false): Promise<Record<string, number>> {
+  const isWindows = process.platform === "win32" || os.platform() === "win32";
+  if (!isWindows || process.env.NODE_ENV === "test") return {};
+
+  const now = Date.now();
+  if (!forceRefresh && now - lastQueueCountsFetchedAt < QUEUE_COUNTS_CACHE_TTL_MS) {
+    return { ...cachedQueueCounts };
+  }
+  if (inFlightQueueCounts) {
+    return inFlightQueueCounts;
+  }
+
+  const queryPromise = fetchPrinterQueueCountsSnapshot().finally(() => {
+    if (inFlightQueueCounts === queryPromise) {
+      inFlightQueueCounts = null;
+    }
+  });
+
+  inFlightQueueCounts = queryPromise;
+  return queryPromise;
 }
 
 interface SharedMonitorEntry {
@@ -302,7 +329,7 @@ async function pollSharedQueueMonitors(): Promise<void> {
   if (sharedMonitorPolling || activeQueueMonitors.size === 0) return;
   sharedMonitorPolling = true;
   try {
-    const counts = await getAllPrinterQueueCounts();
+    const counts = await getAllPrinterQueueCounts(true);
     const now = Date.now();
     for (const [key, entry] of Array.from(activeQueueMonitors.entries())) {
       const remaining = counts[key] || 0;
@@ -329,7 +356,7 @@ async function pollSharedQueueMonitors(): Promise<void> {
     if (activeQueueMonitors.size > 0) {
       sharedMonitorTimer = setTimeout(() => {
         void pollSharedQueueMonitors();
-      }, 1600);
+      }, 2200);
     } else {
       sharedMonitorTimer = null;
     }
@@ -911,7 +938,7 @@ export async function prepareAndPrintDocument(
         );
       } catch (sumatraErr) {
         if (process.env.NODE_ENV !== "test") {
-          const postQueueCount = await getPrinterQueueCount(targetPrinterName);
+          const postQueueCount = await getPrinterQueueCount(targetPrinterName, true);
           if (postQueueCount > preQueueCount) {
             logger.warn(
               `SumatraPDF returned error on "${targetPrinterName}", but spooler queue count increased (${preQueueCount} -> ${postQueueCount}). Avoiding duplicate retry.`,
@@ -1228,7 +1255,7 @@ export async function prepareAndPrintBatch(
         );
       } catch (sumatraErr) {
         if (process.env.NODE_ENV !== "test") {
-          const postQueueCount = await getPrinterQueueCount(targetPrinterName);
+          const postQueueCount = await getPrinterQueueCount(targetPrinterName, true);
           if (postQueueCount > preQueueCount) {
             logger.warn(
               `SumatraPDF returned error on batch "${targetPrinterName}", but spooler queue count increased (${preQueueCount} -> ${postQueueCount}). Avoiding duplicate retry.`,

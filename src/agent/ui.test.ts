@@ -782,4 +782,91 @@ describe("agent dashboard status", () => {
     vm.runInContext("closeTokenDetails()", context);
     expect(modal.style.display).toBe("none");
   });
+
+  it("coalesces concurrent counter-queue fetches, windows 55-order DOM lists, and searches across hidden older items", async () => {
+    const server = new AgentWebServer();
+    const html = (server as unknown as { getDashboardHtml(): string }).getDashboardHtml();
+    const script = html.match(/<script>([\s\S]*?)<\/script>/)?.[1];
+    expect(script).toBeTruthy();
+
+    const elements = new Map<string, Record<string, unknown>>();
+    elements.set("counterQueueCard", { style: { display: "block" } });
+    elements.set("counterQueueBadge", { innerText: "", style: {} });
+    elements.set("counterQueueList", { innerHTML: "" });
+    elements.set("agentTokenSearchInput", { value: "" });
+
+    const queueData = {
+      queue: Array.from({ length: 55 }, (_, i) => ({
+        id: `ord-scale-${i + 1}`,
+        publicId: `pub${i + 1}`,
+        tokenNumber: i + 1,
+        status: "awaiting_payment",
+        totalAmount: 15,
+        totalPages: 3,
+        blackAndWhitePages: 3,
+        colorPages: 0,
+        remainingSeconds: 1800,
+        isExpired: false,
+        documents: [{ id: `doc-scale-${i + 1}`, filename: `doc_${i + 1}.pdf`, pageCount: 3 }],
+        jobs: [{ id: `job-scale-${i + 1}`, documentId: `doc-scale-${i + 1}`, status: "draft", totalPages: 3 }],
+      })),
+    };
+
+    let queueFetchCount = 0;
+    const context = vm.createContext({
+      document: {
+        getElementById: (id: string) => {
+          if (!elements.has(id)) elements.set(id, { style: {} });
+          return elements.get(id);
+        },
+      },
+      fetch: async (url: string) => {
+        if (url === "/api/counter-queue") {
+          queueFetchCount += 1;
+          await new Promise((r) => setTimeout(r, 15));
+          return { ok: true, json: async () => structuredClone(queueData) };
+        }
+        return {
+          ok: true,
+          json: async () => ({
+            isPaired: true,
+            isConnected: true,
+            printers: [{ name: "HP LaserJet BW 1", status: "online", capabilities: { colorSupport: false } }],
+            activeDispatches: [],
+            stats: { jobsProcessed: 0, jobsSubmitted: 0, jobsFailed: 0, totalPagesSubmitted: 0 },
+            recentLogs: [],
+            currentJob: null,
+          }),
+        };
+      },
+      setInterval: () => 0,
+      setTimeout: () => 0,
+      window: {},
+    });
+
+    new vm.Script(script!).runInContext(context);
+    await vm.runInContext("Promise.all([refreshCounterQueue(), refreshCounterQueue(), refreshCounterQueue()])", context);
+
+    // Concurrent calls coalesce into 1 network request
+    expect(queueFetchCount).toBe(1);
+
+    // Initially renders top 40 orders cleanly + Show more button for the 15 older orders
+    const firstHtml = elements.get("counterQueueList")?.innerHTML as string;
+    expect(firstHtml).toContain("#1");
+    expect(firstHtml).toContain("#40");
+    expect(firstHtml).not.toContain("#52");
+    expect(firstHtml).toContain("Show more orders (15 older hidden)");
+
+    // Token search filters across ALL 55 orders including hidden ones
+    elements.get("agentTokenSearchInput")!.value = "52";
+    vm.runInContext("renderAgentQueueWithFilter()", context);
+    const searchHtml = elements.get("counterQueueList")?.innerHTML as string;
+    expect(searchHtml).toContain("#52");
+
+    // Clearing search and expanding shows all 55 orders
+    elements.get("agentTokenSearchInput")!.value = "";
+    vm.runInContext("showMoreQueueItems()", context);
+    const expandedHtml = elements.get("counterQueueList")?.innerHTML as string;
+    expect(expandedHtml).toContain("#55");
+  });
 });
