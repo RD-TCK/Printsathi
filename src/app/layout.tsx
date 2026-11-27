@@ -90,18 +90,16 @@ export const metadata: Metadata = {
 };
 
 export const viewport: Viewport = {
-  themeColor: [
-    { media: "(prefers-color-scheme: light)", color: "#16a34a" },
-    { media: "(prefers-color-scheme: dark)", color: "#121722" },
-  ],
+  themeColor: "#16a34a",
 };
 
 const themeInitScript = `
 (function(){
   try {
+    var p = (window.location && window.location.pathname) || '';
+    var isShopConfigPage = p.indexOf('/shop/') === 0 && !/^\\/shop\\/(dashboard|jobs|pricing|printer|qr|settings|analytics|subscription)(\\/|$)/.test(p) && p !== '/shop' && p !== '/shop/';
     var saved = window.localStorage.getItem('printiva-theme');
-    var prefersDark = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
-    if (saved === 'dark' || (!saved && prefersDark)) {
+    if (!isShopConfigPage && saved === 'dark') {
       document.documentElement.classList.add('dark');
     } else {
       document.documentElement.classList.remove('dark');

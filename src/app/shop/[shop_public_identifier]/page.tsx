@@ -4,6 +4,7 @@ import { Printer, QrCode, ShieldCheck, Sparkles, Store } from "lucide-react";
 import { notFound } from "next/navigation";
 import { getPublicPricing, getPublicShop } from "@/lib/shops/public-lookup";
 import { CustomerPrintFlow } from "@/components/customer-print-flow";
+import { ForceLightMode } from "@/components/force-light-mode";
 import { ShopHeader } from "@/components/shop-header";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import { hashGuestOrderToken } from "@/lib/guest-order";
@@ -104,7 +105,8 @@ export default async function PublicShopPage({ params, searchParams }: ShopPageP
   const isColorReady = shop.color_printer_status === "ready";
 
   return (
-    <main className="min-h-screen bg-slate-50 px-2 py-2.5 sm:px-6 sm:py-8">
+    <main className="min-h-screen bg-slate-50 px-2 py-2.5 sm:px-6 sm:py-8 text-ink [--canvas:#fafbfa] [--ink:#0e1713] [--muted:#526357] [--line:#e2e8e3] [color-scheme:light]">
+      <ForceLightMode />
       <JsonLd
         data={[
           {
